@@ -1203,6 +1203,8 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
   const [streaming, setStreaming] = useState(false);
   const [showingSimulated, setShowingSimulated] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const streamRef = useRef(null);
   const cameraSupported = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 
@@ -1211,12 +1213,23 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
       startSimulated();
       return;
     }
+    setCameraReady(false);
+    setCapturing(false);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current.play().then(() => {
+            setCameraReady(true);
+          }).catch(() => {
+            setCameraReady(true);
+          });
+        };
         setStreaming(true);
       }
     } catch (err) {
@@ -1252,21 +1265,48 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
       streamRef.current = null;
     }
     setStreaming(false);
+    setCameraReady(false);
+    setCapturing(false);
   };
 
   const capture = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const canvas = canvasRef.current;
+    if (!videoRef.current) return;
+    setCapturing(true);
+
     const video = videoRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx.translate(canvas.width, 0);
+    const w = video.videoWidth || 640;
+    const h = video.videoHeight || 480;
+
+    // Create an offscreen canvas (not the hidden one in DOM)
+    const offscreen = document.createElement("canvas");
+    offscreen.width = w;
+    offscreen.height = h;
+    const ctx = offscreen.getContext("2d");
+
+    // Mirror the image horizontally to match viewfinder
+    ctx.translate(w, 0);
     ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-    stopCamera();
-    onCapture(dataUrl);
+    ctx.drawImage(video, 0, 0, w, h);
+
+    const dataUrl = offscreen.toDataURL("image/jpeg", 0.85);
+
+    // Verify we got a real image (not blank)
+    if (dataUrl && dataUrl.length > 1000) {
+      stopCamera();
+      onCapture(dataUrl);
+    } else {
+      // If blank, wait a moment and try again
+      setTimeout(() => {
+        const ctx2 = offscreen.getContext("2d");
+        ctx2.setTransform(1, 0, 0, 1, 0, 0);
+        ctx2.translate(w, 0);
+        ctx2.scale(-1, 1);
+        ctx2.drawImage(video, 0, 0, w, h);
+        const retryUrl = offscreen.toDataURL("image/jpeg", 0.85);
+        stopCamera();
+        onCapture(retryUrl.length > 1000 ? retryUrl : generateAvatarPhoto(memberName));
+      }, 500);
+    }
   };
 
   const handleRetake = () => {
@@ -1315,19 +1355,28 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
 
       {streaming && (
         <>
-          <div className="camera-viewfinder">
-            <video ref={videoRef} playsInline muted />
-            <canvas ref={canvasRef} />
-            <div style={{ position: "absolute", inset: 0, border: "3px solid var(--accent)", borderRadius: "var(--radius)", pointerEvents: "none" }} />
+          <div className="camera-viewfinder" style={{ position: "relative" }}>
+            <video ref={videoRef} playsInline muted style={{ width: "100%", display: "block", transform: "scaleX(-1)" }} />
+            {!cameraReady && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.7)" }}>
+                <p style={{ color: "var(--text-dim)", fontSize: 13 }}>Starting camera...</p>
+              </div>
+            )}
+            {capturing && (
+              <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.8)", display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn 0.1s" }}>
+                <Check size={48} style={{ color: "var(--success)" }} />
+              </div>
+            )}
           </div>
           <div className="camera-controls">
-            <button type="button" className="btn btn-primary" onClick={capture}>
-              <Camera size={14} /> Capture Photo
+            <button type="button" className="btn btn-primary" onClick={capture} disabled={!cameraReady || capturing} style={{ minWidth: 160 }}>
+              {capturing ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Processing...</> : <><Camera size={14} /> Take Photo</>}
             </button>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={stopCamera}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={stopCamera} disabled={capturing}>
               Cancel
             </button>
           </div>
+          {cameraReady && !capturing && <p style={{ color: "var(--success)", fontSize: 11, textAlign: "center" }}>Camera ready — position the member and tap "Take Photo"</p>}
         </>
       )}
 
