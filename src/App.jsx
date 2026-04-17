@@ -27,8 +27,6 @@ const GROUP_PLANS = {
   group_5: { name: "Group of 5", price: 1150000, perPerson: 230000, size: 5, days: 30 },
 };
 
-const getPlanName = (planKey) => PLANS[planKey]?.name || GROUP_PLANS[planKey]?.name || planKey;
-
 const ACTIVITIES = [
   { id: "aerobics", name: "Aerobics", standalone: 20000, addon: 10000 },
   { id: "spinning", name: "Spinning", standalone: 20000, addon: 10000 },
@@ -60,19 +58,19 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const initData = () => {
   const members = [
-    { id: "m1", name: "Sarah Nakamya", phone: "0771234567", email: "sarah@email.com", gender: "Female", dob: "1995-03-15", emergency: "0701111222", photo: null, nationalId: "CM95015003ABCD", pin: "1234", isActive: true, createdAt: "2025-01-10" },
-    { id: "m2", name: "James Okello", phone: "0782345678", email: "james@email.com", gender: "Male", dob: "1990-07-22", emergency: "0702222333", photo: null, nationalId: "CM90072200EFGH", pin: "5678", isActive: true, createdAt: "2025-02-05" },
-    { id: "m3", name: "Grace Auma", phone: "0753456789", email: "", gender: "Female", dob: "1988-11-30", emergency: "0703333444", photo: null, nationalId: "CF88113000IJKL", pin: "9012", isActive: true, createdAt: "2025-03-01" },
-    { id: "m4", name: "Peter Mukasa", phone: "0764567890", email: "peter@mail.com", gender: "Male", dob: "1992-05-18", emergency: "0704444555", photo: null, nationalId: "CM92051800MNOP", pin: "3456", isActive: true, createdAt: "2025-01-20" },
-    { id: "m5", name: "Diana Tendo", phone: "0775678901", email: "", gender: "Female", dob: "1997-09-05", emergency: "0705555666", photo: null, nationalId: "", pin: "7890", isActive: false, createdAt: "2025-02-15" },
+    { id: "m1", name: "Sarah Nakamya", phone: "0771234567", email: "sarah@email.com", gender: "Female", dob: "1995-03-15", emergency: "0701111222", photo: null, pin: "1234", isActive: true, createdAt: "2025-01-10" },
+    { id: "m2", name: "James Okello", phone: "0782345678", email: "james@email.com", gender: "Male", dob: "1990-07-22", emergency: "0702222333", photo: null, pin: "5678", isActive: true, createdAt: "2025-02-05" },
+    { id: "m3", name: "Grace Auma", phone: "0753456789", email: "", gender: "Female", dob: "1988-11-30", emergency: "0703333444", photo: null, pin: "9012", isActive: true, createdAt: "2025-03-01" },
+    { id: "m4", name: "Peter Mukasa", phone: "0764567890", email: "peter@mail.com", gender: "Male", dob: "1992-05-18", emergency: "0704444555", photo: null, pin: "3456", isActive: true, createdAt: "2025-01-20" },
+    { id: "m5", name: "Diana Tendo", phone: "0775678901", email: "", gender: "Female", dob: "1997-09-05", emergency: "0705555666", photo: null, pin: "7890", isActive: false, createdAt: "2025-02-15" },
   ];
 
   const now = new Date();
   const memberships = [
-    { id: "ms1", memberId: "m1", plan: "gym_monthly", startDate: new Date(now - 10 * 86400000).toISOString().split("T")[0], endDate: new Date(now.getTime() + 20 * 86400000).toISOString().split("T")[0], isActive: true, frozenDays: 0, status: "active", totalDue: 300000 },
-    { id: "ms2", memberId: "m2", plan: "combo_monthly", startDate: new Date(now - 25 * 86400000).toISOString().split("T")[0], endDate: new Date(now.getTime() + 5 * 86400000).toISOString().split("T")[0], isActive: true, frozenDays: 0, status: "active", totalDue: 400000 },
-    { id: "ms3", memberId: "m3", plan: "gym_weekly", startDate: new Date(now - 10 * 86400000).toISOString().split("T")[0], endDate: new Date(now.getTime() - 3 * 86400000).toISOString().split("T")[0], isActive: false, frozenDays: 0, status: "expired", totalDue: 120000 },
-    { id: "ms4", memberId: "m4", plan: "gym_monthly", startDate: new Date(now - 5 * 86400000).toISOString().split("T")[0], endDate: new Date(now.getTime() + 25 * 86400000).toISOString().split("T")[0], isActive: true, frozenDays: 0, status: "active", totalDue: 300000 },
+    { id: "ms1", memberId: "m1", plan: "gym_monthly", startDate: new Date(now - 10 * 86400000).toISOString().split("T")[0], endDate: new Date(now.getTime() + 20 * 86400000).toISOString().split("T")[0], isActive: true, frozenDays: 0, status: "active" },
+    { id: "ms2", memberId: "m2", plan: "combo_monthly", startDate: new Date(now - 25 * 86400000).toISOString().split("T")[0], endDate: new Date(now.getTime() + 5 * 86400000).toISOString().split("T")[0], isActive: true, frozenDays: 0, status: "active" },
+    { id: "ms3", memberId: "m3", plan: "gym_weekly", startDate: new Date(now - 10 * 86400000).toISOString().split("T")[0], endDate: new Date(now.getTime() - 3 * 86400000).toISOString().split("T")[0], isActive: false, frozenDays: 0, status: "expired" },
+    { id: "ms4", memberId: "m4", plan: "gym_monthly", startDate: new Date(now - 5 * 86400000).toISOString().split("T")[0], endDate: new Date(now.getTime() + 25 * 86400000).toISOString().split("T")[0], isActive: true, frozenDays: 0, status: "active" },
   ];
 
   const payments = [
@@ -615,7 +613,6 @@ select { cursor: pointer; }
   text-align: center;
   max-width: 500px;
   margin: 0 auto;
-  position: relative;
 }
 
 .checkin-card .member-photo {
@@ -791,92 +788,6 @@ select { cursor: pointer; }
 @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
 
-/* PHOTO CAPTURE */
-.photo-capture-area {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 20px;
-  border: 2px dashed var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-elevated);
-  transition: var(--transition);
-}
-
-.photo-capture-area:hover { border-color: var(--accent); }
-
-.photo-capture-area label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  align-self: flex-start;
-}
-
-.photo-preview-frame {
-  width: 140px;
-  height: 140px;
-  border-radius: 50%;
-  overflow: hidden;
-  border: 3px solid var(--accent);
-  background: var(--bg-input);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.photo-preview-frame img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.photo-preview-frame .photo-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
-}
-
-.photo-preview-frame .photo-placeholder svg { opacity: 0.5; }
-
-.camera-viewfinder {
-  width: 320px;
-  max-width: 100%;
-  border-radius: var(--radius);
-  overflow: hidden;
-  border: 2px solid var(--accent);
-  position: relative;
-  background: #000;
-}
-
-.camera-viewfinder video {
-  width: 100%;
-  display: block;
-  transform: scaleX(-1);
-}
-
-.camera-viewfinder canvas { display: none; }
-
-.camera-controls {
-  display: flex;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.photo-required-badge {
-  font-size: 10px;
-  color: var(--danger);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
 /* RESPONSIVE */
 @media (max-width: 900px) {
   .sidebar { width: 60px; }
@@ -1013,16 +924,14 @@ const CheckIn = ({ data, setData }) => {
 
   const results = search.length >= 2 ? data.members.filter((m) => m.isActive && (m.name.toLowerCase().includes(search.toLowerCase()) || m.phone.includes(search))) : [];
 
-  const membership = selected ? data.memberships.find((ms) => ms.memberId === selected.id && (ms.isActive || ms.status === "pending_payment")) : null;
-  const isExpired = membership ? (new Date(membership.endDate) < new Date() && membership.status !== "pending_payment") : true;
+  const membership = selected ? data.memberships.find((ms) => ms.memberId === selected.id && ms.isActive) : null;
+  const isExpired = membership ? new Date(membership.endDate) < new Date() : true;
   const isFrozen = membership?.status === "frozen";
-  const isPendingPayment = membership?.status === "pending_payment";
   const alreadyCheckedIn = selected ? data.attendance.some((a) => a.memberId === selected.id && a.date === today()) : false;
   const isDailyPlan = membership?.plan === "gym_daily" || membership?.plan === "combo_session";
-  const memberBalance = membership ? getMembershipBalance(membership, data.payments) : null;
 
   const handleCheckIn = () => {
-    if (isExpired || isFrozen || alreadyCheckedIn || isPendingPayment) return;
+    if (isExpired || isFrozen || alreadyCheckedIn) return;
     const newAttendance = { id: generateId(), memberId: selected.id, checkIn: new Date().toISOString(), checkOut: null, date: today(), source: "staff", locker: null };
     const newPayments = addons.map((actId) => {
       const act = ACTIVITIES.find((a) => a.id === actId);
@@ -1075,43 +984,21 @@ const CheckIn = ({ data, setData }) => {
       {selected && !checkedIn && (
         <div className="checkin-card">
           <button className="btn btn-sm btn-secondary" onClick={reset} style={{ position: "absolute", left: 20 }}><ArrowLeft size={14} /> Back</button>
-          <div className="member-photo" style={{ overflow: "hidden" }}>{selected.photo ? <img src={selected.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : selected.name.charAt(0)}</div>
+          <div className="member-photo">{selected.name.charAt(0)}</div>
           <h3 style={{ fontFamily: "var(--font-display)", fontSize: 24 }}>{selected.name}</h3>
           <p style={{ color: "var(--text-dim)", marginTop: 4 }}>{selected.phone}</p>
           {membership && (
             <div style={{ marginTop: 12 }}>
-              <Badge variant={isExpired ? "danger" : isFrozen ? "warning" : isPendingPayment ? "warning" : "success"}>
-                {getPlanName(membership.plan)} • {isExpired ? "EXPIRED" : isFrozen ? "FROZEN" : isPendingPayment ? "PENDING PAYMENT" : `Expires ${formatDate(membership.endDate)}`}
+              <Badge variant={isExpired ? "danger" : isFrozen ? "warning" : "success"}>
+                {PLANS[membership.plan]?.name || "Plan"} • {isExpired ? "EXPIRED" : isFrozen ? "FROZEN" : `Expires ${formatDate(membership.endDate)}`}
               </Badge>
             </div>
           )}
           {!membership && <div style={{ marginTop: 12 }}><Badge variant="danger">No Active Membership</Badge></div>}
 
-          {/* Pending payment warning */}
-          {isPendingPayment && memberBalance && (
-            <div style={{ marginTop: 16, padding: 16, background: "var(--warning-dim)", border: "1px solid rgba(249,115,22,0.3)", borderRadius: "var(--radius-sm)", textAlign: "left" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <AlertTriangle size={16} style={{ color: "var(--warning)" }} />
-                <span style={{ fontWeight: 600, color: "var(--warning)", fontSize: 14 }}>Outstanding Balance</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
-                <span style={{ color: "var(--text-dim)" }}>Paid so far</span>
-                <span style={{ color: "var(--success)", fontWeight: 600 }}>{formatUGX(memberBalance.totalPaid)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 8 }}>
-                <span style={{ color: "var(--text-dim)" }}>Remaining</span>
-                <span style={{ color: "var(--danger)", fontWeight: 700 }}>{formatUGX(memberBalance.balance)}</span>
-              </div>
-              <div style={{ height: 6, background: "var(--bg-input)", borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ height: "100%", width: `${Math.round(memberBalance.totalPaid / memberBalance.totalDue * 100)}%`, background: "var(--warning)", borderRadius: 3 }} />
-              </div>
-              <p style={{ fontSize: 12, color: "var(--warning)", marginTop: 8 }}>Check-in blocked until payment is completed. Please go to Memberships to record payment.</p>
-            </div>
-          )}
-
           {alreadyCheckedIn && <p style={{ color: "var(--warning)", marginTop: 16, fontWeight: 600 }}>Already checked in today</p>}
 
-          {!isExpired && !isFrozen && !isPendingPayment && !alreadyCheckedIn && (
+          {!isExpired && !isFrozen && !alreadyCheckedIn && (
             <>
               <div style={{ marginTop: 20, textAlign: "left" }}>
                 <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Add-on Activities</p>
@@ -1136,7 +1023,7 @@ const CheckIn = ({ data, setData }) => {
           <div className="member-photo"><Check size={40} /></div>
           <h3 style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--success)" }}>Check-In Confirmed!</h3>
           <p style={{ color: "var(--text)", fontSize: 18, marginTop: 8 }}>{selected.name}</p>
-          <p style={{ color: "var(--text-dim)", marginTop: 4 }}>{membership ? getPlanName(membership.plan) : ""}</p>
+          <p style={{ color: "var(--text-dim)", marginTop: 4 }}>{PLANS[membership?.plan]?.name}</p>
           <p style={{ color: "var(--text-dim)", marginTop: 4 }}>{formatTime(new Date())}</p>
           <p style={{ color: "var(--text-dim)", marginTop: 8 }}>Today's visits: {data.attendance.filter((a) => a.date === today()).length}</p>
           {addons.length > 0 && <p style={{ color: "var(--accent)", marginTop: 8 }}>Add-ons: {addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(", ")}</p>}
@@ -1147,277 +1034,23 @@ const CheckIn = ({ data, setData }) => {
   );
 };
 
-// ─── PHOTO CAPTURE COMPONENT ────────────────────────────────
-const generateAvatarPhoto = (name) => {
-  const canvas = document.createElement("canvas");
-  canvas.width = 400;
-  canvas.height = 400;
-  const ctx = canvas.getContext("2d");
-
-  // Background gradient
-  const colors = [
-    ["#1a365d", "#2b6cb0"], ["#1a3a2a", "#276749"], ["#44337a", "#6b46c1"],
-    ["#742a2a", "#c53030"], ["#744210", "#c05621"], ["#234e52", "#2c7a7b"],
-  ];
-  const pair = colors[Math.floor(Math.random() * colors.length)];
-  const grad = ctx.createLinearGradient(0, 0, 400, 400);
-  grad.addColorStop(0, pair[0]);
-  grad.addColorStop(1, pair[1]);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 400, 400);
-
-  // Head silhouette
-  ctx.fillStyle = "rgba(255,255,255,0.15)";
-  ctx.beginPath();
-  ctx.arc(200, 155, 72, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Body silhouette
-  ctx.beginPath();
-  ctx.ellipse(200, 370, 110, 100, 0, Math.PI, 0);
-  ctx.fill();
-
-  // Initials
-  const initials = (name || "?").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-  ctx.font = "bold 64px 'DM Sans', sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(initials, 200, 155);
-
-  // Timestamp bar
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.fillRect(0, 360, 400, 40);
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.font = "13px 'DM Sans', sans-serif";
-  ctx.textBaseline = "middle";
-  ctx.textAlign = "center";
-  ctx.fillText(`Captured ${new Date().toLocaleString("en-UG")}`, 200, 380);
-
-  return canvas.toDataURL("image/jpeg", 0.9);
-};
-
-const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [streaming, setStreaming] = useState(false);
-  const [showingSimulated, setShowingSimulated] = useState(false);
-  const [countdown, setCountdown] = useState(0);
-  const [cameraReady, setCameraReady] = useState(false);
-  const [capturing, setCapturing] = useState(false);
-  const streamRef = useRef(null);
-  const cameraSupported = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
-
-  const startCamera = async () => {
-    if (!cameraSupported) {
-      startSimulated();
-      return;
-    }
-    setCameraReady(false);
-    setCapturing(false);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play().then(() => {
-            setCameraReady(true);
-          }).catch(() => {
-            setCameraReady(true);
-          });
-        };
-        setStreaming(true);
-      }
-    } catch (err) {
-      console.warn("Camera unavailable, using simulated capture:", err.message);
-      startSimulated();
-    }
-  };
-
-  const startSimulated = () => {
-    capturedRef.current = false;
-    setShowingSimulated(true);
-    setCountdown(3);
-  };
-
-  const capturedRef = useRef(false);
-
-  useEffect(() => {
-    if (countdown > 0) {
-      const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
-      return () => clearTimeout(t);
-    }
-    if (countdown === 0 && showingSimulated && !capturedRef.current) {
-      capturedRef.current = true;
-      const dataUrl = generateAvatarPhoto(memberName);
-      setShowingSimulated(false);
-      onCapture(dataUrl);
-    }
-  }, [countdown, showingSimulated]);
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    setStreaming(false);
-    setCameraReady(false);
-    setCapturing(false);
-  };
-
-  const capture = () => {
-    if (!videoRef.current) return;
-    setCapturing(true);
-
-    const video = videoRef.current;
-    const w = video.videoWidth || 640;
-    const h = video.videoHeight || 480;
-
-    // Create an offscreen canvas (not the hidden one in DOM)
-    const offscreen = document.createElement("canvas");
-    offscreen.width = w;
-    offscreen.height = h;
-    const ctx = offscreen.getContext("2d");
-
-    // Mirror the image horizontally to match viewfinder
-    ctx.translate(w, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, w, h);
-
-    const dataUrl = offscreen.toDataURL("image/jpeg", 0.85);
-
-    // Verify we got a real image (not blank)
-    if (dataUrl && dataUrl.length > 1000) {
-      stopCamera();
-      onCapture(dataUrl);
-    } else {
-      // If blank, wait a moment and try again
-      setTimeout(() => {
-        const ctx2 = offscreen.getContext("2d");
-        ctx2.setTransform(1, 0, 0, 1, 0, 0);
-        ctx2.translate(w, 0);
-        ctx2.scale(-1, 1);
-        ctx2.drawImage(video, 0, 0, w, h);
-        const retryUrl = offscreen.toDataURL("image/jpeg", 0.85);
-        stopCamera();
-        onCapture(retryUrl.length > 1000 ? retryUrl : generateAvatarPhoto(memberName));
-      }, 500);
-    }
-  };
-
-  const handleRetake = () => {
-    onRetake();
-    startCamera();
-  };
-
-  useEffect(() => { return () => stopCamera(); }, []);
-
-  return (
-    <div className="photo-capture-area">
-      <label>Member Photo <span className="photo-required-badge">* Required</span></label>
-
-      {!photo && !streaming && !showingSimulated && (
-        <>
-          <div className="photo-preview-frame">
-            <div className="photo-placeholder">
-              <Camera size={36} />
-              <span style={{ fontSize: 11 }}>No photo</span>
-            </div>
-          </div>
-          <button type="button" className="btn btn-primary" onClick={startCamera}>
-            <Camera size={16} /> Capture Photo
-          </button>
-          <p style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center" }}>
-            Opens tablet camera to capture member photo
-          </p>
-        </>
-      )}
-
-      {showingSimulated && (
-        <>
-          <div className="photo-preview-frame" style={{ border: "3px solid var(--success)", position: "relative" }}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 60, height: 60, borderRadius: "50%", background: "var(--success-dim)", display: "flex", alignItems: "center", justifyContent: "center", animation: "pulse 1s infinite" }}>
-                <Camera size={28} style={{ color: "var(--success)" }} />
-              </div>
-              <span style={{ fontSize: 32, fontWeight: 700, color: "var(--success)", fontFamily: "var(--font-display)" }}>{countdown > 0 ? countdown : ""}</span>
-            </div>
-          </div>
-          <p style={{ color: "var(--success)", fontSize: 13, fontWeight: 600 }}>
-            {countdown > 0 ? `Capturing in ${countdown}...` : "Processing..."}
-          </p>
-        </>
-      )}
-
-      {streaming && (
-        <>
-          <div className="camera-viewfinder" style={{ position: "relative" }}>
-            <video ref={videoRef} playsInline muted style={{ width: "100%", display: "block", transform: "scaleX(-1)" }} />
-            {!cameraReady && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.7)" }}>
-                <p style={{ color: "var(--text-dim)", fontSize: 13 }}>Starting camera...</p>
-              </div>
-            )}
-            {capturing && (
-              <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.8)", display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn 0.1s" }}>
-                <Check size={48} style={{ color: "var(--success)" }} />
-              </div>
-            )}
-          </div>
-          <div className="camera-controls">
-            <button type="button" className="btn btn-primary" onClick={capture} disabled={!cameraReady || capturing} style={{ minWidth: 160 }}>
-              {capturing ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Processing...</> : <><Camera size={14} /> Take Photo</>}
-            </button>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={stopCamera} disabled={capturing}>
-              Cancel
-            </button>
-          </div>
-          {cameraReady && !capturing && <p style={{ color: "var(--success)", fontSize: 11, textAlign: "center" }}>Camera ready — position the member and tap "Take Photo"</p>}
-        </>
-      )}
-
-      {photo && !streaming && !showingSimulated && (
-        <>
-          <div className="photo-preview-frame">
-            <img src={photo} alt="Member" />
-          </div>
-          <div className="camera-controls">
-            <button type="button" className="btn btn-sm btn-success" disabled>
-              <Check size={14} /> Photo Captured
-            </button>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={handleRetake}>
-              <RefreshCw size={14} /> Retake
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
-
 // ─── MEMBERS ────────────────────────────────────────────────
 const Members = ({ data, setData }) => {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'view' | null
   const [current, setCurrent] = useState(null);
-  const [form, setForm] = useState({ name: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", nationalId: "", pin: "", photo: null });
+  const [form, setForm] = useState({ name: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", pin: "" });
 
   const filtered = data.members.filter((m) => m.name.toLowerCase().includes(search.toLowerCase()) || m.phone.includes(search));
 
-  const openAdd = () => { setForm({ name: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", nationalId: "", pin: Math.floor(1000 + Math.random() * 9000).toString(), photo: null }); setModal("add"); };
+  const openAdd = () => { setForm({ name: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", pin: Math.floor(1000 + Math.random() * 9000).toString() }); setModal("add"); };
   const openEdit = (m) => { setCurrent(m); setForm({ ...m }); setModal("edit"); };
   const openView = (m) => { setCurrent(m); setModal("view"); };
 
   const save = () => {
     if (!form.name || !form.phone) return;
-    // Photo is required for new members
-    if (modal === "add" && !form.photo) { alert("Please capture a photo of the member before saving."); return; }
     if (modal === "add") {
-      const newMember = { ...form, id: generateId(), isActive: true, createdAt: today() };
+      const newMember = { ...form, id: generateId(), photo: null, isActive: true, createdAt: today() };
       setData((d) => ({ ...d, members: [...d.members, newMember] }));
     } else {
       setData((d) => ({ ...d, members: d.members.map((m) => m.id === current.id ? { ...m, ...form } : m) }));
@@ -1443,23 +1076,17 @@ const Members = ({ data, setData }) => {
 
       <div className="table-wrapper">
         <table>
-          <thead><tr><th></th><th>Name</th><th>Phone</th><th>National ID</th><th>Gender</th><th>Membership</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Phone</th><th>Gender</th><th>Membership</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((m) => {
               const ms = data.memberships.find((ms) => ms.memberId === m.id && ms.isActive);
               const exp = ms ? new Date(ms.endDate) < new Date() : true;
               return (
                 <tr key={m.id}>
-                  <td>
-                    <div style={{ width: 34, height: 34, borderRadius: "50%", overflow: "hidden", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid var(--accent)", flexShrink: 0 }}>
-                      {m.photo ? <img src={m.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-display)" }}>{m.name.charAt(0)}</span>}
-                    </div>
-                  </td>
                   <td style={{ color: "var(--text)", fontWeight: 500 }}>{m.name}</td>
                   <td>{m.phone}</td>
-                  <td style={{ fontFamily: "monospace", fontSize: 12 }}>{m.nationalId || "—"}</td>
                   <td>{m.gender}</td>
-                  <td>{ms ? <Badge variant={exp ? "danger" : ms.status === "frozen" ? "warning" : "success"}>{getPlanName(ms.plan)}</Badge> : <Badge variant="neutral">None</Badge>}</td>
+                  <td>{ms ? <Badge variant={exp ? "danger" : ms.status === "frozen" ? "warning" : "success"}>{PLANS[ms.plan]?.name || "Group"}</Badge> : <Badge variant="neutral">None</Badge>}</td>
                   <td>{m.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Inactive</Badge>}</td>
                   <td>
                     <div style={{ display: "flex", gap: 6 }}>
@@ -1478,14 +1105,12 @@ const Members = ({ data, setData }) => {
       {modal === "view" && current && (
         <Modal title="Member Profile" onClose={() => setModal(null)}>
           <div style={{ textAlign: "center", marginBottom: 20 }}>
-            <div style={{ width: 100, height: 100, borderRadius: "50%", overflow: "hidden", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto", border: "3px solid var(--accent)" }}>
-              {current.photo ? <img src={current.photo} alt={current.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 36, fontFamily: "var(--font-display)", color: "var(--accent)", fontWeight: 700 }}>{current.name.charAt(0)}</span>}
-            </div>
+            <div style={{ width: 80, height: 80, borderRadius: "50%", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto", fontSize: 28, fontFamily: "var(--font-display)", color: "var(--accent)", fontWeight: 700, border: "2px solid var(--accent)" }}>{current.name.charAt(0)}</div>
             <h3 style={{ fontFamily: "var(--font-display)", fontSize: 20, marginTop: 12 }}>{current.name}</h3>
             <p style={{ color: "var(--text-dim)" }}>{current.phone}</p>
           </div>
           <div className="form-grid">
-            {[["National ID", current.nationalId || "—"], ["Email", current.email || "—"], ["Gender", current.gender], ["DOB", current.dob ? formatDate(current.dob) : "—"], ["Emergency", current.emergency], ["PIN", current.pin], ["Joined", formatDate(current.createdAt)]].map(([l, v]) => (
+            {[["Email", current.email || "—"], ["Gender", current.gender], ["DOB", current.dob ? formatDate(current.dob) : "—"], ["Emergency", current.emergency], ["PIN", current.pin], ["Joined", formatDate(current.createdAt)]].map(([l, v]) => (
               <div key={l} className="form-group"><label>{l}</label><p style={{ fontSize: 14, color: "var(--text)" }}>{v}</p></div>
             ))}
           </div>
@@ -1493,22 +1118,15 @@ const Members = ({ data, setData }) => {
       )}
 
       {(modal === "add" || modal === "edit") && (
-        <Modal title={modal === "add" ? "Register New Member" : "Edit Member"} onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save}><Check size={14} /> Save</button></>}>
+        <Modal title={modal === "add" ? "Register New Member" : "Edit Member"} onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save}>Save</button></>}>
           <div className="form-grid">
-            <PhotoCapture
-              photo={form.photo}
-              memberName={form.name}
-              onCapture={(dataUrl) => setForm((f) => ({ ...f, photo: dataUrl }))}
-              onRetake={() => setForm((f) => ({ ...f, photo: null }))}
-            />
-            <div className="form-group"><label>Full Name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Sarah Nakamya" /></div>
-            <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 0771234567" /></div>
-            <div className="form-group full"><label>National ID (NIN)</label><input value={form.nationalId} onChange={(e) => setForm({ ...form, nationalId: e.target.value })} placeholder="e.g. CM95015003ABCD" style={{ fontFamily: "monospace", letterSpacing: "0.05em" }} /></div>
-            <div className="form-group"><label>Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Optional" /></div>
+            <div className="form-group"><label>Full Name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+            <div className="form-group"><label>Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
             <div className="form-group"><label>Gender</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option>Male</option><option>Female</option></select></div>
             <div className="form-group"><label>Date of Birth</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
-            <div className="form-group"><label>Emergency Contact</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
-            <div className="form-group"><label>Check-in PIN</label><input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} maxLength={4} placeholder="4 digits" /></div>
+            <div className="form-group"><label>Emergency Contact</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} /></div>
+            <div className="form-group"><label>Check-in PIN</label><input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} maxLength={4} /></div>
           </div>
         </Modal>
       )}
@@ -1517,49 +1135,23 @@ const Members = ({ data, setData }) => {
 };
 
 // ─── MEMBERSHIPS ────────────────────────────────────────────
-const getMembershipBalance = (ms, payments) => {
-  const paid = payments.filter((p) => p.membershipId === ms.id).reduce((s, p) => s + p.amount, 0);
-  return { totalDue: ms.totalDue || 0, totalPaid: paid, balance: (ms.totalDue || 0) - paid, isPaidInFull: paid >= (ms.totalDue || 0) };
-};
-
 const Memberships = ({ data, setData }) => {
-  const [modal, setModal] = useState(null); // 'assign' | 'pay' | null
-  const [form, setForm] = useState({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full" });
-  const [payTarget, setPayTarget] = useState(null); // membership for additional payment
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "" });
 
   const assign = () => {
     if (!form.memberId || !form.plan) return;
-    const isGroup = form.plan.startsWith("group_");
-    const planInfo = isGroup ? GROUP_PLANS[form.plan] : PLANS[form.plan];
-    if (!planInfo) return;
-    const price = planInfo.price;
-    const days = planInfo.days;
+    const plan = PLANS[form.plan];
     const start = new Date();
-    const end = new Date(start.getTime() + days * 86400000);
+    const end = new Date(start.getTime() + plan.days * 86400000);
     const discount = form.discountId ? data.discounts.find((d) => d.id === form.discountId) : null;
     let discountAmt = 0;
     if (discount) {
-      discountAmt = discount.type === "percentage" ? Math.round(price * discount.value / 100) : discount.value;
+      discountAmt = discount.type === "percentage" ? Math.round(plan.price * discount.value / 100) : discount.value;
     }
-    const totalDue = price - discountAmt;
-    const payAmount = form.paymentType === "full" ? totalDue : Math.min(Number(form.paymentAmount) || 0, totalDue);
-    if (payAmount <= 0) return;
-    const isPaidFull = payAmount >= totalDue;
-
-    const newMs = {
-      id: generateId(), memberId: form.memberId, plan: form.plan,
-      startDate: start.toISOString().split("T")[0], endDate: end.toISOString().split("T")[0],
-      isActive: isPaidFull, frozenDays: 0,
-      status: isPaidFull ? "active" : "pending_payment",
-      totalDue,
-    };
-    const newPay = {
-      id: generateId(), memberId: form.memberId, membershipId: newMs.id,
-      amount: payAmount, method: form.method, paidAt: new Date().toISOString(),
-      discountId: form.discountId || null, discountAmount: discountAmt,
-      note: isPaidFull ? "Full payment" : `Partial payment (${Math.round(payAmount / totalDue * 100)}%)`,
-    };
-
+    const newMs = { id: generateId(), memberId: form.memberId, plan: form.plan, startDate: start.toISOString().split("T")[0], endDate: end.toISOString().split("T")[0], isActive: true, frozenDays: 0, status: "active" };
+    const newPay = { id: generateId(), memberId: form.memberId, membershipId: newMs.id, amount: plan.price - discountAmt, method: form.method, paidAt: new Date().toISOString(), discountId: form.discountId || null, discountAmount: discountAmt };
+    // deactivate old membership
     setData((d) => ({
       ...d,
       memberships: [...d.memberships.map((ms) => ms.memberId === form.memberId && ms.isActive ? { ...ms, isActive: false, status: "replaced" } : ms), newMs],
@@ -1567,38 +1159,6 @@ const Memberships = ({ data, setData }) => {
       discounts: discount ? d.discounts.map((dd) => dd.id === discount.id ? { ...dd, usesCount: dd.usesCount + 1 } : dd) : d.discounts,
     }));
     setModal(null);
-  };
-
-  const openPayBalance = (ms) => {
-    const bal = getMembershipBalance(ms, data.payments);
-    setPayTarget(ms);
-    setForm((f) => ({ ...f, method: "cash", paymentAmount: String(bal.balance) }));
-    setModal("pay");
-  };
-
-  const recordPayment = () => {
-    if (!payTarget) return;
-    const bal = getMembershipBalance(payTarget, data.payments);
-    const payAmount = Math.min(Number(form.paymentAmount) || 0, bal.balance);
-    if (payAmount <= 0) return;
-    const willBeFullyPaid = payAmount >= bal.balance;
-
-    const newPay = {
-      id: generateId(), memberId: payTarget.memberId, membershipId: payTarget.id,
-      amount: payAmount, method: form.method, paidAt: new Date().toISOString(),
-      discountId: null, discountAmount: 0,
-      note: willBeFullyPaid ? "Balance cleared — fully paid" : `Installment payment (${formatUGX(bal.totalPaid + payAmount)} of ${formatUGX(bal.totalDue)})`,
-    };
-
-    setData((d) => ({
-      ...d,
-      payments: [...d.payments, newPay],
-      memberships: willBeFullyPaid
-        ? d.memberships.map((ms) => ms.id === payTarget.id ? { ...ms, isActive: true, status: "active" } : ms)
-        : d.memberships,
-    }));
-    setModal(null);
-    setPayTarget(null);
   };
 
   const freeze = (ms) => {
@@ -1616,65 +1176,34 @@ const Memberships = ({ data, setData }) => {
     }));
   };
 
-  // Count pending payments
-  const pendingCount = data.memberships.filter((ms) => ms.status === "pending_payment").length;
-
   return (
     <div>
       <div className="page-header">
         <h2>Memberships</h2>
-        <p>Assign, renew, and manage membership plans with partial payment support</p>
+        <p>Assign, renew, and manage membership plans</p>
       </div>
-
-      {pendingCount > 0 && (
-        <div style={{ background: "var(--warning-dim)", border: "1px solid rgba(249,115,22,0.3)", borderRadius: "var(--radius)", padding: "14px 20px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
-          <AlertTriangle size={18} style={{ color: "var(--warning)", flexShrink: 0 }} />
-          <span style={{ fontSize: 13, color: "var(--warning)" }}><strong>{pendingCount}</strong> membership{pendingCount > 1 ? "s" : ""} with outstanding balance — not yet activated. Record payment to activate.</span>
-        </div>
-      )}
-
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full" }); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "" }); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
       </div>
       <div className="table-wrapper">
         <table>
-          <thead><tr><th>Member</th><th>Plan</th><th>Start</th><th>End</th><th>Payment</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Member</th><th>Plan</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
-            {data.memberships.filter((ms) => ms.isActive || ms.status === "frozen" || ms.status === "pending_payment").map((ms) => {
+            {data.memberships.filter((ms) => ms.isActive || ms.status === "frozen").map((ms) => {
               const member = data.members.find((m) => m.id === ms.memberId);
-              const exp = new Date(ms.endDate) < new Date() && ms.status !== "frozen" && ms.status !== "pending_payment";
-              const bal = getMembershipBalance(ms, data.payments);
-              const isPending = ms.status === "pending_payment";
+              const exp = new Date(ms.endDate) < new Date() && ms.status !== "frozen";
               return (
-                <tr key={ms.id} style={isPending ? { background: "rgba(249,115,22,0.04)" } : undefined}>
+                <tr key={ms.id}>
                   <td style={{ color: "var(--text)", fontWeight: 500 }}>{member?.name}</td>
-                  <td>{getPlanName(ms.plan)}</td>
+                  <td>{PLANS[ms.plan]?.name || ms.plan}</td>
                   <td>{formatDate(ms.startDate)}</td>
                   <td>{formatDate(ms.endDate)}</td>
                   <td>
-                    {bal.totalDue > 0 ? (
-                      <div style={{ minWidth: 150 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
-                          <span style={{ color: "var(--text-dim)" }}>{formatUGX(bal.totalPaid)} / {formatUGX(bal.totalDue)}</span>
-                          <span style={{ fontWeight: 600, color: bal.isPaidInFull ? "var(--success)" : "var(--warning)" }}>{Math.round(bal.totalPaid / bal.totalDue * 100)}%</span>
-                        </div>
-                        <div style={{ height: 6, background: "var(--bg-input)", borderRadius: 3, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${Math.min(100, Math.round(bal.totalPaid / bal.totalDue * 100))}%`, background: bal.isPaidInFull ? "var(--success)" : "var(--warning)", borderRadius: 3, transition: "width 0.3s" }} />
-                        </div>
-                        {!bal.isPaidInFull && <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 2, fontWeight: 600 }}>Balance: {formatUGX(bal.balance)}</div>}
-                      </div>
-                    ) : (
-                      <Badge variant="success">Paid</Badge>
-                    )}
+                    {ms.status === "frozen" ? <Badge variant="warning">Frozen</Badge> : exp ? <Badge variant="danger">Expired</Badge> : <Badge variant="success">Active</Badge>}
                   </td>
                   <td>
-                    {isPending ? <Badge variant="warning">Pending Payment</Badge> : ms.status === "frozen" ? <Badge variant="warning">Frozen</Badge> : exp ? <Badge variant="danger">Expired</Badge> : <Badge variant="success">Active</Badge>}
-                  </td>
-                  <td>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {isPending && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
-                      {!isPending && !bal.isPaidInFull && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
+                    <div style={{ display: "flex", gap: 6 }}>
                       {ms.status === "active" && !exp && <button className="btn btn-sm btn-secondary" onClick={() => freeze(ms)}><Pause size={12} /> Freeze</button>}
                       {ms.status === "frozen" && <button className="btn btn-sm btn-secondary" onClick={() => unfreeze(ms)}><Play size={12} /> Unfreeze</button>}
                     </div>
@@ -1686,9 +1215,8 @@ const Memberships = ({ data, setData }) => {
         </table>
       </div>
 
-      {/* ASSIGN PLAN MODAL */}
       {modal === "assign" && (
-        <Modal title="Assign Membership Plan" onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={assign}><Check size={14} /> Assign & Record Payment</button></>}>
+        <Modal title="Assign Membership Plan" onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={assign}>Assign & Record Payment</button></>}>
           <div className="form-grid">
             <div className="form-group full">
               <label>Member</label>
@@ -1700,15 +1228,7 @@ const Memberships = ({ data, setData }) => {
             <div className="form-group">
               <label>Plan</label>
               <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}>
-                <optgroup label="Gym Only">
-                  {Object.entries(PLANS).filter(([, v]) => v.category === "gym").map(([k, v]) => <option key={k} value={k}>{v.name} — {formatUGX(v.price)}</option>)}
-                </optgroup>
-                <optgroup label="Gym + Steam Combined">
-                  {Object.entries(PLANS).filter(([, v]) => v.category === "combo").map(([k, v]) => <option key={k} value={k}>{v.name} — {formatUGX(v.price)}</option>)}
-                </optgroup>
-                <optgroup label="Group Plans (per month)">
-                  {Object.entries(GROUP_PLANS).map(([k, v]) => <option key={k} value={k}>{v.name} — {formatUGX(v.price)} ({formatUGX(v.perPerson)}/person)</option>)}
-                </optgroup>
+                {Object.entries(PLANS).map(([k, v]) => <option key={k} value={k}>{v.name} — {formatUGX(v.price)}</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -1726,171 +1246,15 @@ const Memberships = ({ data, setData }) => {
                 {data.discounts.filter((d) => d.isActive).map((d) => <option key={d.id} value={d.id}>{d.name} ({d.type === "percentage" ? `${d.value}%` : formatUGX(d.value)})</option>)}
               </select>
             </div>
-
-            {/* PAYMENT TYPE TOGGLE */}
-            <div className="form-group full">
-              <label>Payment Type</label>
-              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                <button type="button" className={`btn btn-sm ${form.paymentType === "full" ? "btn-primary" : "btn-secondary"}`} onClick={() => setForm({ ...form, paymentType: "full", paymentAmount: "" })} style={{ flex: 1 }}>
-                  <Check size={14} /> Full Payment
-                </button>
-                <button type="button" className={`btn btn-sm ${form.paymentType === "partial" ? "btn-primary" : "btn-secondary"}`} onClick={() => setForm({ ...form, paymentType: "partial", paymentAmount: "" })} style={{ flex: 1 }}>
-                  <Layers size={14} /> Partial Payment
-                </button>
-              </div>
-            </div>
-
-            {form.paymentType === "partial" && (
-              <div className="form-group full">
-                <label>Amount Paying Now (UGX)</label>
-                <input type="number" value={form.paymentAmount} onChange={(e) => setForm({ ...form, paymentAmount: e.target.value })} placeholder="Enter amount to pay today..." />
-                <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                  Membership will remain in "Pending Payment" status until fully paid. Member cannot check in until balance is cleared.
-                </p>
-              </div>
-            )}
           </div>
-
           {form.plan && (
-            (() => {
-              const isGroup = form.plan.startsWith("group_");
-              const planInfo = isGroup ? GROUP_PLANS[form.plan] : PLANS[form.plan];
-              if (!planInfo) return null;
-              const discount = form.discountId ? data.discounts.find((d) => d.id === form.discountId) : null;
-              let discountAmt = 0;
-              if (discount) discountAmt = discount.type === "percentage" ? Math.round(planInfo.price * discount.value / 100) : discount.value;
-              const totalDue = planInfo.price - discountAmt;
-              const payNow = form.paymentType === "full" ? totalDue : Math.min(Number(form.paymentAmount) || 0, totalDue);
-              const remaining = totalDue - payNow;
-
-              return (
-                <div style={{ marginTop: 16, padding: 16, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Plan</span>
-                    <strong style={{ color: "var(--text)" }}>{planInfo.name}</strong>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Duration</span>
-                    <strong style={{ color: "var(--text)" }}>{planInfo.days} days</strong>
-                  </div>
-                  {isGroup && <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ fontSize: 13, color: "var(--text-dim)" }}>Per person</span><strong style={{ color: "var(--text)" }}>{formatUGX(planInfo.perPerson)}</strong></div>}
-                  {discountAmt > 0 && (
-                    <>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Plan price</span>
-                        <span style={{ color: "var(--text-dim)", textDecoration: "line-through" }}>{formatUGX(planInfo.price)}</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontSize: 13, color: "var(--success)" }}>Discount ({discount.name})</span>
-                        <span style={{ color: "var(--success)" }}>-{formatUGX(discountAmt)}</span>
-                      </div>
-                    </>
-                  )}
-                  <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 8 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>Total Due</span>
-                      <span style={{ fontSize: 16, fontWeight: 700, color: "var(--accent)" }}>{formatUGX(totalDue)}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, color: "var(--success)" }}>Paying Now</span>
-                      <span style={{ fontWeight: 600, color: "var(--success)" }}>{formatUGX(payNow)}</span>
-                    </div>
-                    {remaining > 0 && (
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderTop: "1px dashed var(--border)", marginTop: 4 }}>
-                        <span style={{ fontSize: 13, color: "var(--danger)", fontWeight: 600 }}>Remaining Balance</span>
-                        <span style={{ fontWeight: 700, color: "var(--danger)" }}>{formatUGX(remaining)}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()
+            <div style={{ marginTop: 16, padding: 16, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)" }}>
+              <p style={{ fontSize: 13, color: "var(--text-dim)" }}>Plan: <strong style={{ color: "var(--text)" }}>{PLANS[form.plan]?.name}</strong></p>
+              <p style={{ fontSize: 13, color: "var(--text-dim)" }}>Duration: <strong style={{ color: "var(--text)" }}>{PLANS[form.plan]?.days} days</strong></p>
+              <p style={{ fontSize: 16, fontWeight: 700, color: "var(--accent)", marginTop: 8 }}>{formatUGX(PLANS[form.plan]?.price)}</p>
+            </div>
           )}
         </Modal>
-      )}
-
-      {/* PAY BALANCE MODAL */}
-      {modal === "pay" && payTarget && (
-        (() => {
-          const bal = getMembershipBalance(payTarget, data.payments);
-          const member = data.members.find((m) => m.id === payTarget.memberId);
-          const payAmount = Math.min(Number(form.paymentAmount) || 0, bal.balance);
-          const remainingAfter = bal.balance - payAmount;
-          return (
-            <Modal title="Record Payment" onClose={() => { setModal(null); setPayTarget(null); }} footer={<><button className="btn btn-secondary" onClick={() => { setModal(null); setPayTarget(null); }}>Cancel</button><button className="btn btn-primary" onClick={recordPayment}><DollarSign size={14} /> Record Payment</button></>}>
-              <div style={{ textAlign: "center", marginBottom: 20 }}>
-                <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>{member?.name}</h3>
-                <p style={{ color: "var(--text-dim)", marginTop: 2 }}>{getPlanName(payTarget.plan)}</p>
-              </div>
-
-              {/* Balance overview */}
-              <div style={{ background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", padding: 16, marginBottom: 20 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Total Due</span>
-                  <span style={{ fontWeight: 600 }}>{formatUGX(bal.totalDue)}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <span style={{ color: "var(--success)", fontSize: 13 }}>Already Paid</span>
-                  <span style={{ fontWeight: 600, color: "var(--success)" }}>{formatUGX(bal.totalPaid)}</span>
-                </div>
-                <div style={{ height: 8, background: "var(--bg-input)", borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
-                  <div style={{ height: "100%", width: `${Math.round(bal.totalPaid / bal.totalDue * 100)}%`, background: "var(--warning)", borderRadius: 4 }} />
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 8 }}>
-                  <span style={{ color: "var(--danger)", fontSize: 14, fontWeight: 600 }}>Outstanding Balance</span>
-                  <span style={{ fontSize: 18, fontWeight: 700, color: "var(--danger)" }}>{formatUGX(bal.balance)}</span>
-                </div>
-              </div>
-
-              {/* Payment history for this membership */}
-              <div style={{ marginBottom: 16 }}>
-                <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Payment History</p>
-                {data.payments.filter((p) => p.membershipId === payTarget.id).map((p, i) => (
-                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
-                    <span style={{ color: "var(--text-dim)" }}>#{i + 1} — {formatDate(p.paidAt)} ({p.method === "mobile_money" ? "M-Money" : p.method})</span>
-                    <span style={{ fontWeight: 600, color: "var(--success)" }}>{formatUGX(p.amount)}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* New payment form */}
-              <div className="form-grid">
-                <div className="form-group">
-                  <label>Amount (UGX)</label>
-                  <input type="number" value={form.paymentAmount} onChange={(e) => setForm({ ...form, paymentAmount: e.target.value })} max={bal.balance} />
-                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                    <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: String(bal.balance) })} style={{ fontSize: 11 }}>Full Balance</button>
-                    <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: String(Math.round(bal.balance / 2)) })} style={{ fontSize: 11 }}>50%</button>
-                    <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: String(Math.round(bal.balance / 4)) })} style={{ fontSize: 11 }}>25%</button>
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>Method</label>
-                  <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
-                    <option value="cash">Cash</option>
-                    <option value="mobile_money">Mobile Money</option>
-                    <option value="card">Card</option>
-                  </select>
-                </div>
-              </div>
-
-              {payAmount > 0 && (
-                <div style={{ marginTop: 16, padding: 12, borderRadius: "var(--radius-xs)", background: remainingAfter <= 0 ? "var(--success-dim)" : "var(--warning-dim)", border: `1px solid ${remainingAfter <= 0 ? "rgba(34,197,94,0.3)" : "rgba(249,115,22,0.3)"}` }}>
-                  {remainingAfter <= 0 ? (
-                    <p style={{ fontSize: 13, color: "var(--success)", fontWeight: 600 }}>
-                      <Check size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
-                      This payment will clear the full balance. Membership will be activated immediately.
-                    </p>
-                  ) : (
-                    <p style={{ fontSize: 13, color: "var(--warning)" }}>
-                      After this payment, <strong>{formatUGX(remainingAfter)}</strong> will still be outstanding. Membership stays in pending status.
-                    </p>
-                  )}
-                </div>
-              )}
-            </Modal>
-          );
-        })()
       )}
     </div>
   );
@@ -1913,9 +1277,9 @@ const Payments = ({ data }) => {
       </div>
       <div className="table-wrapper">
         <table>
-          <thead><tr><th>Date</th><th>Member</th><th>Type</th><th>Method</th><th>Amount</th><th>Note</th></tr></thead>
+          <thead><tr><th>Date</th><th>Member</th><th>Type</th><th>Method</th><th>Amount</th><th>Discount</th></tr></thead>
           <tbody>
-            {[...payments].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)).map((p) => {
+            {payments.sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)).map((p) => {
               const member = data.members.find((m) => m.id === p.memberId);
               return (
                 <tr key={p.id}>
@@ -1924,9 +1288,7 @@ const Payments = ({ data }) => {
                   <td>{p.type === "addon" ? <Badge variant="info">Add-on</Badge> : <Badge variant="success">Membership</Badge>}</td>
                   <td><Badge variant="neutral">{p.method === "mobile_money" ? "Mobile Money" : p.method?.charAt(0).toUpperCase() + p.method?.slice(1)}</Badge></td>
                   <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(p.amount)}</td>
-                  <td style={{ fontSize: 12, color: "var(--text-dim)", maxWidth: 200 }}>
-                    {p.note || (p.discountAmount > 0 ? <span style={{ color: "var(--success)" }}>Discount: -{formatUGX(p.discountAmount)}</span> : "—")}
-                  </td>
+                  <td>{p.discountAmount > 0 ? <span style={{ color: "var(--success)" }}>-{formatUGX(p.discountAmount)}</span> : "—"}</td>
                 </tr>
               );
             })}
@@ -1998,7 +1360,7 @@ const Attendance = ({ data, setData }) => {
         <table>
           <thead><tr><th>Date</th><th>Member</th><th>Check-In</th><th>Check-Out</th><th>Source</th><th>Locker</th></tr></thead>
           <tbody>
-            {[...data.attendance].sort((a, b) => new Date(b.checkIn) - new Date(a.checkIn)).map((a) => {
+            {data.attendance.sort((a, b) => new Date(b.checkIn) - new Date(a.checkIn)).map((a) => {
               const member = data.members.find((m) => m.id === a.memberId);
               return (
                 <tr key={a.id}>
@@ -2267,7 +1629,7 @@ const Reconciliation = ({ data, setData }) => {
           <table>
             <thead><tr><th>Date</th><th>Declared</th><th>System Cash</th><th>Variance</th><th>Status</th></tr></thead>
             <tbody>
-              {[...data.reconciliations].sort((a, b) => b.shiftDate.localeCompare(a.shiftDate)).map((r) => (
+              {data.reconciliations.sort((a, b) => b.shiftDate.localeCompare(a.shiftDate)).map((r) => (
                 <tr key={r.id}>
                   <td>{formatDate(r.shiftDate)}</td>
                   <td>{formatUGX(r.declaredCash)}</td>
@@ -2295,39 +1657,22 @@ const Reconciliation = ({ data, setData }) => {
 };
 
 // ─── STAFF MANAGEMENT ───────────────────────────────────────
-const StaffMgmt = ({ data, setData, currentUser }) => {
+const StaffMgmt = ({ data, setData }) => {
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ name: "", username: "", password: "", role: "staff" });
-  const [resetTarget, setResetTarget] = useState(null);
-  const [newPassword, setNewPassword] = useState("");
+  const [form, setForm] = useState({ name: "", username: "", passwordHash: "", role: "staff" });
 
-  const save = async () => {
-    if (!form.name || !form.username || !form.password) return;
-    if (form.password.length < 6) { alert("Password must be at least 6 characters"); return; }
-    const hashed = await hashPassword(form.password);
-    setData((d) => ({ ...d, staff: [...d.staff, { name: sanitize(form.name), username: sanitize(form.username), passwordHash: hashed, role: form.role, id: generateId(), isActive: true }] }));
+  const save = () => {
+    if (!form.name || !form.username) return;
+    setData((d) => ({ ...d, staff: [...d.staff, { ...form, id: generateId(), isActive: true }] }));
     setModal(null);
-  };
-
-  const resetPassword = async () => {
-    if (!newPassword || newPassword.length < 6) { alert("Password must be at least 6 characters"); return; }
-    const hashed = await hashPassword(newPassword);
-    setData((d) => ({ ...d, staff: d.staff.map((s) => s.id === resetTarget.id ? { ...s, passwordHash: hashed } : s) }));
-    setResetTarget(null);
-    setNewPassword("");
-  };
-
-  const toggleActive = (s) => {
-    if (s.id === currentUser?.id) { alert("You cannot deactivate your own account"); return; }
-    setData((d) => ({ ...d, staff: d.staff.map((x) => x.id === s.id ? { ...x, isActive: !x.isActive } : x) }));
   };
 
   return (
     <div>
-      <div className="page-header"><h2>Staff Management</h2><p>Manage user accounts, roles, and credentials (FR-65 to FR-69)</p></div>
+      <div className="page-header"><h2>Staff Management</h2><p>Manage user accounts and roles</p></div>
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ name: "", username: "", password: "", role: "staff" }); setModal("add"); }}><Plus size={16} /> Add Staff</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ name: "", username: "", passwordHash: "", role: "staff" }); setModal("add"); }}><Plus size={16} /> Add Staff</button>
       </div>
       <div className="table-wrapper">
         <table>
@@ -2335,46 +1680,24 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
           <tbody>
             {data.staff.map((s) => (
               <tr key={s.id}>
-                <td style={{ color: "var(--text)", fontWeight: 500 }}>
-                  {s.name}
-                  {s.id === currentUser?.id && <span style={{ fontSize: 10, color: "var(--accent)", marginLeft: 8, fontWeight: 600 }}>YOU</span>}
-                </td>
+                <td style={{ color: "var(--text)", fontWeight: 500 }}>{s.name}</td>
                 <td style={{ fontFamily: "monospace" }}>{s.username}</td>
                 <td><Badge variant={s.role === "admin" ? "warning" : "info"}>{s.role === "admin" ? "Admin" : "Front Desk"}</Badge></td>
                 <td>{s.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Inactive</Badge>}</td>
-                <td>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button className="btn btn-sm btn-secondary" onClick={() => { setResetTarget(s); setNewPassword(""); }}>Reset Password</button>
-                    <button className="btn btn-icon btn-danger" onClick={() => toggleActive(s)}>{s.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
-                  </div>
-                </td>
+                <td><button className="btn btn-icon btn-danger" onClick={() => setData((d) => ({ ...d, staff: d.staff.map((x) => x.id === s.id ? { ...x, isActive: !x.isActive } : x) }))}>{s.isActive ? <Pause size={14} /> : <Play size={14} />}</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-
-      {modal === "add" && (
-        <Modal title="Add Staff Account" onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save}>Create Account</button></>}>
+      {modal && (
+        <Modal title="Add Staff" onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save}>Save</button></>}>
           <div className="form-grid">
-            <div className="form-group"><label>Name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div className="form-group"><label>Username *</label><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="Lowercase, no spaces" /></div>
-            <div className="form-group"><label>Password * (min 6 chars)</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
+            <div className="form-group"><label>Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div className="form-group"><label>Username</label><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></div>
+            <div className="form-group"><label>Password</label><input type="password" value={form.passwordHash} onChange={(e) => setForm({ ...form, passwordHash: e.target.value })} /></div>
             <div className="form-group"><label>Role</label><select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="staff">Front Desk Staff</option><option value="admin">Admin</option></select></div>
           </div>
-          <div style={{ marginTop: 16, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-xs)", fontSize: 12, color: "var(--text-dim)" }}>
-            <strong style={{ color: "var(--text)" }}>Security:</strong> Password will be hashed with SHA-256 + salt before storage. Plain text is never stored.
-          </div>
-        </Modal>
-      )}
-
-      {resetTarget && (
-        <Modal title={`Reset Password — ${resetTarget.name}`} onClose={() => setResetTarget(null)} footer={<><button className="btn btn-secondary" onClick={() => setResetTarget(null)}>Cancel</button><button className="btn btn-primary" onClick={resetPassword}>Reset Password</button></>}>
-          <div className="form-group">
-            <label>New Password (min 6 characters)</label>
-            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" />
-          </div>
-          <p style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)" }}>This action is logged in the audit trail.</p>
         </Modal>
       )}
     </div>
@@ -2490,7 +1813,7 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
 
       {step === "confirm" && member && (
         <div style={{ textAlign: "center" }}>
-          <div style={{ width: 100, height: 100, borderRadius: "50%", overflow: "hidden", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", border: "3px solid var(--accent)" }}>{member.photo ? <img src={member.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 36, fontFamily: "var(--font-display)", color: "var(--accent)", fontWeight: 700 }}>{member.name.charAt(0)}</span>}</div>
+          <div style={{ width: 100, height: 100, borderRadius: "50%", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", fontSize: 36, fontFamily: "var(--font-display)", color: "var(--accent)", fontWeight: 700, border: "3px solid var(--accent)" }}>{member.name.charAt(0)}</div>
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24 }}>{member.name}</h2>
           <p style={{ color: "var(--text-dim)", marginTop: 8, marginBottom: 24 }}>Enter your 4-digit PIN</p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 20 }}>
@@ -2536,12 +1859,11 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
 // ─── REPORTS ────────────────────────────────────────────────
 const Reports = ({ data }) => {
   const totalRevenue = data.payments.reduce((s, p) => s + p.amount, 0) + data.walkIns.reduce((s, w) => s + w.amountPaid, 0);
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const monthlyRevenue = data.payments.filter((p) => p.paidAt.startsWith(currentMonth)).reduce((s, p) => s + p.amount, 0) + data.walkIns.filter((w) => w.visitDate.startsWith(currentMonth)).reduce((s, w) => s + w.amountPaid, 0);
+  const monthlyRevenue = data.payments.filter((p) => p.paidAt.startsWith(new Date().toISOString().slice(0, 7))).reduce((s, p) => s + p.amount, 0);
   const totalDiscounts = data.payments.reduce((s, p) => s + (p.discountAmount || 0), 0);
   const planBreakdown = {};
   data.memberships.forEach((ms) => {
-    const key = getPlanName(ms.plan);
+    const key = PLANS[ms.plan]?.name || ms.plan;
     planBreakdown[key] = (planBreakdown[key] || 0) + 1;
   });
 
@@ -2583,201 +1905,6 @@ const Reports = ({ data }) => {
   );
 };
 
-// ─── SECURITY LAYER ─────────────────────────────────────────
-
-// SHA-256 hash (browser-native, no external deps)
-const hashPassword = async (password) => {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + "rush_fitness_salt_2025");
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
-};
-
-// Input sanitisation — strips HTML/script injection
-const sanitize = (str) => {
-  if (typeof str !== "string") return str;
-  return str.replace(/[<>"'&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "&": "&amp;" }[c]));
-};
-
-const sanitizeForm = (obj) => {
-  const clean = {};
-  for (const [k, v] of Object.entries(obj)) {
-    clean[k] = typeof v === "string" ? sanitize(v) : v;
-  }
-  return clean;
-};
-
-// Phone validation (Uganda format)
-const isValidPhone = (phone) => /^0[37]\d{8}$/.test(phone);
-
-// PIN validation
-const isValidPin = (pin) => /^\d{4}$/.test(pin);
-
-// Session timeout (15 minutes of inactivity)
-const SESSION_TIMEOUT = 15 * 60 * 1000;
-
-// Role-Based Access Control definitions
-const ROLE_PERMISSIONS = {
-  admin: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "walkins", "timetable", "trainers", "equipment", "lockers", "payments", "discounts", "reconciliation", "reports", "staff", "audit"],
-    actions: ["create_member", "edit_member", "deactivate_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_staff", "manage_equipment", "manage_trainers", "view_reports", "view_payments", "reconcile", "export_data", "view_audit_log"],
-  },
-  staff: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "walkins", "timetable", "lockers"],
-    actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member"],
-  },
-};
-
-const canAccessPage = (role, pageId) => ROLE_PERMISSIONS[role]?.pages.includes(pageId) ?? false;
-const canPerformAction = (role, action) => ROLE_PERMISSIONS[role]?.actions.includes(action) ?? false;
-
-// Audit log entry creator
-const createAuditEntry = (userId, userName, action, details) => ({
-  id: generateId(),
-  timestamp: new Date().toISOString(),
-  userId,
-  userName,
-  action,
-  details,
-  ip: "tablet-local",
-});
-
-// ─── LOGIN SCREEN ───────────────────────────────────────────
-const LoginScreen = ({ staff, onLogin }) => {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [attempts, setAttempts] = useState(0);
-  const [lockedUntil, setLockedUntil] = useState(null);
-
-  const handleLogin = async () => {
-    if (lockedUntil && Date.now() < lockedUntil) {
-      setError(`Account locked. Try again in ${Math.ceil((lockedUntil - Date.now()) / 1000)}s`);
-      return;
-    }
-    if (!username || !password) { setError("Please enter both username and password"); return; }
-    setLoading(true);
-    setError("");
-
-    // Simulate network delay for brute-force deterrence
-    await new Promise((r) => setTimeout(r, 500));
-
-    const hashed = await hashPassword(password);
-    const user = staff.find((s) => s.username === username && s.isActive);
-
-    if (!user || user.passwordHash !== hashed) {
-      const newAttempts = attempts + 1;
-      setAttempts(newAttempts);
-      if (newAttempts >= 5) {
-        const lockTime = Date.now() + 60000;
-        setLockedUntil(lockTime);
-        setError("Too many failed attempts. Locked for 60 seconds.");
-        setTimeout(() => { setLockedUntil(null); setAttempts(0); }, 60000);
-      } else {
-        setError(`Invalid credentials (${5 - newAttempts} attempts remaining)`);
-      }
-      setLoading(false);
-      return;
-    }
-
-    setLoading(false);
-    onLogin(user);
-  };
-
-  return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div style={{ width: "100%", maxWidth: 420 }}>
-        <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <div style={{ width: 64, height: 64, borderRadius: 16, background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", border: "2px solid var(--accent)" }}>
-            <Zap size={32} style={{ color: "var(--accent)" }} />
-          </div>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 28, color: "var(--accent)" }}>Rush Fitness</h1>
-          <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>Gym Management System • Secure Login</p>
-        </div>
-
-        <div className="card" style={{ padding: 32 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
-            <Shield size={18} style={{ color: "var(--accent)" }} />
-            <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>Staff Sign In</h3>
-          </div>
-
-          {error && (
-            <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
-              <AlertTriangle size={14} /> {error}
-            </div>
-          )}
-
-          <div className="form-group" style={{ marginBottom: 16 }}>
-            <label>Username</label>
-            <input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))} placeholder="Enter username" autoComplete="username" onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
-          </div>
-          <div className="form-group" style={{ marginBottom: 24 }}>
-            <label>Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" autoComplete="current-password" onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
-          </div>
-          <button className="btn btn-primary" style={{ width: "100%", padding: "12px 24px", fontSize: 15, justifyContent: "center" }} onClick={handleLogin} disabled={loading}>
-            {loading ? <RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} /> : <LogIn size={16} />}
-            {loading ? "Verifying..." : "Sign In"}
-          </button>
-        </div>
-
-        <p style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 11, marginTop: 16 }}>
-          Naalya Quality Shopping Mall, Kampala • All sessions are logged
-        </p>
-      </div>
-    </div>
-  );
-};
-
-// ─── SESSION TIMEOUT BANNER ─────────────────────────────────
-const SessionBar = ({ user, lastActivity, onLogout, sessionWarning }) => (
-  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 24px", background: sessionWarning ? "var(--warning-dim)" : "var(--bg-elevated)", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--success)" }}>
-        <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--success)" }} />
-        Secure Session
-      </div>
-      <span style={{ color: "var(--text-muted)" }}>|</span>
-      <span style={{ color: "var(--text-dim)" }}>{user.name} ({user.role === "admin" ? "Administrator" : "Front Desk"})</span>
-    </div>
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      {sessionWarning && <span style={{ color: "var(--warning)", fontWeight: 600 }}>Session expiring soon — interact to stay logged in</span>}
-      <button className="btn btn-sm btn-secondary" onClick={onLogout} style={{ padding: "4px 12px", fontSize: 11 }}>
-        <LogIn size={12} /> Sign Out
-      </button>
-    </div>
-  </div>
-);
-
-// ─── AUDIT LOG VIEWER ───────────────────────────────────────
-const AuditLog = ({ data }) => {
-  return (
-    <div>
-      <div className="page-header">
-        <h2>Security Audit Log</h2>
-        <p>All system actions are recorded for accountability (FR-68)</p>
-      </div>
-      <div className="table-wrapper">
-        <table>
-          <thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Details</th></tr></thead>
-          <tbody>
-            {[...data.auditLog].reverse().map((entry) => (
-              <tr key={entry.id}>
-                <td style={{ fontFamily: "monospace", fontSize: 11 }}>{formatDate(entry.timestamp)} {formatTime(entry.timestamp)}</td>
-                <td style={{ color: "var(--text)", fontWeight: 500 }}>{entry.userName}</td>
-                <td><Badge variant={entry.action.includes("login") ? "info" : entry.action.includes("fail") ? "danger" : entry.action.includes("logout") ? "neutral" : "success"}>{entry.action}</Badge></td>
-                <td style={{ fontSize: 12, color: "var(--text-dim)", maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.details}</td>
-              </tr>
-            ))}
-            {data.auditLog.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No audit entries yet</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
 // ─── MAIN APP ───────────────────────────────────────────────
 const NAV = [
   { section: "Core", items: [
@@ -2805,192 +1932,74 @@ const NAV = [
   ]},
   { section: "Admin", items: [
     { id: "staff", label: "Staff", icon: Shield },
-    { id: "audit", label: "Audit Log", icon: ClipboardList },
   ]},
 ];
 
 export default function App() {
-  const [data, setData] = useState(() => {
-    const d = initData();
-    // Hash the default passwords on first load
-    d.auditLog = [];
-    return d;
-  });
+  const [data, setData] = useState(initData);
   const [page, setPage] = useState("dashboard");
   const [kioskMode, setKioskMode] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [lastActivity, setLastActivity] = useState(Date.now());
-  const [sessionWarning, setSessionWarning] = useState(false);
-  const [passwordsHashed, setPasswordsHashed] = useState(false);
-
-  // Hash default passwords on mount
-  useEffect(() => {
-    if (passwordsHashed) return;
-    (async () => {
-      const hashedStaff = await Promise.all(
-        data.staff.map(async (s) => {
-          if (s.passwordHash.length < 60) {
-            return { ...s, passwordHash: await hashPassword(s.passwordHash) };
-          }
-          return s;
-        })
-      );
-      setData((d) => ({ ...d, staff: hashedStaff }));
-      setPasswordsHashed(true);
-    })();
-  }, [passwordsHashed]);
-
-  // Session timeout checker
-  useEffect(() => {
-    if (!currentUser) return;
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - lastActivity;
-      if (elapsed > SESSION_TIMEOUT) {
-        handleLogout("timeout");
-      } else if (elapsed > SESSION_TIMEOUT - 2 * 60 * 1000) {
-        setSessionWarning(true);
-      } else {
-        setSessionWarning(false);
-      }
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [currentUser, lastActivity]);
-
-  // Track user activity for session timeout
-  useEffect(() => {
-    if (!currentUser) return;
-    const resetTimer = () => { setLastActivity(Date.now()); setSessionWarning(false); };
-    window.addEventListener("click", resetTimer);
-    window.addEventListener("keydown", resetTimer);
-    window.addEventListener("touchstart", resetTimer);
-    return () => {
-      window.removeEventListener("click", resetTimer);
-      window.removeEventListener("keydown", resetTimer);
-      window.removeEventListener("touchstart", resetTimer);
-    };
-  }, [currentUser]);
-
-  const addAuditEntry = (action, details) => {
-    if (!currentUser) return;
-    setData((d) => ({ ...d, auditLog: [...d.auditLog, createAuditEntry(currentUser.id, currentUser.name, action, details)] }));
-  };
-
-  const handleLogin = (user) => {
-    setCurrentUser(user);
-    setLastActivity(Date.now());
-    setPage("dashboard");
-    setData((d) => ({ ...d, auditLog: [...d.auditLog, createAuditEntry(user.id, user.name, "login", `Logged in as ${user.role}`)] }));
-  };
-
-  const handleLogout = (reason = "manual") => {
-    const logoutEntry = currentUser ? createAuditEntry(currentUser.id, currentUser.name, reason === "timeout" ? "session_timeout" : "logout", reason === "timeout" ? "Session expired due to inactivity" : "Manual logout") : null;
-    if (logoutEntry) {
-      setData((d) => ({ ...d, auditLog: [...d.auditLog, logoutEntry] }));
-    }
-    setCurrentUser(null);
-    setPage("dashboard");
-    setSessionWarning(false);
-  };
-
-  // Secured setData wrapper that sanitises inputs
-  const securedSetData = useCallback((updater) => {
-    setData((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      return next;
-    });
-  }, []);
-
-  // ── Render ──
-
-  if (!passwordsHashed) {
-    return <><style>{CSS}</style><div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}><p style={{ color: "var(--text-dim)" }}>Initialising security...</p></div></>;
-  }
-
-  if (!currentUser) {
-    return <><style>{CSS}</style><LoginScreen staff={data.staff} onLogin={handleLogin} /></>;
-  }
 
   if (kioskMode) {
-    return <><style>{CSS}</style><SelfCheckIn data={data} setData={securedSetData} onExit={() => { setKioskMode(false); addAuditEntry("kiosk_exit", "Exited self check-in kiosk mode"); }} /></>;
-  }
-
-  // Filter nav based on role
-  const filteredNav = NAV.map((section) => ({
-    ...section,
-    items: section.items.filter((item) => canAccessPage(currentUser.role, item.id)),
-  })).filter((section) => section.items.length > 0);
-
-  // Enforce page access
-  if (!canAccessPage(currentUser.role, page) && page !== "dashboard") {
-    setPage("dashboard");
+    return <><style>{CSS}</style><SelfCheckIn data={data} setData={setData} onExit={() => setKioskMode(false)} /></>;
   }
 
   const renderPage = () => {
-    if (!canAccessPage(currentUser.role, page)) return <Dashboard data={data} />;
     switch (page) {
       case "dashboard": return <Dashboard data={data} />;
-      case "checkin": return <CheckIn data={data} setData={securedSetData} />;
-      case "members": return <Members data={data} setData={securedSetData} />;
-      case "memberships": return <Memberships data={data} setData={securedSetData} />;
+      case "checkin": return <CheckIn data={data} setData={setData} />;
+      case "members": return <Members data={data} setData={setData} />;
+      case "memberships": return <Memberships data={data} setData={setData} />;
       case "payments": return <Payments data={data} />;
-      case "walkins": return <WalkIns data={data} setData={securedSetData} />;
-      case "attendance": return <Attendance data={data} setData={securedSetData} />;
+      case "walkins": return <WalkIns data={data} setData={setData} />;
+      case "attendance": return <Attendance data={data} setData={setData} />;
       case "timetable": return <TimetablePage />;
-      case "trainers": return <Trainers data={data} setData={securedSetData} />;
-      case "equipment": return <Equipment data={data} setData={securedSetData} />;
-      case "discounts": return <Discounts data={data} setData={securedSetData} />;
-      case "reconciliation": return <Reconciliation data={data} setData={securedSetData} />;
-      case "staff": return <StaffMgmt data={data} setData={securedSetData} currentUser={currentUser} />;
-      case "lockers": return <Lockers data={data} setData={securedSetData} />;
+      case "trainers": return <Trainers data={data} setData={setData} />;
+      case "equipment": return <Equipment data={data} setData={setData} />;
+      case "discounts": return <Discounts data={data} setData={setData} />;
+      case "reconciliation": return <Reconciliation data={data} setData={setData} />;
+      case "staff": return <StaffMgmt data={data} setData={setData} />;
+      case "lockers": return <Lockers data={data} setData={setData} />;
       case "reports": return <Reports data={data} />;
-      case "audit": return <AuditLog data={data} />;
       default: return <Dashboard data={data} />;
     }
   };
 
   return (
     <>
-      <style>{CSS}{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
-      <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-        <SessionBar user={currentUser} lastActivity={lastActivity} onLogout={() => handleLogout("manual")} sessionWarning={sessionWarning} />
-        <div className="app-layout" style={{ flex: 1 }}>
-          <aside className="sidebar" style={{ top: 37 }}>
-            <div className="sidebar-brand">
-              <h1>Rush Fitness</h1>
-              <p>Gym Management System</p>
-            </div>
-            <nav className="sidebar-nav">
-              {filteredNav.map((section) => (
-                <div key={section.section} className="nav-section">
-                  <div className="nav-section-label">{section.section}</div>
-                  {section.items.map((item) => (
-                    <div key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => {
-                      if (item.id === "kiosk") { setKioskMode(true); addAuditEntry("kiosk_enter", "Entered self check-in kiosk mode"); }
-                      else setPage(item.id);
-                    }}>
-                      <item.icon />
-                      <span>{item.label}</span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </nav>
-            <div className="sidebar-footer">
-              <div className="user-info">
-                <div className="user-avatar">{currentUser.name.charAt(0)}</div>
-                <div>
-                  <div style={{ color: "var(--text)", fontWeight: 500, fontSize: 13 }}>{currentUser.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{currentUser.role === "admin" ? "Administrator" : "Front Desk Staff"}</div>
-                </div>
+      <style>{CSS}</style>
+      <div className="app-layout">
+        <aside className="sidebar">
+          <div className="sidebar-brand">
+            <h1>Rush Fitness</h1>
+            <p>Gym Management System</p>
+          </div>
+          <nav className="sidebar-nav">
+            {NAV.map((section) => (
+              <div key={section.section} className="nav-section">
+                <div className="nav-section-label">{section.section}</div>
+                {section.items.map((item) => (
+                  <div key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => item.id === "kiosk" ? setKioskMode(true) : setPage(item.id)}>
+                    <item.icon />
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </nav>
+          <div className="sidebar-footer">
+            <div className="user-info">
+              <div className="user-avatar">A</div>
+              <div>
+                <div style={{ color: "var(--text)", fontWeight: 500 }}>Admin User</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Administrator</div>
               </div>
             </div>
-          </aside>
-          <main className="main-content" style={{ marginTop: 0 }}>
-            {renderPage()}
-          </main>
-        </div>
+          </div>
+        </aside>
+        <main className="main-content">
+          {renderPage()}
+        </main>
       </div>
     </>
   );
