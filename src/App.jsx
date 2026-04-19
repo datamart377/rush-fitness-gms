@@ -29,22 +29,37 @@ const GROUP_PLANS = {
 
 const getPlanName = (planKey) => PLANS[planKey]?.name || GROUP_PLANS[planKey]?.name || planKey;
 
+const fullName = (m) => m ? `${m.firstName || ""} ${m.lastName || ""}`.trim() || m.name || "" : "";
+const memberInitials = (m) => {
+  if (!m) return "?";
+  const f = m.firstName || "";
+  const l = m.lastName || "";
+  if (f && l) return (f[0] + l[0]).toUpperCase();
+  if (f) return f[0].toUpperCase();
+  if (m.name) return m.name.charAt(0).toUpperCase();
+  return "?";
+};
+
 const ACTIVITIES = [
+  { id: "gym_daily_activity", name: "Daily Gym Access", standalone: 20000, addon: 10000 },
   { id: "aerobics", name: "Aerobics", standalone: 20000, addon: 10000 },
-  { id: "spinning", name: "Spinning", standalone: 20000, addon: 10000 },
-  { id: "amuka", name: "Amuka Dance Workout", standalone: 20000, addon: 10000 },
+  { id: "spinning", name: "Spinning", standalone: 25000, addon: 10000 },
+  { id: "bantu_vibes", name: "Bantu Vibes", standalone: 20000, addon: 10000 },
   { id: "kona", name: "Kona Dance", standalone: 20000, addon: 10000 },
   { id: "fimbo", name: "Fimbo Dance", standalone: 20000, addon: 10000 },
   { id: "boxing", name: "Boxing", standalone: 20000, addon: 10000 },
-  { id: "weightloss", name: "Weight Loss Class", standalone: 20000, addon: 10000 },
+  { id: "bootcamp", name: "Bootcamp", standalone: 20000, addon: 10000 },
+  { id: "abs", name: "ABS Class", standalone: 20000, addon: 10000 },
   { id: "steam", name: "Steam Bath", standalone: 20000, addon: 10000 },
   { id: "massage", name: "Massage", standalone: 20000, addon: 10000 },
-  { id: "nutrition", name: "Nutrition Program", standalone: 20000, addon: 10000 },
+  { id: "ballet", name: "Ballet Dance", standalone: 7000, addon: 7000 },
 ];
+
+const MAX_ACTIVITIES = 2;
 
 const TIMETABLE = [
   { day: "Mon", class: "Spinning", time: "6:30pm – 7:30pm" },
-  { day: "Mon", class: "Amuka Dance Workout", time: "7:30pm – 8:30pm" },
+  { day: "Mon", class: "Bantu Vibes", time: "7:30pm – 8:30pm" },
   { day: "Tue", class: "Aerobics", time: "6:20pm – 7:20pm" },
   { day: "Tue", class: "Kona Dance", time: "7:30pm – 8:30pm" },
   { day: "Wed", class: "Spinning", time: "6:20pm – 7:20pm" },
@@ -53,18 +68,18 @@ const TIMETABLE = [
   { day: "Fri", class: "Spinning", time: "6:30pm – 7:30pm" },
   { day: "Fri", class: "Aerobics", time: "7:30pm – 8:30pm" },
   { day: "Sat", class: "Kona Dance", time: "9:30am – 11:30am" },
-  { day: "Sat", class: "Amuka Dance", time: "7:00pm – 8:00pm" },
+  { day: "Sat", class: "Bantu Vibes", time: "7:00pm – 8:00pm" },
 ];
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const initData = () => {
   const members = [
-    { id: "m1", name: "Sarah Nakamya", phone: "0771234567", email: "sarah@email.com", gender: "Female", dob: "1995-03-15", emergency: "0701111222", photo: null, nationalId: "CM95015003ABCD", pin: "1234", isActive: true, createdAt: "2025-01-10" },
-    { id: "m2", name: "James Okello", phone: "0782345678", email: "james@email.com", gender: "Male", dob: "1990-07-22", emergency: "0702222333", photo: null, nationalId: "CM90072200EFGH", pin: "5678", isActive: true, createdAt: "2025-02-05" },
-    { id: "m3", name: "Grace Auma", phone: "0753456789", email: "", gender: "Female", dob: "1988-11-30", emergency: "0703333444", photo: null, nationalId: "CF88113000IJKL", pin: "9012", isActive: true, createdAt: "2025-03-01" },
-    { id: "m4", name: "Peter Mukasa", phone: "0764567890", email: "peter@mail.com", gender: "Male", dob: "1992-05-18", emergency: "0704444555", photo: null, nationalId: "CM92051800MNOP", pin: "3456", isActive: true, createdAt: "2025-01-20" },
-    { id: "m5", name: "Diana Tendo", phone: "0775678901", email: "", gender: "Female", dob: "1997-09-05", emergency: "0705555666", photo: null, nationalId: "", pin: "7890", isActive: false, createdAt: "2025-02-15" },
+    { id: "m1", firstName: "Sarah", lastName: "Nakamya", phone: "0771234567", email: "sarah@email.com", gender: "Female", dob: "1995-03-15", emergency: "0701111222", emergency2: "0709999888", photo: null, nationalId: "CM95015003ABCD", pin: "1234", isActive: true, createdAt: "2025-01-10" },
+    { id: "m2", firstName: "James", lastName: "Okello", phone: "0782345678", email: "james@email.com", gender: "Male", dob: "1990-07-22", emergency: "0702222333", emergency2: "", photo: null, nationalId: "CM90072200EFGH", pin: "5678", isActive: true, createdAt: "2025-02-05" },
+    { id: "m3", firstName: "Grace", lastName: "Auma", phone: "0753456789", email: "", gender: "Female", dob: "1988-11-30", emergency: "0703333444", emergency2: "0708877665", photo: null, nationalId: "CF88113000IJKL", pin: "9012", isActive: true, createdAt: "2025-03-01" },
+    { id: "m4", firstName: "Peter", lastName: "Mukasa", phone: "0764567890", email: "peter@mail.com", gender: "Male", dob: "1992-05-18", emergency: "0704444555", emergency2: "", photo: null, nationalId: "CM92051800MNOP", pin: "3456", isActive: true, createdAt: "2025-01-20" },
+    { id: "m5", firstName: "Diana", lastName: "Tendo", phone: "0775678901", email: "", gender: "Female", dob: "1997-09-05", emergency: "0705555666", emergency2: "", photo: null, nationalId: "", pin: "7890", isActive: false, createdAt: "2025-02-15" },
   ];
 
   const now = new Date();
@@ -89,9 +104,9 @@ const initData = () => {
   ];
 
   const trainers = [
-    { id: "t1", name: "Coach Mike", phone: "0781112233", specialisation: "Spinning, Boxing", isActive: true },
-    { id: "t2", name: "Trainer Aisha", phone: "0792223344", specialisation: "Aerobics, Dance", isActive: true },
-    { id: "t3", name: "Coach Brian", phone: "0703334455", specialisation: "Weight Loss, Full Body", isActive: true },
+    { id: "t1", firstName: "Mike", lastName: "Ssemakula", phone: "0781112233", email: "mike@rush.ug", gender: "Male", dob: "1988-04-12", nationalId: "CM88041200QRST", emergency: "0781110000", emergency2: "", specialisation: "Spinning, Boxing", photo: null, isActive: true },
+    { id: "t2", firstName: "Aisha", lastName: "Nakato", phone: "0792223344", email: "aisha@rush.ug", gender: "Female", dob: "1992-08-25", nationalId: "CF92082500UVWX", emergency: "0792220000", emergency2: "", specialisation: "Aerobics, Dance", photo: null, isActive: true },
+    { id: "t3", firstName: "Brian", lastName: "Kizza", phone: "0703334455", email: "", gender: "Male", dob: "1990-01-15", nationalId: "CM90011500YZAB", emergency: "0703330000", emergency2: "0701234567", specialisation: "Bootcamp, Full Body", photo: null, isActive: true },
   ];
 
   const staff = [
@@ -107,9 +122,14 @@ const initData = () => {
     { id: "eq5", name: "Cable Machine", type: "Strength", serialNumber: "CM-001", purchaseDate: "2024-01-05", status: "decommissioned" },
   ];
 
-  const lockers = Array.from({ length: 20 }, (_, i) => ({
-    id: `l${i + 1}`, number: i + 1, isOccupied: i === 4 || i === 11, memberId: i === 4 ? "m1" : i === 11 ? "m2" : null,
-  }));
+  const lockers = [
+    ...Array.from({ length: 20 }, (_, i) => ({
+      id: `lg${i + 1}`, number: i + 1, section: "gents", isOccupied: i === 4 || i === 11, memberId: i === 4 ? "m2" : i === 11 ? "m4" : null,
+    })),
+    ...Array.from({ length: 20 }, (_, i) => ({
+      id: `ll${i + 1}`, number: i + 1, section: "ladies", isOccupied: i === 2 || i === 7, memberId: i === 2 ? "m1" : i === 7 ? "m3" : null,
+    })),
+  ];
 
   const discounts = [
     { id: "d1", name: "New Year Promo", type: "percentage", value: 10, startDate: "2025-01-01", endDate: "2025-12-31", maxUses: 100, usesCount: 1, isActive: true },
@@ -123,7 +143,40 @@ const initData = () => {
   const reconciliations = [];
   const freezes = [];
 
-  return { members, memberships, payments, attendance, trainers, staff, equipment, lockers, discounts, walkIns, reconciliations, freezes };
+  const products = [
+    { id: "pr1", name: "Creatine Monohydrate", category: "Supplements", price: 200000, stock: 10, isActive: true },
+    { id: "pr2", name: "Thorne Creatine", category: "Supplements", price: 280000, stock: 8, isActive: true },
+    { id: "pr3", name: "Fish Oil", category: "Supplements", price: 200000, stock: 12, isActive: true },
+    { id: "pr4", name: "Omega-3 Fish Oil", category: "Supplements", price: 200000, stock: 15, isActive: true },
+    { id: "pr5", name: "Whey Protein", category: "Supplements", price: 300000, stock: 6, isActive: true },
+    { id: "pr6", name: "Resveratol Ultra Complex", category: "Supplements", price: 150000, stock: 10, isActive: true },
+    { id: "pr7", name: "Magnesium Glycinate Gummies", category: "Supplements", price: 100000, stock: 20, isActive: true },
+    { id: "pr8", name: "No Explode", category: "Supplements", price: 250000, stock: 5, isActive: true },
+    { id: "pr9", name: "Collagen Bio-Peptides", category: "Supplements", price: 150000, stock: 8, isActive: true },
+    { id: "pr10", name: "Multi Collagen", category: "Supplements", price: 200000, stock: 7, isActive: true },
+    { id: "pr11", name: "Nicotinamide", category: "Supplements", price: 100000, stock: 14, isActive: true },
+    { id: "pr12", name: "Move Free", category: "Supplements", price: 200000, stock: 9, isActive: true },
+    { id: "pr13", name: "Lit", category: "Supplements", price: 200000, stock: 6, isActive: true },
+    { id: "pr14", name: "Hyde", category: "Supplements", price: 200000, stock: 5, isActive: true },
+    { id: "pr15", name: "Ginkgo Biloba", category: "Supplements", price: 200000, stock: 11, isActive: true },
+    { id: "pr16", name: "C4", category: "Supplements", price: 200000, stock: 8, isActive: true },
+    { id: "pr17", name: "Apple Cider Vinegar", category: "Supplements", price: 200000, stock: 10, isActive: true },
+    { id: "pr18", name: "Turmeric Curcumin", category: "Supplements", price: 100000, stock: 12, isActive: true },
+    { id: "pr19", name: "Deodorant (Small)", category: "Accessories", price: 35000, stock: 25, isActive: true },
+    { id: "pr20", name: "Deodorant (Big)", category: "Accessories", price: 50000, stock: 20, isActive: true },
+    { id: "pr21", name: "Gloves", category: "Accessories", price: 90000, stock: 15, isActive: true },
+    { id: "pr22", name: "Redbull", category: "Drinks", price: 8000, stock: 50, isActive: true },
+  ];
+
+  const productSales = [];
+
+  const expenses = [
+    { id: "ex1", category: "Utilities", description: "Electricity bill - March", amount: 450000, date: "2025-03-28", method: "mobile_money", approvedBy: "Admin User", receipt: "", createdAt: "2025-03-28" },
+    { id: "ex2", category: "Maintenance", description: "Treadmill belt replacement", amount: 350000, date: "2025-03-15", method: "cash", approvedBy: "Admin User", receipt: "", createdAt: "2025-03-15" },
+    { id: "ex3", category: "Supplies", description: "Cleaning supplies and detergents", amount: 120000, date: "2025-04-01", method: "cash", approvedBy: "Admin User", receipt: "", createdAt: "2025-04-01" },
+  ];
+
+  return { members, memberships, payments, attendance, trainers, staff, equipment, lockers, discounts, walkIns, reconciliations, freezes, products, productSales, expenses };
 };
 
 // ─── STYLES ─────────────────────────────────────────────────
@@ -924,7 +977,7 @@ const Dashboard = ({ data }) => {
   const activeMembers = data.members.filter((m) => m.isActive).length;
   const todayCheckins = data.attendance.filter((a) => a.date === today()).length;
   const todayWalkIns = data.walkIns.filter((w) => w.visitDate === today()).length;
-  const todayRevenue = data.payments.filter((p) => p.paidAt.startsWith(today())).reduce((s, p) => s + p.amount, 0) + data.walkIns.filter((w) => w.visitDate === today()).reduce((s, w) => s + w.amountPaid, 0);
+  const todayRevenue = data.payments.filter((p) => p.paidAt.startsWith(today())).reduce((s, p) => s + p.amount, 0);
   const availableLockers = data.lockers.filter((l) => !l.isOccupied).length;
   const frozenCount = data.memberships.filter((ms) => ms.status === "frozen").length;
   const maintenanceEquip = data.equipment.filter((eq) => eq.status === "maintenance").length;
@@ -949,7 +1002,7 @@ const Dashboard = ({ data }) => {
         <StatCard icon={LogIn} label="Today's Check-ins" value={todayCheckins} color="var(--success)" bg="var(--success-dim)" />
         <StatCard icon={UserCheck} label="Walk-ins Today" value={todayWalkIns} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={DollarSign} label="Today's Revenue" value={formatUGX(todayRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
-        <StatCard icon={Layers} label="Lockers Available" value={`${availableLockers}/20`} color="var(--info)" bg="var(--info-dim)" />
+        <StatCard icon={Layers} label="Lockers Available" value={`${availableLockers}/40`} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={Pause} label="Frozen Memberships" value={frozenCount} color="var(--warning)" bg="var(--warning-dim)" />
         <StatCard icon={Wrench} label="Equipment in Maintenance" value={maintenanceEquip} color="var(--danger)" bg="var(--danger-dim)" />
         <StatCard icon={AlertTriangle} label="Expiring in 3 Days" value={expiringIn3.length} color="var(--warning)" bg="var(--warning-dim)" />
@@ -980,7 +1033,7 @@ const Dashboard = ({ data }) => {
               const member = data.members.find((m) => m.id === ms.memberId);
               return (
                 <div key={ms.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-                  <span style={{ color: "var(--text)" }}>{member?.name}</span>
+                  <span style={{ color: "var(--text)" }}>{fullName(member)}</span>
                   <Badge variant="warning">Expires {formatDate(ms.endDate)}</Badge>
                 </div>
               );
@@ -1005,13 +1058,26 @@ const Dashboard = ({ data }) => {
 };
 
 // ─── CHECK-IN ───────────────────────────────────────────────
-const CheckIn = ({ data, setData }) => {
+const CheckIn = ({ data, setData, currentUser }) => {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [checkedIn, setCheckedIn] = useState(false);
   const [addons, setAddons] = useState([]);
+  const [selectedLocker, setSelectedLocker] = useState(null);
+  const [mode, setMode] = useState("member"); // member | walkin | history
+  const isAdmin = currentUser?.role === "admin";
 
-  const results = search.length >= 2 ? data.members.filter((m) => m.isActive && (m.name.toLowerCase().includes(search.toLowerCase()) || m.phone.includes(search))) : [];
+  // Walk-in quick form
+  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash" });
+
+  const results = search.length >= 2 ? data.members.filter((m) => {
+    const q = search.toLowerCase();
+    return (m.firstName || "").toLowerCase().includes(q) ||
+      (m.lastName || "").toLowerCase().includes(q) ||
+      fullName(m).toLowerCase().includes(q) ||
+      m.phone.includes(search) ||
+      (m.nationalId || "").toLowerCase().includes(q);
+  }) : [];
 
   const membership = selected ? data.memberships.find((ms) => ms.memberId === selected.id && (ms.isActive || ms.status === "pending_payment")) : null;
   const isExpired = membership ? (new Date(membership.endDate) < new Date() && membership.status !== "pending_payment") : true;
@@ -1021,46 +1087,181 @@ const CheckIn = ({ data, setData }) => {
   const isDailyPlan = membership?.plan === "gym_daily" || membership?.plan === "combo_session";
   const memberBalance = membership ? getMembershipBalance(membership, data.payments) : null;
 
+  const memberGender = selected?.gender;
+  const lockerSection = memberGender === "Female" ? "ladies" : "gents";
+  const availableLockers = data.lockers.filter((l) => l.section === lockerSection && !l.isOccupied);
+
+  // Today's walk-ins not yet checked in
+  const todayUncheckedWalkIns = data.walkIns.filter((w) => w.visitDate === today() && !w.checkedIn && (w.paymentStatus === "paid" || !w.paymentStatus));
+
   const handleCheckIn = () => {
     if (isExpired || isFrozen || alreadyCheckedIn || isPendingPayment) return;
-    const newAttendance = { id: generateId(), memberId: selected.id, checkIn: new Date().toISOString(), checkOut: null, date: today(), source: "staff", locker: null };
-    const newPayments = addons.map((actId) => {
+
+    const newAttendance = {
+      id: generateId(), memberId: selected.id,
+      checkIn: new Date().toISOString(), checkOut: null,
+      date: today(), source: "staff",
+      locker: selectedLocker ? selectedLocker.number : null,
+      lockerSection: selectedLocker ? selectedLocker.section : null,
+      lockerId: selectedLocker ? selectedLocker.id : null,
+    };
+
+    // Calculate prices: if 2 activities, apply UGX 10,000 bundle discount
+    const bundleDiscount = addons.length > 1 ? 10000 : 0;
+    const activityPrices = addons.map((actId) => {
       const act = ACTIVITIES.find((a) => a.id === actId);
-      const price = isDailyPlan ? act.standalone : act.addon;
-      return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0 };
+      return isDailyPlan ? act.standalone : act.addon;
     });
-    setData((d) => ({ ...d, attendance: [...d.attendance, newAttendance], payments: [...d.payments, ...newPayments] }));
+    const totalBeforeDiscount = activityPrices.reduce((s, p) => s + p, 0);
+    const totalAfterDiscount = totalBeforeDiscount - bundleDiscount;
+
+    const newPayments = bundleDiscount > 0
+      ? [{ id: generateId(), memberId: selected.id, membershipId: null, amount: totalAfterDiscount, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: addons.join("+"), discountId: null, discountAmount: bundleDiscount, note: `Bundle: ${addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ")} (${formatUGX(bundleDiscount)} discount)` }]
+      : addons.map((actId) => {
+          const act = ACTIVITIES.find((a) => a.id === actId);
+          const price = isDailyPlan ? act.standalone : act.addon;
+          return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0 };
+        });
+
+    setData((d) => ({
+      ...d,
+      attendance: [...d.attendance, newAttendance],
+      payments: [...d.payments, ...newPayments],
+      // Assign locker if selected
+      lockers: selectedLocker
+        ? d.lockers.map((l) => l.id === selectedLocker.id ? { ...l, isOccupied: true, memberId: selected.id } : l)
+        : d.lockers,
+    }));
     setCheckedIn(true);
   };
 
-  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); };
+  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash" }); };
+
+  // Quick walk-in check-in from the walk-ins panel
+  const checkInWalkInGuest = (w) => {
+    setData((d) => ({
+      ...d,
+      walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, checkedIn: true, checkInTime: new Date().toISOString() } : x),
+      attendance: [...d.attendance, {
+        id: generateId(), memberId: null, guestName: `${w.firstName || ""} ${w.lastName || w.name || ""}`.trim(),
+        checkIn: new Date().toISOString(), checkOut: null,
+        date: today(), source: "walkin", locker: null, lockerId: null, lockerSection: null,
+      }],
+    }));
+  };
+
+  // Walk-in quick register + pay + check-in (all in one)
+  const walkinToggleActivity = (actId) => {
+    setWalkinForm((f) => {
+      const current = f.selectedActivities;
+      if (current.includes(actId)) return { ...f, selectedActivities: current.filter((x) => x !== actId) };
+      if (current.length >= MAX_ACTIVITIES) return f;
+      return { ...f, selectedActivities: [...current, actId] };
+    });
+  };
+
+  const handleQuickWalkIn = () => {
+    if (!walkinForm.firstName || !walkinForm.lastName || !walkinForm.phone) { alert("Please fill in surname, other name(s), and phone."); return; }
+    if (!walkinForm.emergency) { alert("Emergency contact is required."); return; }
+    if (walkinForm.selectedActivities.length === 0) { alert("Select at least one activity."); return; }
+
+    const prices = walkinForm.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.standalone || 0);
+    const total = prices.reduce((s, p) => s + p, 0) - (walkinForm.selectedActivities.length > 1 ? 10000 : 0);
+    const actNames = walkinForm.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(" + ");
+    const walkInId = generateId();
+
+    setData((d) => ({
+      ...d,
+      walkIns: [...d.walkIns, {
+        id: walkInId, firstName: walkinForm.firstName, lastName: walkinForm.lastName,
+        phone: walkinForm.phone, emergency: walkinForm.emergency, emergency2: "",
+        activities: walkinForm.selectedActivities, amountDue: total, amountPaid: total,
+        paymentMethod: walkinForm.paymentMethod, paymentStatus: "paid",
+        checkedIn: true, checkInTime: new Date().toISOString(), visitDate: today(),
+        note: walkinForm.selectedActivities.length > 1 ? `Bundle: ${actNames} (UGX 10,000 discount)` : actNames,
+      }],
+      payments: [...d.payments, {
+        id: generateId(), memberId: null, membershipId: null, amount: total,
+        method: walkinForm.paymentMethod, paidAt: new Date().toISOString(),
+        type: "walkin", discountId: null, discountAmount: 0,
+        note: `Walk-in: ${walkinForm.firstName} ${walkinForm.lastName} — ${actNames}`,
+      }],
+      attendance: [...d.attendance, {
+        id: generateId(), memberId: null, guestName: `${walkinForm.firstName} ${walkinForm.lastName}`,
+        checkIn: new Date().toISOString(), checkOut: null,
+        date: today(), source: "walkin", locker: null, lockerId: null, lockerSection: null,
+      }],
+    }));
+    setCheckedIn(true);
+    setSelected({ firstName: walkinForm.firstName, lastName: walkinForm.lastName, phone: walkinForm.phone, _isWalkIn: true });
+  };
 
   return (
     <div>
       <div className="page-header">
-        <h2>Member Check-In</h2>
-        <p>Search and check in gym members — the core workflow</p>
+        <h2>Check-In</h2>
+        <p>Check in members and walk-in guests</p>
       </div>
 
-      {!selected && (
+      {/* Mode tabs */}
+      {!selected && !checkedIn && (
+        <div className="tabs" style={{ marginBottom: 20 }}>
+          <button className={`tab ${mode === "member" ? "active" : ""}`} onClick={() => setMode("member")}>Member Check-In</button>
+          <button className={`tab ${mode === "walkin" ? "active" : ""}`} onClick={() => setMode("walkin")}>Walk-In Guest</button>
+          <button className={`tab ${mode === "history" ? "active" : ""}`} onClick={() => setMode("history")}>Walk-In Records ({data.walkIns.length})</button>
+        </div>
+      )}
+
+      {/* TODAY'S UNCHECKED WALK-INS */}
+      {!selected && !checkedIn && mode === "member" && todayUncheckedWalkIns.length > 0 && (
+        <div className="card" style={{ marginBottom: 20, borderLeft: "3px solid var(--warning)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h4 style={{ fontSize: 13, color: "var(--warning)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Walk-In Guests Awaiting Check-In ({todayUncheckedWalkIns.length})</h4>
+          </div>
+          {todayUncheckedWalkIns.map((w) => (
+            <div key={w.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+              <div>
+                <span style={{ color: "var(--text)", fontWeight: 500 }}>{w.firstName} {w.lastName}</span>
+                <span style={{ color: "var(--text-muted)", marginLeft: 8, fontSize: 12 }}>{w.phone}</span>
+                <span style={{ color: "var(--text-muted)", marginLeft: 8, fontSize: 11 }}>
+                  {w.activities?.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(", ")}
+                </span>
+              </div>
+              <button className="btn btn-sm btn-success" onClick={() => checkInWalkInGuest(w)}>
+                <LogIn size={12} /> Check In
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* MEMBER SEARCH */}
+      {!selected && mode === "member" && (
         <>
           <div className="search-bar" style={{ maxWidth: 500, marginBottom: 20 }}>
             <Search />
-            <input placeholder="Search by name or phone number..." value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
+            <input placeholder="Search by name, phone, or NIN..." value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
           </div>
           {results.length > 0 && (
             <div className="table-wrapper">
               <table>
-                <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th></th><th>Name</th><th>Phone</th><th>Member</th><th>Membership</th><th></th></tr></thead>
                 <tbody>
                   {results.map((m) => {
-                    const ms = data.memberships.find((ms) => ms.memberId === m.id && ms.isActive);
-                    const exp = ms ? new Date(ms.endDate) < new Date() : true;
+                    const ms = data.memberships.find((ms) => ms.memberId === m.id && (ms.isActive || ms.status === "pending_payment"));
+                    const exp = ms ? (new Date(ms.endDate) < new Date() && ms.status !== "pending_payment") : true;
+                    const isPending = ms?.status === "pending_payment";
                     return (
-                      <tr key={m.id}>
-                        <td style={{ color: "var(--text)", fontWeight: 500 }}>{m.name}</td>
+                      <tr key={m.id} style={!m.isActive ? { opacity: 0.5 } : {}}>
+                        <td>
+                          <div style={{ width: 32, height: 32, borderRadius: "50%", overflow: "hidden", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid var(--accent)", flexShrink: 0 }}>
+                            {m.photo ? <img src={m.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>{memberInitials(m)}</span>}
+                          </div>
+                        </td>
+                        <td style={{ color: "var(--text)", fontWeight: 500 }}>{fullName(m)}</td>
                         <td>{m.phone}</td>
-                        <td>{ms ? (exp ? <Badge variant="danger">Expired</Badge> : ms.status === "frozen" ? <Badge variant="warning">Frozen</Badge> : <Badge variant="success">Active</Badge>) : <Badge variant="danger">No Plan</Badge>}</td>
+                        <td>{m.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Inactive</Badge>}</td>
+                        <td>{ms ? (isPending ? <Badge variant="warning">Pending Payment</Badge> : exp ? <Badge variant="danger">Expired</Badge> : ms.status === "frozen" ? <Badge variant="warning">Frozen</Badge> : <Badge variant="success">{getPlanName(ms.plan)}</Badge>) : <Badge variant="neutral">No Plan</Badge>}</td>
                         <td><button className="btn btn-sm btn-primary" onClick={() => setSelected(m)}>Select</button></td>
                       </tr>
                     );
@@ -1069,14 +1270,77 @@ const CheckIn = ({ data, setData }) => {
               </table>
             </div>
           )}
+          {search.length >= 2 && results.length === 0 && (
+            <div style={{ textAlign: "center", padding: 32, color: "var(--text-muted)" }}>
+              <p>No members found matching "{search}"</p>
+              <button className="btn btn-sm btn-secondary" style={{ marginTop: 8 }} onClick={() => setMode("walkin")}>Register as Walk-In Guest instead</button>
+            </div>
+          )}
         </>
       )}
+
+      {/* WALK-IN QUICK FORM */}
+      {!selected && !checkedIn && mode === "walkin" && (
+        <div className="card" style={{ maxWidth: 600 }}>
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Quick Walk-In — Register, Pay & Check In</h3>
+          <div className="form-grid">
+            <div className="form-group"><label>Surname *</label><input value={walkinForm.lastName} onChange={(e) => setWalkinForm({ ...walkinForm, lastName: e.target.value })} placeholder="e.g. Kamya" /></div>
+            <div className="form-group"><label>Other Name(s) *</label><input value={walkinForm.firstName} onChange={(e) => setWalkinForm({ ...walkinForm, firstName: e.target.value })} placeholder="e.g. John" /></div>
+            <div className="form-group"><label>Phone *</label><input value={walkinForm.phone} onChange={(e) => setWalkinForm({ ...walkinForm, phone: e.target.value })} placeholder="e.g. 0771234567" /></div>
+            <div className="form-group"><label>Emergency Contact *</label><input value={walkinForm.emergency} onChange={(e) => setWalkinForm({ ...walkinForm, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
+            <div className="form-group"><label>Payment Method *</label>
+              <select value={walkinForm.paymentMethod} onChange={(e) => setWalkinForm({ ...walkinForm, paymentMethod: e.target.value })}>
+                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label style={{ fontSize: 12, fontWeight: 500, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Activities * <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none" }}>— select 1 or 2</span></label>
+              <span style={{ fontSize: 11, color: walkinForm.selectedActivities.length >= MAX_ACTIVITIES ? "var(--warning)" : "var(--text-muted)" }}>
+                {walkinForm.selectedActivities.length}/{MAX_ACTIVITIES}
+              </span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {ACTIVITIES.map((act) => {
+                const isSel = walkinForm.selectedActivities.includes(act.id);
+                const isDis = !isSel && walkinForm.selectedActivities.length >= MAX_ACTIVITIES;
+                return (
+                  <button key={act.id} type="button" className={`btn btn-sm ${isSel ? "btn-primary" : "btn-secondary"}`}
+                    style={isDis ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+                    onClick={() => { if (!isDis) walkinToggleActivity(act.id); }}>
+                    {act.name} ({formatUGX(act.standalone)})
+                  </button>
+                );
+              })}
+            </div>
+            {walkinForm.selectedActivities.length > 0 && (
+              <div style={{ marginTop: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                {walkinForm.selectedActivities.map((actId) => {
+                  const act = ACTIVITIES.find((a) => a.id === actId);
+                  return (<div key={actId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}><span>{act.name}</span><span>{formatUGX(act.standalone)}</span></div>);
+                })}
+                {walkinForm.selectedActivities.length > 1 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}><span>Bundle Discount</span><span>-{formatUGX(10000)}</span></div>
+                )}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, color: "var(--accent)", borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}><span>Total</span><span>{formatUGX(walkinForm.selectedActivities.reduce((s, id) => s + (ACTIVITIES.find((a) => a.id === id)?.standalone || 0), 0) - (walkinForm.selectedActivities.length > 1 ? 10000 : 0))}</span></div>
+              </div>
+            )}
+          </div>
+          <button className="btn btn-success" style={{ marginTop: 20, width: "100%", padding: "14px 24px", fontSize: 15, fontWeight: 700, justifyContent: "center" }} onClick={handleQuickWalkIn} disabled={walkinForm.selectedActivities.length === 0}>
+            <Check size={18} /> Pay & Check In Guest
+          </button>
+        </div>
+      )}
+
+      {/* MEMBER CHECK-IN CARD */}
 
       {selected && !checkedIn && (
         <div className="checkin-card">
           <button className="btn btn-sm btn-secondary" onClick={reset} style={{ position: "absolute", left: 20 }}><ArrowLeft size={14} /> Back</button>
-          <div className="member-photo" style={{ overflow: "hidden" }}>{selected.photo ? <img src={selected.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : selected.name.charAt(0)}</div>
-          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 24 }}>{selected.name}</h3>
+          <div className="member-photo" style={{ overflow: "hidden" }}>{selected.photo ? <img src={selected.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : memberInitials(selected)}</div>
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 24 }}>{fullName(selected)}</h3>
           <p style={{ color: "var(--text-dim)", marginTop: 4 }}>{selected.phone}</p>
           {membership && (
             <div style={{ marginTop: 12 }}>
@@ -1114,17 +1378,95 @@ const CheckIn = ({ data, setData }) => {
           {!isExpired && !isFrozen && !isPendingPayment && !alreadyCheckedIn && (
             <>
               <div style={{ marginTop: 20, textAlign: "left" }}>
-                <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Add-on Activities</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {ACTIVITIES.map((act) => (
-                    <button key={act.id} className={`btn btn-sm ${addons.includes(act.id) ? "btn-primary" : "btn-secondary"}`} onClick={() => setAddons((a) => a.includes(act.id) ? a.filter((x) => x !== act.id) : [...a, act.id])}>
-                      {act.name} ({formatUGX(isDailyPlan ? act.standalone : act.addon)})
-                    </button>
-                  ))}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Add-on Activities</p>
+                  <span style={{ fontSize: 11, color: addons.length >= MAX_ACTIVITIES ? "var(--warning)" : "var(--text-muted)" }}>
+                    {addons.length}/{MAX_ACTIVITIES} selected
+                  </span>
                 </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {ACTIVITIES.map((act) => {
+                    const isSelected = addons.includes(act.id);
+                    const isDisabled = !isSelected && addons.length >= MAX_ACTIVITIES;
+                    return (
+                      <button
+                        key={act.id}
+                        className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
+                        style={isDisabled ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+                        onClick={() => {
+                          if (isDisabled) return;
+                          setAddons((a) => a.includes(act.id) ? a.filter((x) => x !== act.id) : [...a, act.id]);
+                        }}
+                      >
+                        {act.name} ({formatUGX(isDailyPlan ? act.standalone : act.addon)})
+                      </button>
+                    );
+                  })}
+                </div>
+                {addons.length >= MAX_ACTIVITIES && (
+                  <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 6 }}>Maximum {MAX_ACTIVITIES} activities per visit. Deselect one to choose a different activity.</p>
+                )}
+
+                {/* Pricing summary */}
+                {addons.length > 0 && (
+                  <div style={{ marginTop: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                    {addons.map((actId) => {
+                      const act = ACTIVITIES.find((a) => a.id === actId);
+                      const price = isDailyPlan ? act.standalone : act.addon;
+                      return (
+                        <div key={actId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}>
+                          <span>{act.name}</span>
+                          <span>{formatUGX(price)}</span>
+                        </div>
+                      );
+                    })}
+                    {addons.length > 1 && (
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}>
+                        <span>Bundle Discount</span>
+                        <span>-{formatUGX(10000)}</span>
+                      </div>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, color: "var(--accent)", borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}>
+                      <span>Total</span>
+                      <span>{formatUGX(addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) - (addons.length > 1 ? 10000 : 0))}</span>
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* Locker Assignment (Optional) */}
+              <div style={{ marginTop: 20, textAlign: "left" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    Assign Locker <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none" }}>— optional</span>
+                  </p>
+                  <span style={{ fontSize: 11, color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6" }}>
+                    {lockerSection === "ladies" ? "Ladies" : "Gents"} • {availableLockers.length} free
+                  </span>
+                </div>
+                {selectedLocker ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "var(--success-dim)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "var(--radius-sm)" }}>
+                    <div style={{ width: 36, height: 36, borderRadius: "var(--radius-xs)", background: lockerSection === "ladies" ? "rgba(236,72,153,0.15)" : "rgba(59,130,246,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6" }}>
+                      #{selectedLocker.number}
+                    </div>
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--success)" }}>Locker #{selectedLocker.number} ({lockerSection === "ladies" ? "Ladies" : "Gents"}) assigned</span>
+                    <button className="btn btn-sm btn-secondary" onClick={() => setSelectedLocker(null)} style={{ padding: "4px 10px", fontSize: 11 }}>Remove</button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {availableLockers.slice(0, 10).map((l) => (
+                      <button key={l.id} className="btn btn-sm btn-secondary" onClick={() => setSelectedLocker(l)} style={{ padding: "6px 10px", minWidth: 44, fontSize: 13, fontWeight: 700, color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6" }}>
+                        #{l.number}
+                      </button>
+                    ))}
+                    {availableLockers.length > 10 && <span style={{ fontSize: 11, color: "var(--text-muted)", alignSelf: "center" }}>+{availableLockers.length - 10} more</span>}
+                    {availableLockers.length === 0 && <p style={{ fontSize: 12, color: "var(--danger)" }}>No {lockerSection} lockers available</p>}
+                  </div>
+                )}
+              </div>
+
               <button className="btn btn-success" style={{ marginTop: 24, width: "100%", padding: "14px 24px", fontSize: 16, fontWeight: 700 }} onClick={handleCheckIn}>
-                <Check size={20} /> Check In
+                <Check size={20} /> Check In{selectedLocker ? ` + Locker #${selectedLocker.number}` : ""}
               </button>
             </>
           )}
@@ -1135,12 +1477,76 @@ const CheckIn = ({ data, setData }) => {
         <div className="checkin-card checkin-success">
           <div className="member-photo"><Check size={40} /></div>
           <h3 style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--success)" }}>Check-In Confirmed!</h3>
-          <p style={{ color: "var(--text)", fontSize: 18, marginTop: 8 }}>{selected.name}</p>
-          <p style={{ color: "var(--text-dim)", marginTop: 4 }}>{membership ? getPlanName(membership.plan) : ""}</p>
+          <p style={{ color: "var(--text)", fontSize: 18, marginTop: 8 }}>{fullName(selected)}</p>
+          {selected._isWalkIn && <Badge variant="warning" style={{ marginTop: 4 }}>Walk-In Guest</Badge>}
+          {!selected._isWalkIn && membership && <p style={{ color: "var(--text-dim)", marginTop: 4 }}>{getPlanName(membership.plan)}</p>}
           <p style={{ color: "var(--text-dim)", marginTop: 4 }}>{formatTime(new Date())}</p>
+          {selectedLocker && (
+            <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", background: lockerSection === "ladies" ? "rgba(236,72,153,0.12)" : "rgba(59,130,246,0.12)", borderRadius: 20, fontSize: 13 }}>
+              <Hash size={14} style={{ color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6" }} />
+              <span style={{ color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6", fontWeight: 600 }}>Locker #{selectedLocker.number} ({lockerSection === "ladies" ? "Ladies" : "Gents"})</span>
+            </div>
+          )}
           <p style={{ color: "var(--text-dim)", marginTop: 8 }}>Today's visits: {data.attendance.filter((a) => a.date === today()).length}</p>
           {addons.length > 0 && <p style={{ color: "var(--accent)", marginTop: 8 }}>Add-ons: {addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(", ")}</p>}
+          {selected._isWalkIn && walkinForm.selectedActivities.length > 0 && <p style={{ color: "var(--accent)", marginTop: 8 }}>Activities: {walkinForm.selectedActivities.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(", ")}</p>}
           <button className="btn btn-secondary" style={{ marginTop: 24 }} onClick={reset}>New Check-In</button>
+        </div>
+      )}
+
+      {/* WALK-IN HISTORY TAB */}
+      {!selected && !checkedIn && mode === "history" && (
+        <div>
+          <div className="toolbar">
+            <div><p style={{ fontSize: 13, color: "var(--text-dim)" }}>All walk-in guest records</p></div>
+          </div>
+          <div className="table-wrapper">
+            <table>
+              <thead><tr><th>Date</th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>Activity</th><th>Amount</th><th>Payment</th><th>Check-In</th>{isAdmin && <th>Edit</th>}</tr></thead>
+              <tbody>
+                {[...data.walkIns].reverse().map((w) => (
+                  <tr key={w.id}>
+                    <td>{formatDate(w.visitDate)}</td>
+                    <td style={{ color: "var(--text)", fontWeight: 500 }}>{w.lastName || w.name}</td>
+                    <td>{w.firstName || ""}</td>
+                    <td>{w.phone}</td>
+                    <td style={{ fontSize: 12 }}>{w.activities ? w.activities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name || id).join(", ") : ACTIVITIES.find((a) => a.id === w.activityId)?.name || w.activityId}</td>
+                    <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(w.amountDue || w.amountPaid)}</td>
+                    <td>
+                      {(w.paymentStatus === "paid" || !w.paymentStatus) ? <Badge variant="success">Paid</Badge> : (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <Badge variant="warning">Pending</Badge>
+                          <button className="btn btn-sm btn-success" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => {
+                            const total = w.amountDue || w.amountPaid;
+                            setData((d) => ({
+                              ...d,
+                              walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, paymentStatus: "paid", amountPaid: total } : x),
+                              payments: [...d.payments, { id: generateId(), memberId: null, membershipId: null, amount: total, method: w.paymentMethod || "cash", paidAt: new Date().toISOString(), type: "walkin", discountId: null, discountAmount: 0, note: `Walk-in payment: ${w.firstName || ""} ${w.lastName || ""}` }],
+                            }));
+                          }}>Pay</button>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {w.checkedIn ? <Badge variant="success">In {w.checkInTime ? formatTime(w.checkInTime) : ""}</Badge> : (w.paymentStatus === "paid" || !w.paymentStatus) ? (
+                        <button className="btn btn-sm btn-primary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => checkInWalkInGuest(w)}><LogIn size={12} /> In</button>
+                      ) : <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Pay first</span>}
+                    </td>
+                    {isAdmin && (
+                      <td><button className="btn btn-icon btn-secondary" onClick={() => {
+                        const newName = prompt("Edit name (Surname Other):", `${w.lastName || ""} ${w.firstName || ""}`);
+                        if (newName) {
+                          const parts = newName.trim().split(" ");
+                          setData((d) => ({ ...d, walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, lastName: parts[0] || "", firstName: parts.slice(1).join(" ") || "" } : x) }));
+                        }
+                      }}><Edit2 size={14} /></button></td>
+                    )}
+                  </tr>
+                ))}
+                {data.walkIns.length === 0 && <tr><td colSpan={isAdmin ? 9 : 8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No walk-in records yet</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
@@ -1199,114 +1605,75 @@ const generateAvatarPhoto = (name) => {
 
 const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [streaming, setStreaming] = useState(false);
-  const [showingSimulated, setShowingSimulated] = useState(false);
-  const [countdown, setCountdown] = useState(0);
+  const [mode, setMode] = useState("idle"); // idle | streaming | captured
   const [cameraReady, setCameraReady] = useState(false);
-  const [capturing, setCapturing] = useState(false);
   const streamRef = useRef(null);
-  const cameraSupported = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 
-  const startCamera = async () => {
-    if (!cameraSupported) {
-      startSimulated();
-      return;
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
     setCameraReady(false);
-    setCapturing(false);
+  }, []);
+
+  const startCamera = async () => {
+    stopCamera();
+    setMode("streaming");
+    setCameraReady(false);
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
       });
       streamRef.current = stream;
+
+      // Wait a tick for React to ensure video element is visible
+      await new Promise((r) => setTimeout(r, 100));
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play().then(() => {
-            setCameraReady(true);
-          }).catch(() => {
-            setCameraReady(true);
-          });
-        };
-        setStreaming(true);
+        try { await videoRef.current.play(); } catch (e) { /* autoplay blocked, user will see frozen frame */ }
+        setCameraReady(true);
       }
     } catch (err) {
-      console.warn("Camera unavailable, using simulated capture:", err.message);
-      startSimulated();
-    }
-  };
-
-  const startSimulated = () => {
-    capturedRef.current = false;
-    setShowingSimulated(true);
-    setCountdown(3);
-  };
-
-  const capturedRef = useRef(false);
-
-  useEffect(() => {
-    if (countdown > 0) {
-      const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
-      return () => clearTimeout(t);
-    }
-    if (countdown === 0 && showingSimulated && !capturedRef.current) {
-      capturedRef.current = true;
+      console.warn("Camera error:", err.message);
+      // Fallback to simulated avatar
+      stopCamera();
       const dataUrl = generateAvatarPhoto(memberName);
-      setShowingSimulated(false);
       onCapture(dataUrl);
+      setMode("idle");
     }
-  }, [countdown, showingSimulated]);
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    setStreaming(false);
-    setCameraReady(false);
-    setCapturing(false);
   };
 
-  const capture = () => {
+  const takePhoto = () => {
     if (!videoRef.current) return;
-    setCapturing(true);
-
     const video = videoRef.current;
     const w = video.videoWidth || 640;
     const h = video.videoHeight || 480;
 
-    // Create an offscreen canvas (not the hidden one in DOM)
-    const offscreen = document.createElement("canvas");
-    offscreen.width = w;
-    offscreen.height = h;
-    const ctx = offscreen.getContext("2d");
-
-    // Mirror the image horizontally to match viewfinder
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    // Mirror horizontally
     ctx.translate(w, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, w, h);
 
-    const dataUrl = offscreen.toDataURL("image/jpeg", 0.85);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    stopCamera();
 
-    // Verify we got a real image (not blank)
-    if (dataUrl && dataUrl.length > 1000) {
-      stopCamera();
+    if (dataUrl && dataUrl.length > 500) {
       onCapture(dataUrl);
     } else {
-      // If blank, wait a moment and try again
-      setTimeout(() => {
-        const ctx2 = offscreen.getContext("2d");
-        ctx2.setTransform(1, 0, 0, 1, 0, 0);
-        ctx2.translate(w, 0);
-        ctx2.scale(-1, 1);
-        ctx2.drawImage(video, 0, 0, w, h);
-        const retryUrl = offscreen.toDataURL("image/jpeg", 0.85);
-        stopCamera();
-        onCapture(retryUrl.length > 1000 ? retryUrl : generateAvatarPhoto(memberName));
-      }, 500);
+      onCapture(generateAvatarPhoto(memberName));
     }
+    setMode("idle");
   };
 
   const handleRetake = () => {
@@ -1314,13 +1681,54 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
     startCamera();
   };
 
-  useEffect(() => { return () => stopCamera(); }, []);
+  const cancelCamera = () => {
+    stopCamera();
+    setMode("idle");
+  };
+
+  // Cleanup on unmount
+  useEffect(() => { return () => stopCamera(); }, [stopCamera]);
 
   return (
     <div className="photo-capture-area">
-      <label>Member Photo <span className="photo-required-badge">* Required</span></label>
+      <label>Member Photo <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Optional</span></label>
 
-      {!photo && !streaming && !showingSimulated && (
+      {/* ALWAYS render the video — just hide it when not streaming */}
+      <div style={{ display: mode === "streaming" ? "block" : "none", width: "100%", maxWidth: 320, margin: "0 auto" }}>
+        <div style={{ position: "relative", borderRadius: "var(--radius)", overflow: "hidden", border: "3px solid var(--accent)", background: "#000" }}>
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            autoPlay
+            style={{ width: "100%", display: "block", transform: "scaleX(-1)", minHeight: 200 }}
+          />
+          {!cameraReady && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.7)" }}>
+              <div style={{ textAlign: "center" }}>
+                <RefreshCw size={24} style={{ color: "var(--accent)", animation: "spin 1s linear infinite" }} />
+                <p style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 8 }}>Starting camera...</p>
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12 }}>
+          <button type="button" className="btn btn-success" onClick={takePhoto} disabled={!cameraReady} style={{ minWidth: 150 }}>
+            <Camera size={16} /> Take Photo
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={cancelCamera}>
+            Cancel
+          </button>
+        </div>
+        {cameraReady && (
+          <p style={{ color: "var(--success)", fontSize: 11, textAlign: "center", marginTop: 6 }}>
+            Camera ready — position the member and tap "Take Photo"
+          </p>
+        )}
+      </div>
+
+      {/* Idle state — no photo yet */}
+      {mode !== "streaming" && !photo && (
         <>
           <div className="photo-preview-frame">
             <div className="photo-placeholder">
@@ -1332,55 +1740,13 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
             <Camera size={16} /> Capture Photo
           </button>
           <p style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center" }}>
-            Opens tablet camera to capture member photo
+            Opens camera to capture member photo
           </p>
         </>
       )}
 
-      {showingSimulated && (
-        <>
-          <div className="photo-preview-frame" style={{ border: "3px solid var(--success)", position: "relative" }}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 60, height: 60, borderRadius: "50%", background: "var(--success-dim)", display: "flex", alignItems: "center", justifyContent: "center", animation: "pulse 1s infinite" }}>
-                <Camera size={28} style={{ color: "var(--success)" }} />
-              </div>
-              <span style={{ fontSize: 32, fontWeight: 700, color: "var(--success)", fontFamily: "var(--font-display)" }}>{countdown > 0 ? countdown : ""}</span>
-            </div>
-          </div>
-          <p style={{ color: "var(--success)", fontSize: 13, fontWeight: 600 }}>
-            {countdown > 0 ? `Capturing in ${countdown}...` : "Processing..."}
-          </p>
-        </>
-      )}
-
-      {streaming && (
-        <>
-          <div className="camera-viewfinder" style={{ position: "relative" }}>
-            <video ref={videoRef} playsInline muted style={{ width: "100%", display: "block", transform: "scaleX(-1)" }} />
-            {!cameraReady && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.7)" }}>
-                <p style={{ color: "var(--text-dim)", fontSize: 13 }}>Starting camera...</p>
-              </div>
-            )}
-            {capturing && (
-              <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.8)", display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn 0.1s" }}>
-                <Check size={48} style={{ color: "var(--success)" }} />
-              </div>
-            )}
-          </div>
-          <div className="camera-controls">
-            <button type="button" className="btn btn-primary" onClick={capture} disabled={!cameraReady || capturing} style={{ minWidth: 160 }}>
-              {capturing ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Processing...</> : <><Camera size={14} /> Take Photo</>}
-            </button>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={stopCamera} disabled={capturing}>
-              Cancel
-            </button>
-          </div>
-          {cameraReady && !capturing && <p style={{ color: "var(--success)", fontSize: 11, textAlign: "center" }}>Camera ready — position the member and tap "Take Photo"</p>}
-        </>
-      )}
-
-      {photo && !streaming && !showingSimulated && (
+      {/* Photo captured */}
+      {photo && mode !== "streaming" && (
         <>
           <div className="photo-preview-frame">
             <img src={photo} alt="Member" />
@@ -1400,24 +1766,145 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
 };
 
 // ─── MEMBERS ────────────────────────────────────────────────
-const Members = ({ data, setData }) => {
+const TERMS_AND_CONDITIONS = `RUSH FITNESS CENTRE – NAALYA
+TERMS & CONDITIONS OF MEMBERSHIP
+
+By creating an account and accessing services at Rush Fitness Centre – Naalya, you agree to the following Terms and Conditions:
+
+1. ACCEPTANCE OF TERMS
+By registering for membership, you confirm that you have read, understood, and agreed to comply with these Terms and Conditions and all gym policies. Access to the facility is conditional upon acceptance of these terms.
+
+2. MEMBER INFORMATION
+You agree to provide accurate and complete personal information, including:
+• Full Name
+• National ID or Passport
+• Phone Number
+• Emergency Contact
+You are responsible for keeping your information up to date.
+
+3. HEALTH & SAFETY
+• You acknowledge that participation in fitness activities involves inherent risks.
+• All equipment must be used properly and in accordance with staff instructions.
+• You agree to follow all safety guidelines and gym rules at all times.
+• You are advised to seek medical clearance before beginning any exercise program.
+
+4. LIABILITY WAIVER
+To the fullest extent permitted by law:
+• Rush Fitness Centre shall not be held liable for any injury, loss, or damage sustained while using the facility or participating in activities.
+• You use all equipment and services at your own risk.
+
+5. PERSONAL PROPERTY
+• You are solely responsible for your personal belongings.
+• The gym is not liable for loss, theft, or damage to personal items.
+• Lockers should be used where available.
+
+6. CODE OF CONDUCT
+You agree to:
+• Treat staff and other members with respect.
+• Refrain from abusive, disruptive, or inappropriate behavior.
+
+The following are strictly prohibited:
+• Smoking within the premises
+• Use of alcohol or illegal substances before or during workouts
+• Accessing the facility while under the influence
+Violation may result in suspension or termination of membership.
+
+7. HYGIENE & FACILITY USE
+• Maintain proper personal hygiene at all times.
+• Wipe down equipment after use.
+• Wear appropriate gym attire while in the facility.
+
+8. MEMBERSHIP TERMS
+• Membership is personal and non-transferable.
+• Access may be denied for violation of these Terms.
+• Management reserves the right to modify these Terms at any time without prior notice.
+
+9. TERMS FOR ADULT MEMBERS (18 YEARS AND ABOVE)
+• You accept full responsibility for your health and fitness decisions.
+• You acknowledge that participation is voluntary.
+• Personal training services are optional and may be requested separately.
+
+10. TERMS FOR MINORS (UNDER 18 YEARS)
+
+10.1 Parental/Guardian Consent
+• Membership requires consent from a parent or legal guardian.
+
+10.2 Supervision
+• Minors must be supervised by a parent/guardian or authorized trainer at all times.
+
+10.3 Restricted Access
+• Certain equipment or areas may be restricted for safety reasons.
+• Staff may limit access based on age, ability, or safety concerns.
+
+10.4 Parental Liability
+• The parent/guardian accepts full responsibility for the minor's participation.
+• The gym shall not be liable for injuries involving minors.
+
+11. TERMINATION OR SUSPENSION
+Your membership may be suspended or terminated without refund if you:
+• Violate these Terms and Conditions
+• Engage in unsafe or inappropriate behavior
+• Provide false or misleading information
+• Abuse substances within or before accessing the facility
+
+12. MEMBER DECLARATION
+By creating an account, you confirm that:
+• You have read and understood these Terms and Conditions
+• You agree to abide by all gym rules and policies
+• You voluntarily accept all risks associated with gym use`;
+
+const Members = ({ data, setData, currentUser }) => {
+  const isAdmin = currentUser?.role === "admin";
   const [search, setSearch] = useState("");
-  const [modal, setModal] = useState(null); // 'add' | 'edit' | 'view' | null
+  const [modal, setModal] = useState(null); // 'add' | 'edit' | 'view' | 'terms' | null
   const [current, setCurrent] = useState(null);
-  const [form, setForm] = useState({ name: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", nationalId: "", pin: "", photo: null });
+  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", pin: "", photo: null });
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsScrolled, setTermsScrolled] = useState(false);
+  const termsRef = useRef(null);
 
-  const filtered = data.members.filter((m) => m.name.toLowerCase().includes(search.toLowerCase()) || m.phone.includes(search));
+  const filtered = data.members.filter((m) => fullName(m).toLowerCase().includes(search.toLowerCase()) || m.phone.includes(search));
 
-  const openAdd = () => { setForm({ name: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", nationalId: "", pin: Math.floor(1000 + Math.random() * 9000).toString(), photo: null }); setModal("add"); };
+  const openAdd = () => { setForm({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", pin: Math.floor(1000 + Math.random() * 9000).toString(), photo: null }); setTermsAccepted(false); setTermsScrolled(false); setModal("add"); };
   const openEdit = (m) => { setCurrent(m); setForm({ ...m }); setModal("edit"); };
   const openView = (m) => { setCurrent(m); setModal("view"); };
 
+  const handleTermsScroll = () => {
+    if (termsRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = termsRef.current;
+      if (scrollTop + clientHeight >= scrollHeight - 20) {
+        setTermsScrolled(true);
+      }
+    }
+  };
+
+  const validateAndShowTerms = () => {
+    if (!form.firstName || !form.lastName || !form.phone) {
+      alert("Please fill in Surname, Other Name(s), and Phone number.");
+      return;
+    }
+    if (!form.nationalId || form.nationalId.length !== 14) {
+      alert("National ID (NIN) is required and must be exactly 14 characters." + (form.nationalId ? " Currently: " + form.nationalId.length + " characters." : ""));
+      return;
+    }
+    if (!form.dob) {
+      alert("Date of Birth is required.");
+      return;
+    }
+    if (!form.emergency) {
+      alert("Emergency Contact 1 is required.");
+      return;
+    }
+    // Validation passed — show T&C
+    setTermsAccepted(false);
+    setTermsScrolled(false);
+    setModal("terms");
+  };
+
   const save = () => {
-    if (!form.name || !form.phone) return;
-    // Photo is required for new members
-    if (modal === "add" && !form.photo) { alert("Please capture a photo of the member before saving."); return; }
-    if (modal === "add") {
-      const newMember = { ...form, id: generateId(), isActive: true, createdAt: today() };
+    // Photo is optional — member can be registered without one
+    if (modal === "add" || modal === "terms") {
+      const newMember = { ...form, id: generateId(), isActive: true, createdAt: today(), termsAcceptedAt: new Date().toISOString() };
       setData((d) => ({ ...d, members: [...d.members, newMember] }));
     } else {
       setData((d) => ({ ...d, members: d.members.map((m) => m.id === current.id ? { ...m, ...form } : m) }));
@@ -1443,7 +1930,7 @@ const Members = ({ data, setData }) => {
 
       <div className="table-wrapper">
         <table>
-          <thead><tr><th></th><th>Name</th><th>Phone</th><th>National ID</th><th>Gender</th><th>Membership</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th></th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>National ID</th><th>Gender</th><th>Membership</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((m) => {
               const ms = data.memberships.find((ms) => ms.memberId === m.id && ms.isActive);
@@ -1452,10 +1939,11 @@ const Members = ({ data, setData }) => {
                 <tr key={m.id}>
                   <td>
                     <div style={{ width: 34, height: 34, borderRadius: "50%", overflow: "hidden", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid var(--accent)", flexShrink: 0 }}>
-                      {m.photo ? <img src={m.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-display)" }}>{m.name.charAt(0)}</span>}
+                      {m.photo ? <img src={m.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-display)" }}>{memberInitials(m)}</span>}
                     </div>
                   </td>
-                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{m.name}</td>
+                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{m.lastName}</td>
+                  <td style={{ color: "var(--text)" }}>{m.firstName}</td>
                   <td>{m.phone}</td>
                   <td style={{ fontFamily: "monospace", fontSize: 12 }}>{m.nationalId || "—"}</td>
                   <td>{m.gender}</td>
@@ -1465,7 +1953,7 @@ const Members = ({ data, setData }) => {
                     <div style={{ display: "flex", gap: 6 }}>
                       <button className="btn btn-icon btn-secondary" onClick={() => openView(m)}><Eye size={14} /></button>
                       <button className="btn btn-icon btn-secondary" onClick={() => openEdit(m)}><Edit2 size={14} /></button>
-                      <button className="btn btn-icon btn-danger" onClick={() => toggleActive(m)}>{m.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
+                      {isAdmin && <button className="btn btn-icon btn-danger" onClick={() => toggleActive(m)}>{m.isActive ? <Pause size={14} /> : <Play size={14} />}</button>}
                     </div>
                   </td>
                 </tr>
@@ -1479,13 +1967,13 @@ const Members = ({ data, setData }) => {
         <Modal title="Member Profile" onClose={() => setModal(null)}>
           <div style={{ textAlign: "center", marginBottom: 20 }}>
             <div style={{ width: 100, height: 100, borderRadius: "50%", overflow: "hidden", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto", border: "3px solid var(--accent)" }}>
-              {current.photo ? <img src={current.photo} alt={current.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 36, fontFamily: "var(--font-display)", color: "var(--accent)", fontWeight: 700 }}>{current.name.charAt(0)}</span>}
+              {current.photo ? <img src={current.photo} alt={fullName(current)} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 36, fontFamily: "var(--font-display)", color: "var(--accent)", fontWeight: 700 }}>{memberInitials(current)}</span>}
             </div>
-            <h3 style={{ fontFamily: "var(--font-display)", fontSize: 20, marginTop: 12 }}>{current.name}</h3>
+            <h3 style={{ fontFamily: "var(--font-display)", fontSize: 20, marginTop: 12 }}>{fullName(current)}</h3>
             <p style={{ color: "var(--text-dim)" }}>{current.phone}</p>
           </div>
           <div className="form-grid">
-            {[["National ID", current.nationalId || "—"], ["Email", current.email || "—"], ["Gender", current.gender], ["DOB", current.dob ? formatDate(current.dob) : "—"], ["Emergency", current.emergency], ["PIN", current.pin], ["Joined", formatDate(current.createdAt)]].map(([l, v]) => (
+            {[["First Name", current.firstName || "—"], ["Last Name", current.lastName || "—"], ["National ID", current.nationalId || "—"], ["Email", current.email || "—"], ["Gender", current.gender], ["DOB", current.dob ? formatDate(current.dob) : "—"], ["Emergency 1", current.emergency || "—"], ["Emergency 2", current.emergency2 || "—"], ["PIN", current.pin], ["Joined", formatDate(current.createdAt)]].map(([l, v]) => (
               <div key={l} className="form-group"><label>{l}</label><p style={{ fontSize: 14, color: "var(--text)" }}>{v}</p></div>
             ))}
           </div>
@@ -1493,22 +1981,99 @@ const Members = ({ data, setData }) => {
       )}
 
       {(modal === "add" || modal === "edit") && (
-        <Modal title={modal === "add" ? "Register New Member" : "Edit Member"} onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save}><Check size={14} /> Save</button></>}>
+        <Modal title={modal === "add" ? "Register New Member" : "Edit Member"} onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>{modal === "add" ? <button className="btn btn-primary" onClick={validateAndShowTerms}><ChevronRight size={14} /> Continue to T&C</button> : <button className="btn btn-primary" onClick={save}><Check size={14} /> Save Changes</button>}</>}>
           <div className="form-grid">
             <PhotoCapture
               photo={form.photo}
-              memberName={form.name}
+              memberName={`${form.firstName} ${form.lastName}`}
               onCapture={(dataUrl) => setForm((f) => ({ ...f, photo: dataUrl }))}
               onRetake={() => setForm((f) => ({ ...f, photo: null }))}
             />
-            <div className="form-group"><label>Full Name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Sarah Nakamya" /></div>
+            <div className="form-group"><label>Surname *</label><input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="e.g. Nakamya" /></div>
+            <div className="form-group"><label>Other Name(s) *</label><input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="e.g. Sarah" /></div>
             <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 0771234567" /></div>
-            <div className="form-group full"><label>National ID (NIN)</label><input value={form.nationalId} onChange={(e) => setForm({ ...form, nationalId: e.target.value })} placeholder="e.g. CM95015003ABCD" style={{ fontFamily: "monospace", letterSpacing: "0.05em" }} /></div>
+            <div className="form-group"><label>Gender *</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option>Male</option><option>Female</option></select></div>
+            <div className="form-group full">
+              <label>National ID (NIN) * <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— exactly 14 characters</span></label>
+              <input value={form.nationalId} onChange={(e) => setForm({ ...form, nationalId: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 14) })} placeholder="e.g. CM95015003ABCD" maxLength={14} style={{ fontFamily: "monospace", letterSpacing: "0.1em", fontSize: 16 }} />
+              {form.nationalId && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                  <span style={{ fontSize: 11, color: form.nationalId.length === 14 ? "var(--success)" : form.nationalId.length > 0 ? "var(--warning)" : "var(--text-muted)" }}>
+                    {form.nationalId.length === 14 ? "✓ Valid length" : `${form.nationalId.length}/14 characters`}
+                  </span>
+                  {form.nationalId.length === 14 && <span style={{ fontSize: 11, color: "var(--success)", fontWeight: 600 }}>Ready</span>}
+                </div>
+              )}
+            </div>
+            <div className="form-group"><label>Date of Birth *</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
             <div className="form-group"><label>Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Optional" /></div>
-            <div className="form-group"><label>Gender</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option>Male</option><option>Female</option></select></div>
-            <div className="form-group"><label>Date of Birth</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
-            <div className="form-group"><label>Emergency Contact</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
+            <div className="form-group"><label>Emergency Contact 1 *</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
+            <div className="form-group"><label>Emergency Contact 2</label><input value={form.emergency2 || ""} onChange={(e) => setForm({ ...form, emergency2: e.target.value })} placeholder="Optional" /></div>
             <div className="form-group"><label>Check-in PIN</label><input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} maxLength={4} placeholder="4 digits" /></div>
+          </div>
+        </Modal>
+      )}
+
+      {/* TERMS & CONDITIONS MODAL */}
+      {modal === "terms" && (
+        <Modal title="Terms & Conditions" onClose={() => setModal("add")} footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setModal("add")}>
+              <ArrowLeft size={14} /> Back to Form
+            </button>
+            <button className="btn btn-primary" onClick={save} disabled={!termsAccepted} style={!termsAccepted ? { opacity: 0.4, cursor: "not-allowed" } : {}}>
+              <Check size={14} /> Accept & Register Member
+            </button>
+          </>
+        }>
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 8 }}>
+              Registering: <strong style={{ color: "var(--text)" }}>{form.firstName} {form.lastName}</strong> — please have the member read through and accept the terms below.
+            </p>
+            {!termsScrolled && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "var(--warning-dim)", borderRadius: "var(--radius-xs)", fontSize: 12, color: "var(--warning)" }}>
+                <AlertTriangle size={14} /> Scroll to the bottom to enable the agreement checkbox
+              </div>
+            )}
+          </div>
+
+          <div
+            ref={termsRef}
+            onScroll={handleTermsScroll}
+            style={{
+              maxHeight: 340,
+              overflowY: "auto",
+              background: "var(--bg-input)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              padding: "20px 24px",
+              fontSize: 13,
+              lineHeight: 1.7,
+              color: "var(--text-dim)",
+              whiteSpace: "pre-wrap",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            {TERMS_AND_CONDITIONS}
+          </div>
+
+          <div style={{ marginTop: 16, padding: "14px 16px", background: termsAccepted ? "var(--success-dim)" : "var(--bg-elevated)", border: `1px solid ${termsAccepted ? "rgba(34,197,94,0.3)" : "var(--border)"}`, borderRadius: "var(--radius-sm)", transition: "all 0.2s" }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: termsScrolled ? "pointer" : "not-allowed", opacity: termsScrolled ? 1 : 0.4 }}>
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => termsScrolled && setTermsAccepted(e.target.checked)}
+                disabled={!termsScrolled}
+                style={{ width: 20, height: 20, marginTop: 2, accentColor: "var(--success)", cursor: termsScrolled ? "pointer" : "not-allowed" }}
+              />
+              <span style={{ fontSize: 14, color: termsAccepted ? "var(--success)" : "var(--text)", fontWeight: 500, lineHeight: 1.4 }}>
+                I agree to the Terms & Conditions of Rush Fitness Centre – Naalya
+                <br />
+                <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400 }}>
+                  Member: {form.firstName} {form.lastName} • NIN: {form.nationalId} • {new Date().toLocaleDateString("en-UG")}
+                </span>
+              </span>
+            </label>
           </div>
         </Modal>
       )}
@@ -1522,7 +2087,8 @@ const getMembershipBalance = (ms, payments) => {
   return { totalDue: ms.totalDue || 0, totalPaid: paid, balance: (ms.totalDue || 0) - paid, isPaidInFull: paid >= (ms.totalDue || 0) };
 };
 
-const Memberships = ({ data, setData }) => {
+const Memberships = ({ data, setData, currentUser }) => {
+  const isAdmin = currentUser?.role === "admin";
   const [modal, setModal] = useState(null); // 'assign' | 'pay' | null
   const [form, setForm] = useState({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full" });
   const [payTarget, setPayTarget] = useState(null); // membership for additional payment
@@ -1648,7 +2214,7 @@ const Memberships = ({ data, setData }) => {
               const isPending = ms.status === "pending_payment";
               return (
                 <tr key={ms.id} style={isPending ? { background: "rgba(249,115,22,0.04)" } : undefined}>
-                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{member?.name}</td>
+                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{fullName(member)}</td>
                   <td>{getPlanName(ms.plan)}</td>
                   <td>{formatDate(ms.startDate)}</td>
                   <td>{formatDate(ms.endDate)}</td>
@@ -1675,8 +2241,8 @@ const Memberships = ({ data, setData }) => {
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {isPending && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
                       {!isPending && !bal.isPaidInFull && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
-                      {ms.status === "active" && !exp && <button className="btn btn-sm btn-secondary" onClick={() => freeze(ms)}><Pause size={12} /> Freeze</button>}
-                      {ms.status === "frozen" && <button className="btn btn-sm btn-secondary" onClick={() => unfreeze(ms)}><Play size={12} /> Unfreeze</button>}
+                      {isAdmin && ms.status === "active" && !exp && <button className="btn btn-sm btn-secondary" onClick={() => freeze(ms)}><Pause size={12} /> Freeze</button>}
+                      {isAdmin && ms.status === "frozen" && <button className="btn btn-sm btn-secondary" onClick={() => unfreeze(ms)}><Play size={12} /> Unfreeze</button>}
                     </div>
                   </td>
                 </tr>
@@ -1694,7 +2260,7 @@ const Memberships = ({ data, setData }) => {
               <label>Member</label>
               <select value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })}>
                 <option value="">Select member...</option>
-                {data.members.filter((m) => m.isActive).map((m) => <option key={m.id} value={m.id}>{m.name} ({m.phone})</option>)}
+                {data.members.filter((m) => m.isActive).map((m) => <option key={m.id} value={m.id}>{fullName(m)} ({m.phone})</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -1819,7 +2385,7 @@ const Memberships = ({ data, setData }) => {
           return (
             <Modal title="Record Payment" onClose={() => { setModal(null); setPayTarget(null); }} footer={<><button className="btn btn-secondary" onClick={() => { setModal(null); setPayTarget(null); }}>Cancel</button><button className="btn btn-primary" onClick={recordPayment}><DollarSign size={14} /> Record Payment</button></>}>
               <div style={{ textAlign: "center", marginBottom: 20 }}>
-                <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>{member?.name}</h3>
+                <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>{fullName(member)}</h3>
                 <p style={{ color: "var(--text-dim)", marginTop: 2 }}>{getPlanName(payTarget.plan)}</p>
               </div>
 
@@ -1920,7 +2486,7 @@ const Payments = ({ data }) => {
               return (
                 <tr key={p.id}>
                   <td>{formatDate(p.paidAt)} {formatTime(p.paidAt)}</td>
-                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{member?.name || "—"}</td>
+                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{member ? fullName(member) : "—"}</td>
                   <td>{p.type === "addon" ? <Badge variant="info">Add-on</Badge> : <Badge variant="success">Membership</Badge>}</td>
                   <td><Badge variant="neutral">{p.method === "mobile_money" ? "Mobile Money" : p.method?.charAt(0).toUpperCase() + p.method?.slice(1)}</Badge></td>
                   <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(p.amount)}</td>
@@ -1938,50 +2504,217 @@ const Payments = ({ data }) => {
 };
 
 // ─── WALK-INS ───────────────────────────────────────────────
-const WalkIns = ({ data, setData }) => {
-  const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ name: "", phone: "", activityId: "steam" });
+const WalkIns = ({ data, setData, currentUser }) => {
+  const [modal, setModal] = useState(null); // 'add' | 'edit' | null
+  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid" });
+  const [editTarget, setEditTarget] = useState(null);
+  const isAdmin = currentUser?.role === "admin";
+
+  const walkinTotal = (activities) => {
+    const prices = activities.map((actId) => ACTIVITIES.find((a) => a.id === actId)?.standalone || 0);
+    const sum = prices.reduce((s, p) => s + p, 0);
+    return activities.length > 1 ? sum - 10000 : sum;
+  };
 
   const save = () => {
-    if (!form.name || !form.phone) return;
-    const act = ACTIVITIES.find((a) => a.id === form.activityId);
-    setData((d) => ({ ...d, walkIns: [...d.walkIns, { id: generateId(), ...form, amountPaid: act.standalone, visitDate: today() }] }));
-    setModal(false);
+    if (!form.firstName || !form.lastName || !form.phone) { alert("Please fill in Surname, Other Name(s), and Phone."); return; }
+    if (!form.emergency) { alert("Emergency Contact 1 is required."); return; }
+    if (form.selectedActivities.length === 0) { alert("Please select at least one activity."); return; }
+    if (!form.paymentMethod) { alert("Please select a payment method."); return; }
+
+    const total = walkinTotal(form.selectedActivities);
+    const actNames = form.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(" + ");
+    const walkIn = {
+      id: generateId(), firstName: form.firstName, lastName: form.lastName,
+      phone: form.phone, emergency: form.emergency, emergency2: form.emergency2,
+      activities: form.selectedActivities,
+      amountDue: total, amountPaid: form.paymentStatus === "paid" ? total : 0,
+      paymentMethod: form.paymentMethod, paymentStatus: form.paymentStatus,
+      checkedIn: false, checkInTime: null,
+      visitDate: today(),
+      note: form.selectedActivities.length > 1 ? `Bundle: ${actNames} (UGX 10,000 discount)` : actNames,
+    };
+
+    // Record payment if paid
+    const newPayments = form.paymentStatus === "paid" ? [{
+      id: generateId(), memberId: null, membershipId: null, amount: total,
+      method: form.paymentMethod, paidAt: new Date().toISOString(),
+      type: "walkin", discountId: null, discountAmount: 0,
+      note: `Walk-in: ${form.firstName} ${form.lastName} — ${actNames}`,
+    }] : [];
+
+    setData((d) => ({ ...d, walkIns: [...d.walkIns, walkIn], payments: [...d.payments, ...newPayments] }));
+    setModal(null);
+  };
+
+  const updateWalkIn = () => {
+    if (!editTarget) return;
+    setData((d) => ({ ...d, walkIns: d.walkIns.map((w) => w.id === editTarget.id ? { ...editTarget } : w) }));
+    setEditTarget(null);
+    setModal(null);
+  };
+
+  const markPaid = (w) => {
+    const total = w.amountDue || w.amountPaid;
+    setData((d) => ({
+      ...d,
+      walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, paymentStatus: "paid", amountPaid: total } : x),
+      payments: [...d.payments, {
+        id: generateId(), memberId: null, membershipId: null, amount: total,
+        method: w.paymentMethod || "cash", paidAt: new Date().toISOString(),
+        type: "walkin", discountId: null, discountAmount: 0,
+        note: `Walk-in payment: ${w.firstName || ""} ${w.lastName || ""}`
+      }],
+    }));
+  };
+
+  const checkInGuest = (w) => {
+    if (w.paymentStatus !== "paid") { alert("Payment must be completed before check-in."); return; }
+    setData((d) => ({
+      ...d,
+      walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, checkedIn: true, checkInTime: new Date().toISOString() } : x),
+      attendance: [...d.attendance, {
+        id: generateId(), memberId: null, guestName: `${w.firstName} ${w.lastName}`,
+        checkIn: new Date().toISOString(), checkOut: null,
+        date: today(), source: "walkin", locker: null, lockerId: null, lockerSection: null,
+      }],
+    }));
+  };
+
+  const toggleActivity = (actId) => {
+    setForm((f) => {
+      const current = f.selectedActivities;
+      if (current.includes(actId)) return { ...f, selectedActivities: current.filter((x) => x !== actId) };
+      if (current.length >= MAX_ACTIVITIES) return f;
+      return { ...f, selectedActivities: [...current, actId] };
+    });
   };
 
   return (
     <div>
-      <div className="page-header"><h2>Walk-In Guests</h2><p>Record one-off guest visits</p></div>
+      <div className="page-header"><h2>Walk-In Guests</h2><p>Record, pay, and check in one-off guest visits</p></div>
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ name: "", phone: "", activityId: "steam" }); setModal(true); }}><Plus size={16} /> Record Walk-In</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid" }); setModal("add"); }}><Plus size={16} /> Record Walk-In</button>
       </div>
       <div className="table-wrapper">
         <table>
-          <thead><tr><th>Date</th><th>Name</th><th>Phone</th><th>Activity</th><th>Amount</th></tr></thead>
+          <thead><tr><th>Date</th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>Activity</th><th>Amount</th><th>Payment</th><th>Check-In</th>{isAdmin && <th>Actions</th>}</tr></thead>
           <tbody>
-            {data.walkIns.map((w) => (
+            {[...data.walkIns].reverse().map((w) => (
               <tr key={w.id}>
                 <td>{formatDate(w.visitDate)}</td>
-                <td style={{ color: "var(--text)", fontWeight: 500 }}>{w.name}</td>
+                <td style={{ color: "var(--text)", fontWeight: 500 }}>{w.lastName || w.name}</td>
+                <td style={{ color: "var(--text)" }}>{w.firstName || ""}</td>
                 <td>{w.phone}</td>
-                <td>{ACTIVITIES.find((a) => a.id === w.activityId)?.name}</td>
-                <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(w.amountPaid)}</td>
+                <td style={{ fontSize: 12 }}>{w.activities ? w.activities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name || id).join(", ") : ACTIVITIES.find((a) => a.id === w.activityId)?.name || w.activityId}</td>
+                <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(w.amountDue || w.amountPaid)}</td>
+                <td>
+                  {(w.paymentStatus === "paid" || !w.paymentStatus) ? (
+                    <Badge variant="success">Paid</Badge>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Badge variant="warning">Pending</Badge>
+                      <button className="btn btn-sm btn-success" onClick={() => markPaid(w)} style={{ padding: "3px 8px", fontSize: 11 }}>Pay Now</button>
+                    </div>
+                  )}
+                </td>
+                <td>
+                  {w.checkedIn ? (
+                    <Badge variant="success">In {w.checkInTime ? formatTime(w.checkInTime) : ""}</Badge>
+                  ) : (w.paymentStatus === "paid" || !w.paymentStatus) ? (
+                    <button className="btn btn-sm btn-primary" onClick={() => checkInGuest(w)} style={{ padding: "4px 10px", fontSize: 11 }}><LogIn size={12} /> Check In</button>
+                  ) : (
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Pay first</span>
+                  )}
+                </td>
+                {isAdmin && (
+                  <td>
+                    <button className="btn btn-icon btn-secondary" onClick={() => { setEditTarget({ ...w }); setModal("edit"); }}><Edit2 size={14} /></button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {modal && (
-        <Modal title="Record Walk-In" onClose={() => setModal(false)} footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>Save</button></>}>
+
+      {/* ADD WALK-IN MODAL */}
+      {modal === "add" && (
+        <Modal title="Record Walk-In" onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={form.selectedActivities.length === 0}><Check size={14} /> Save</button></>}>
           <div className="form-grid">
-            <div className="form-group"><label>Name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-            <div className="form-group full"><label>Activity</label>
-              <select value={form.activityId} onChange={(e) => setForm({ ...form, activityId: e.target.value })}>
-                {ACTIVITIES.map((a) => <option key={a.id} value={a.id}>{a.name} — {formatUGX(a.standalone)}</option>)}
+            <div className="form-group"><label>Surname *</label><input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="e.g. Kamya" /></div>
+            <div className="form-group"><label>Other Name(s) *</label><input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="e.g. John" /></div>
+            <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 0771234567" /></div>
+            <div className="form-group"><label>Emergency Contact 1 *</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
+            <div className="form-group"><label>Emergency Contact 2</label><input value={form.emergency2} onChange={(e) => setForm({ ...form, emergency2: e.target.value })} placeholder="Optional" /></div>
+            <div className="form-group"><label>Payment Method *</label>
+              <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
               </select>
             </div>
+            <div className="form-group"><label>Payment Status *</label>
+              <select value={form.paymentStatus} onChange={(e) => setForm({ ...form, paymentStatus: e.target.value })}>
+                <option value="paid">Paid Now</option><option value="pending">Pending (Pay Later)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label style={{ fontSize: 12, fontWeight: 500, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Activities * <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none" }}>— select 1 or 2</span></label>
+              <span style={{ fontSize: 11, color: form.selectedActivities.length >= MAX_ACTIVITIES ? "var(--warning)" : "var(--text-muted)" }}>
+                {form.selectedActivities.length}/{MAX_ACTIVITIES} selected
+              </span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {ACTIVITIES.map((act) => {
+                const isSelected = form.selectedActivities.includes(act.id);
+                const isDisabled = !isSelected && form.selectedActivities.length >= MAX_ACTIVITIES;
+                return (
+                  <button key={act.id} type="button" className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
+                    style={isDisabled ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+                    onClick={() => { if (!isDisabled) toggleActivity(act.id); }}>
+                    {act.name} ({formatUGX(act.standalone)})
+                  </button>
+                );
+              })}
+            </div>
+            {form.selectedActivities.length > 0 && (
+              <div style={{ marginTop: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                {form.selectedActivities.map((actId) => {
+                  const act = ACTIVITIES.find((a) => a.id === actId);
+                  return (<div key={actId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}><span>{act.name}</span><span>{formatUGX(act.standalone)}</span></div>);
+                })}
+                {form.selectedActivities.length > 1 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}><span>Bundle Discount</span><span>-{formatUGX(10000)}</span></div>
+                )}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, color: "var(--accent)", borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}><span>Total</span><span>{formatUGX(walkinTotal(form.selectedActivities))}</span></div>
+                {form.paymentStatus === "pending" && <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 6 }}>Payment pending — guest cannot check in until paid.</p>}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* EDIT WALK-IN MODAL (Admin only) */}
+      {modal === "edit" && editTarget && isAdmin && (
+        <Modal title="Edit Walk-In Record" onClose={() => { setModal(null); setEditTarget(null); }} footer={<><button className="btn btn-secondary" onClick={() => { setModal(null); setEditTarget(null); }}>Cancel</button><button className="btn btn-primary" onClick={updateWalkIn}><Check size={14} /> Save Changes</button></>}>
+          <div className="form-grid">
+            <div className="form-group"><label>Surname</label><input value={editTarget.lastName || ""} onChange={(e) => setEditTarget({ ...editTarget, lastName: e.target.value })} /></div>
+            <div className="form-group"><label>Other Name(s)</label><input value={editTarget.firstName || ""} onChange={(e) => setEditTarget({ ...editTarget, firstName: e.target.value })} /></div>
+            <div className="form-group"><label>Phone</label><input value={editTarget.phone || ""} onChange={(e) => setEditTarget({ ...editTarget, phone: e.target.value })} /></div>
+            <div className="form-group"><label>Payment Method</label>
+              <select value={editTarget.paymentMethod || "cash"} onChange={(e) => setEditTarget({ ...editTarget, paymentMethod: e.target.value })}>
+                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
+              </select>
+            </div>
+            <div className="form-group"><label>Payment Status</label>
+              <select value={editTarget.paymentStatus || "paid"} onChange={(e) => setEditTarget({ ...editTarget, paymentStatus: e.target.value })}>
+                <option value="paid">Paid</option><option value="pending">Pending</option>
+              </select>
+            </div>
+            <div className="form-group"><label>Amount</label><input type="number" value={editTarget.amountDue || editTarget.amountPaid || 0} onChange={(e) => setEditTarget({ ...editTarget, amountDue: Number(e.target.value), amountPaid: editTarget.paymentStatus === "paid" ? Number(e.target.value) : 0 })} /></div>
           </div>
         </Modal>
       )}
@@ -2003,11 +2736,15 @@ const Attendance = ({ data, setData }) => {
               return (
                 <tr key={a.id}>
                   <td>{formatDate(a.date)}</td>
-                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{member?.name}</td>
+                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{member ? fullName(member) : a.guestName || "Guest"}</td>
                   <td>{formatTime(a.checkIn)}</td>
-                  <td>{a.checkOut ? formatTime(a.checkOut) : <button className="btn btn-sm btn-secondary" onClick={() => setData((d) => ({ ...d, attendance: d.attendance.map((x) => x.id === a.id ? { ...x, checkOut: new Date().toISOString() } : x) }))}>Check Out</button>}</td>
-                  <td><Badge variant={a.source === "self" ? "info" : "neutral"}>{a.source === "self" ? "Self" : "Staff"}</Badge></td>
-                  <td>{a.locker || "—"}</td>
+                  <td>{a.checkOut ? formatTime(a.checkOut) : <button className="btn btn-sm btn-secondary" onClick={() => setData((d) => ({
+                    ...d,
+                    attendance: d.attendance.map((x) => x.id === a.id ? { ...x, checkOut: new Date().toISOString() } : x),
+                    lockers: a.lockerId ? d.lockers.map((l) => l.id === a.lockerId ? { ...l, isOccupied: false, memberId: null } : l) : d.lockers,
+                  }))}>Check Out</button>}</td>
+                  <td><Badge variant={a.source === "walkin" ? "warning" : a.source === "self" ? "info" : "neutral"}>{a.source === "walkin" ? "Walk-In" : a.source === "self" ? "Self" : "Staff"}</Badge></td>
+                  <td>{a.locker ? <span style={{ color: a.lockerSection === "ladies" ? "#ec4899" : "#3b82f6", fontWeight: 600 }}>#{a.locker} {a.lockerSection === "ladies" ? "♀" : "♂"}</span> : "—"}</td>
                 </tr>
               );
             })}
@@ -2038,41 +2775,149 @@ const TimetablePage = () => {
 };
 
 // ─── TRAINERS ───────────────────────────────────────────────
+const TRAINER_TERMS = `GYM TRAINER TERMS & CONDITIONS (ACCOUNT CREATION)
+
+1. ACCEPTANCE OF TERMS
+By creating a trainer account on the Gym Management System, you acknowledge that you have read, understood, and agreed to comply with all operational, professional, and safety requirements outlined herein.
+
+2. WORK SCHEDULE & ATTENDANCE
+You agree to:
+• Report for duty at least 15–30 minutes before your scheduled shift
+• Be punctual, available, and prepared for all assigned sessions
+• Notify management in advance of any schedule changes or absences
+
+3. GYM FLOOR RESPONSIBILITIES
+You are responsible for:
+• Inspecting gym equipment and training areas before sessions
+• Ensuring cleanliness, order, and safety of the gym floor
+• Preparing workout plans and reviewing scheduled sessions in advance
+
+4. MEMBER ENGAGEMENT & CONDUCT
+You agree to:
+• Treat all members with professionalism, respect, and courtesy
+• Provide assistance to members, especially new clients
+• Correct exercise techniques safely and respectfully
+• Maintain a positive, motivating, and inclusive environment
+
+5. TRAINING SERVICES
+As a trainer, you shall:
+• Conduct fitness assessments for assigned clients
+• Develop personalized training programs based on client goals
+• Demonstrate exercises clearly and supervise execution
+• Monitor client safety, posture, and training intensity
+• Track and document client progress where required
+
+6. SAFETY & RISK MANAGEMENT
+You agree to:
+• Enforce proper and safe use of all gym equipment
+• Immediately report any faulty or damaged equipment
+• Respond promptly and appropriately to injuries or emergencies
+• Adhere to all gym safety policies and procedures
+
+7. CLEANLINESS & EQUIPMENT HANDLING
+You are required to:
+• Maintain cleanliness of training areas at all times
+• Re-rack weights and organize equipment after use
+• Promote and enforce gym hygiene standards among members
+
+8. COMMUNICATION & REPORTING
+You agree to:
+• Maintain accurate records of client sessions and attendance
+• Report client concerns, incidents, or progress to management
+• Communicate clearly with management and other staff regarding schedules and operations
+
+9. PROFESSIONAL CONDUCT
+You agree to:
+• Maintain a professional appearance and behavior at all times
+• Avoid personal phone use during active duty unless necessary
+• Respect confidentiality of client and gym information
+• Work collaboratively with other staff to enhance member experience
+
+10. SYSTEM USAGE & DATA INTEGRITY
+By using the system, you agree to:
+• Accurately record all client sessions, attendance, and notes
+• Not manipulate, falsify, or misuse system data
+• Protect your login credentials and prevent unauthorized access
+
+11. COMPLIANCE & DISCIPLINARY ACTION
+Failure to comply with these terms may result in:
+• Account suspension or termination
+• Disciplinary action in accordance with gym policies
+• Revocation of trainer privileges within the system
+
+12. TRAINER DECLARATION (MANDATORY ACCEPTANCE)
+By selecting "I Agree", you confirm that:
+• You have read and understood all the terms and conditions
+• You agree to comply with all gym rules, policies, and procedures
+• You accept responsibility for your professional conduct and duties
+• You acknowledge the inherent risks associated with gym activities and training environments`;
+
 const Trainers = ({ data, setData }) => {
-  const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ name: "", phone: "", specialisation: "" });
+  const [modal, setModal] = useState(null); // 'add' | 'edit' | 'view' | 'terms' | null
+  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", nationalId: "", emergency: "", emergency2: "", specialisation: "", photo: null });
   const [current, setCurrent] = useState(null);
+  const [termsAccepted1, setTermsAccepted1] = useState(false);
+  const [termsAccepted2, setTermsAccepted2] = useState(false);
+  const [termsScrolled, setTermsScrolled] = useState(false);
+  const trainerTermsRef = useRef(null);
+
+  const handleTrainerTermsScroll = () => {
+    if (trainerTermsRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = trainerTermsRef.current;
+      if (scrollTop + clientHeight >= scrollHeight - 20) setTermsScrolled(true);
+    }
+  };
+
+  const validateAndShowTerms = () => {
+    if (!form.firstName || !form.lastName || !form.phone) { alert("Please fill in Surname, Other Name(s), and Phone."); return; }
+    if (!form.nationalId || form.nationalId.length !== 14) { alert("National ID (NIN) is required and must be exactly 14 characters." + (form.nationalId ? " Currently: " + form.nationalId.length + " characters." : "")); return; }
+    if (!form.dob) { alert("Date of Birth is required."); return; }
+    if (!form.emergency) { alert("Emergency Contact 1 is required."); return; }
+    if (!form.specialisation) { alert("Specialisation is required."); return; }
+    setTermsAccepted1(false); setTermsAccepted2(false); setTermsScrolled(false);
+    setModal("terms");
+  };
 
   const save = () => {
-    if (!form.name) return;
-    if (modal === "add") {
-      setData((d) => ({ ...d, trainers: [...d.trainers, { ...form, id: generateId(), isActive: true }] }));
+    if (modal === "add" || modal === "terms") {
+      setData((d) => ({ ...d, trainers: [...d.trainers, { ...form, id: generateId(), isActive: true, termsAcceptedAt: new Date().toISOString() }] }));
     } else {
       setData((d) => ({ ...d, trainers: d.trainers.map((t) => t.id === current.id ? { ...t, ...form } : t) }));
     }
     setModal(null);
   };
 
+  const openAdd = () => {
+    setForm({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", nationalId: "", emergency: "", emergency2: "", specialisation: "", photo: null });
+    setModal("add");
+  };
+
+  const openEdit = (t) => { setCurrent(t); setForm({ ...t }); setModal("edit"); };
+  const openView = (t) => { setCurrent(t); setModal("view"); };
+
   return (
     <div>
       <div className="page-header"><h2>Trainers</h2><p>Manage trainer profiles and assignments</p></div>
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ name: "", phone: "", specialisation: "" }); setModal("add"); }}><Plus size={16} /> Add Trainer</button>
+        <button className="btn btn-primary" onClick={openAdd}><Plus size={16} /> Add Trainer</button>
       </div>
       <div className="table-wrapper">
         <table>
-          <thead><tr><th>Name</th><th>Phone</th><th>Specialisation</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>NIN</th><th>Specialisation</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {data.trainers.map((t) => (
               <tr key={t.id}>
-                <td style={{ color: "var(--text)", fontWeight: 500 }}>{t.name}</td>
+                <td style={{ color: "var(--text)", fontWeight: 500 }}>{t.lastName || t.name}</td>
+                <td style={{ color: "var(--text)" }}>{t.firstName || ""}</td>
                 <td>{t.phone}</td>
+                <td style={{ fontFamily: "monospace", fontSize: 12 }}>{t.nationalId || "—"}</td>
                 <td>{t.specialisation}</td>
                 <td>{t.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Inactive</Badge>}</td>
                 <td>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button className="btn btn-icon btn-secondary" onClick={() => { setCurrent(t); setForm(t); setModal("edit"); }}><Edit2 size={14} /></button>
+                    <button className="btn btn-icon btn-secondary" onClick={() => openView(t)}><Eye size={14} /></button>
+                    <button className="btn btn-icon btn-secondary" onClick={() => openEdit(t)}><Edit2 size={14} /></button>
                     <button className="btn btn-icon btn-danger" onClick={() => setData((d) => ({ ...d, trainers: d.trainers.map((x) => x.id === t.id ? { ...x, isActive: !x.isActive } : x) }))}>{t.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
                   </div>
                 </td>
@@ -2081,12 +2926,117 @@ const Trainers = ({ data, setData }) => {
           </tbody>
         </table>
       </div>
-      {modal && (
-        <Modal title={modal === "add" ? "Add Trainer" : "Edit Trainer"} onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save}>Save</button></>}>
+
+      {/* VIEW TRAINER PROFILE */}
+      {modal === "view" && current && (
+        <Modal title="Trainer Profile" onClose={() => setModal(null)}>
+          <div style={{ textAlign: "center", marginBottom: 20 }}>
+            <div style={{ width: 80, height: 80, borderRadius: "50%", overflow: "hidden", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto", border: "2px solid var(--accent)" }}>
+              {current.photo ? <img src={current.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 28, fontFamily: "var(--font-display)", color: "var(--accent)", fontWeight: 700 }}>{(current.firstName || current.name || "?").charAt(0)}</span>}
+            </div>
+            <h3 style={{ fontFamily: "var(--font-display)", fontSize: 20, marginTop: 12 }}>{current.firstName} {current.lastName}</h3>
+            <p style={{ color: "var(--text-dim)" }}>{current.phone}</p>
+          </div>
           <div className="form-grid">
-            <div className="form-group"><label>Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div className="form-group"><label>Phone</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-            <div className="form-group full"><label>Specialisation</label><input value={form.specialisation} onChange={(e) => setForm({ ...form, specialisation: e.target.value })} /></div>
+            {[["Surname", current.lastName || "—"], ["Other Name(s)", current.firstName || "—"], ["National ID", current.nationalId || "—"], ["Email", current.email || "—"], ["Gender", current.gender || "—"], ["DOB", current.dob ? formatDate(current.dob) : "—"], ["Emergency 1", current.emergency || "—"], ["Emergency 2", current.emergency2 || "—"], ["Specialisation", current.specialisation || "—"]].map(([l, v]) => (
+              <div key={l} className="form-group"><label>{l}</label><p style={{ fontSize: 14, color: "var(--text)" }}>{v}</p></div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {/* ADD / EDIT TRAINER FORM */}
+      {(modal === "add" || modal === "edit") && (
+        <Modal title={modal === "add" ? "Add Trainer" : "Edit Trainer"} onClose={() => setModal(null)} footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
+            {modal === "add"
+              ? <button className="btn btn-primary" onClick={validateAndShowTerms}><ChevronRight size={14} /> Continue to T&C</button>
+              : <button className="btn btn-primary" onClick={save}><Check size={14} /> Save Changes</button>
+            }
+          </>
+        }>
+          <div className="form-grid">
+            <PhotoCapture photo={form.photo} memberName={`${form.firstName} ${form.lastName}`} onCapture={(dataUrl) => setForm((f) => ({ ...f, photo: dataUrl }))} onRetake={() => setForm((f) => ({ ...f, photo: null }))} />
+            <div className="form-group"><label>Surname *</label><input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="e.g. Ssemakula" /></div>
+            <div className="form-group"><label>Other Name(s) *</label><input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="e.g. Mike" /></div>
+            <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 0781112233" /></div>
+            <div className="form-group"><label>Gender *</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option>Male</option><option>Female</option></select></div>
+            <div className="form-group full">
+              <label>National ID (NIN) * <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— exactly 14 characters</span></label>
+              <input value={form.nationalId || ""} onChange={(e) => setForm({ ...form, nationalId: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 14) })} placeholder="e.g. CM88041200QRST" maxLength={14} style={{ fontFamily: "monospace", letterSpacing: "0.1em", fontSize: 16 }} />
+              {form.nationalId && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                  <span style={{ fontSize: 11, color: form.nationalId.length === 14 ? "var(--success)" : "var(--warning)" }}>{form.nationalId.length === 14 ? "✓ Valid length" : `${form.nationalId.length}/14 characters`}</span>
+                </div>
+              )}
+            </div>
+            <div className="form-group"><label>Date of Birth *</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
+            <div className="form-group"><label>Email</label><input value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Optional" /></div>
+            <div className="form-group"><label>Emergency Contact 1 *</label><input value={form.emergency || ""} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0781110000" /></div>
+            <div className="form-group"><label>Emergency Contact 2</label><input value={form.emergency2 || ""} onChange={(e) => setForm({ ...form, emergency2: e.target.value })} placeholder="Optional" /></div>
+            <div className="form-group full"><label>Specialisation *</label><input value={form.specialisation} onChange={(e) => setForm({ ...form, specialisation: e.target.value })} placeholder="e.g. Spinning, Boxing" /></div>
+          </div>
+        </Modal>
+      )}
+
+      {/* TRAINER TERMS & CONDITIONS MODAL */}
+      {modal === "terms" && (
+        <Modal title="Trainer Terms & Conditions" onClose={() => setModal("add")} footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setModal("add")}><ArrowLeft size={14} /> Back to Form</button>
+            <button className="btn btn-primary" onClick={save} disabled={!termsAccepted1 || !termsAccepted2} style={(!termsAccepted1 || !termsAccepted2) ? { opacity: 0.4, cursor: "not-allowed" } : {}}>
+              <Check size={14} /> Accept & Register Trainer
+            </button>
+          </>
+        }>
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 8 }}>
+              Registering trainer: <strong style={{ color: "var(--text)" }}>{form.firstName} {form.lastName}</strong> — please have the trainer read through and accept the terms below.
+            </p>
+            {!termsScrolled && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "var(--warning-dim)", borderRadius: "var(--radius-xs)", fontSize: 12, color: "var(--warning)" }}>
+                <AlertTriangle size={14} /> Scroll to the bottom to enable the agreement checkboxes
+              </div>
+            )}
+          </div>
+
+          <div ref={trainerTermsRef} onScroll={handleTrainerTermsScroll} style={{
+            maxHeight: 300, overflowY: "auto", background: "var(--bg-input)", border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)", padding: "20px 24px", fontSize: 13, lineHeight: 1.7,
+            color: "var(--text-dim)", whiteSpace: "pre-wrap", fontFamily: "var(--font-body)",
+          }}>
+            {TRAINER_TERMS}
+          </div>
+
+          <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px",
+              background: termsAccepted1 ? "var(--success-dim)" : "var(--bg-elevated)",
+              border: `1px solid ${termsAccepted1 ? "rgba(34,197,94,0.3)" : "var(--border)"}`,
+              borderRadius: "var(--radius-sm)", cursor: termsScrolled ? "pointer" : "not-allowed", opacity: termsScrolled ? 1 : 0.4, transition: "all 0.2s",
+            }}>
+              <input type="checkbox" checked={termsAccepted1} onChange={(e) => termsScrolled && setTermsAccepted1(e.target.checked)} disabled={!termsScrolled}
+                style={{ width: 18, height: 18, marginTop: 2, accentColor: "var(--success)", cursor: termsScrolled ? "pointer" : "not-allowed" }} />
+              <span style={{ fontSize: 13, color: termsAccepted1 ? "var(--success)" : "var(--text)", fontWeight: 500 }}>
+                I have read and agree to the Trainer Terms & Conditions
+              </span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px",
+              background: termsAccepted2 ? "var(--success-dim)" : "var(--bg-elevated)",
+              border: `1px solid ${termsAccepted2 ? "rgba(34,197,94,0.3)" : "var(--border)"}`,
+              borderRadius: "var(--radius-sm)", cursor: termsScrolled ? "pointer" : "not-allowed", opacity: termsScrolled ? 1 : 0.4, transition: "all 0.2s",
+            }}>
+              <input type="checkbox" checked={termsAccepted2} onChange={(e) => termsScrolled && setTermsAccepted2(e.target.checked)} disabled={!termsScrolled}
+                style={{ width: 18, height: 18, marginTop: 2, accentColor: "var(--success)", cursor: termsScrolled ? "pointer" : "not-allowed" }} />
+              <span style={{ fontSize: 13, color: termsAccepted2 ? "var(--success)" : "var(--text)", fontWeight: 500 }}>
+                I understand my responsibilities and obligations as a trainer
+              </span>
+            </label>
+
+            <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center" }}>
+              Trainer: {form.firstName} {form.lastName} • NIN: {form.nationalId} • {new Date().toLocaleDateString("en-UG")}
+            </p>
           </div>
         </Modal>
       )}
@@ -2205,24 +3155,433 @@ const Discounts = ({ data, setData }) => {
   );
 };
 
+// ─── SHOP / POS ─────────────────────────────────────────────
+const Shop = ({ data, setData, currentUser }) => {
+  const [tab, setTab] = useState("sell"); // sell | products | history
+  const [cart, setCart] = useState([]);
+  const [payMethod, setPayMethod] = useState("cash");
+  const [productModal, setProductModal] = useState(null); // 'add' | 'edit' | null
+  const [productForm, setProductForm] = useState({ name: "", category: "Supplements", price: "", stock: "" });
+  const [editProduct, setEditProduct] = useState(null);
+  const [search, setSearch] = useState("");
+  const isAdmin = currentUser?.role === "admin";
+
+  const filteredProducts = data.products.filter((p) => p.isActive && p.name.toLowerCase().includes(search.toLowerCase()));
+  const cartTotal = cart.reduce((s, item) => s + item.price * item.qty, 0);
+
+  const addToCart = (product) => {
+    setCart((c) => {
+      const existing = c.find((x) => x.productId === product.id);
+      if (existing) {
+        if (existing.qty >= product.stock) return c;
+        return c.map((x) => x.productId === product.id ? { ...x, qty: x.qty + 1 } : x);
+      }
+      if (product.stock <= 0) return c;
+      return [...c, { productId: product.id, name: product.name, price: product.price, qty: 1 }];
+    });
+  };
+
+  const updateQty = (productId, delta) => {
+    setCart((c) => c.map((x) => x.productId === productId ? { ...x, qty: Math.max(0, x.qty + delta) } : x).filter((x) => x.qty > 0));
+  };
+
+  const completeSale = () => {
+    if (cart.length === 0) return;
+    const sale = {
+      id: generateId(),
+      items: cart.map((c) => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price })),
+      total: cartTotal,
+      method: payMethod,
+      soldBy: currentUser?.name || "Staff",
+      soldAt: new Date().toISOString(),
+      date: today(),
+    };
+    setData((d) => ({
+      ...d,
+      productSales: [...d.productSales, sale],
+      products: d.products.map((p) => {
+        const cartItem = cart.find((c) => c.productId === p.id);
+        return cartItem ? { ...p, stock: Math.max(0, p.stock - cartItem.qty) } : p;
+      }),
+      payments: [...d.payments, {
+        id: generateId(), memberId: null, membershipId: null,
+        amount: cartTotal, method: payMethod, paidAt: new Date().toISOString(),
+        type: "product_sale", discountId: null, discountAmount: 0,
+        note: `Shop: ${cart.map((c) => `${c.name} x${c.qty}`).join(", ")}`,
+      }],
+    }));
+    setCart([]);
+  };
+
+  const saveProduct = () => {
+    if (!productForm.name || !productForm.price) { alert("Name and Price are required."); return; }
+    if (productModal === "add") {
+      setData((d) => ({ ...d, products: [...d.products, { ...productForm, id: generateId(), price: Number(productForm.price), stock: Number(productForm.stock) || 0, isActive: true }] }));
+    } else if (editProduct) {
+      setData((d) => ({ ...d, products: d.products.map((p) => p.id === editProduct.id ? { ...p, name: productForm.name, category: productForm.category, price: Number(productForm.price), stock: Number(productForm.stock) } : p) }));
+    }
+    setProductModal(null);
+    setEditProduct(null);
+  };
+
+  const todaySales = data.productSales.filter((s) => s.date === today());
+  const todayShopRevenue = todaySales.reduce((s, sale) => s + sale.total, 0);
+
+  return (
+    <div>
+      <div className="page-header">
+        <h2>Shop</h2>
+        <p>Sell supplements, accessories & drinks — Point of Sale</p>
+      </div>
+
+      <div className="tabs" style={{ marginBottom: 20 }}>
+        <button className={`tab ${tab === "sell" ? "active" : ""}`} onClick={() => setTab("sell")}>Sell</button>
+        {isAdmin && <button className={`tab ${tab === "products" ? "active" : ""}`} onClick={() => setTab("products")}>Manage Products</button>}
+        <button className={`tab ${tab === "history" ? "active" : ""}`} onClick={() => setTab("history")}>Sales History</button>
+      </div>
+
+      {/* ── SELL TAB ── */}
+      {tab === "sell" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
+          {/* Product grid */}
+          <div>
+            <div className="search-bar" style={{ marginBottom: 16, maxWidth: 300 }}>
+              <Search />
+              <input placeholder="Search products..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
+              {filteredProducts.map((p) => (
+                <div key={p.id} onClick={() => addToCart(p)} style={{
+                  background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
+                  padding: 14, cursor: p.stock > 0 ? "pointer" : "not-allowed", transition: "var(--transition)",
+                  opacity: p.stock <= 0 ? 0.4 : 1,
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>{p.name}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>{p.category}</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--accent)" }}>{formatUGX(p.price)}</span>
+                    <span style={{ fontSize: 10, color: p.stock <= 3 ? "var(--danger)" : "var(--text-muted)" }}>{p.stock} left</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Cart */}
+          <div className="card" style={{ alignSelf: "start", position: "sticky", top: 80 }}>
+            <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Cart</h3>
+            {cart.length === 0 ? (
+              <p style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center", padding: 20 }}>Tap a product to add it</p>
+            ) : (
+              <>
+                {cart.map((item) => (
+                  <div key={item.productId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ color: "var(--text)", fontWeight: 500 }}>{item.name}</div>
+                      <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{formatUGX(item.price)} each</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button className="btn btn-icon btn-secondary" style={{ padding: 4 }} onClick={() => updateQty(item.productId, -1)}>-</button>
+                      <span style={{ fontWeight: 700, color: "var(--text)", minWidth: 20, textAlign: "center" }}>{item.qty}</span>
+                      <button className="btn btn-icon btn-secondary" style={{ padding: 4 }} onClick={() => updateQty(item.productId, 1)}>+</button>
+                    </div>
+                    <div style={{ minWidth: 90, textAlign: "right", fontWeight: 600, color: "var(--accent)" }}>{formatUGX(item.price * item.qty)}</div>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderTop: "2px solid var(--border)", marginTop: 8, fontSize: 16, fontWeight: 700 }}>
+                  <span>Total</span>
+                  <span style={{ color: "var(--accent)" }}>{formatUGX(cartTotal)}</span>
+                </div>
+                <div className="form-group" style={{ marginTop: 8 }}>
+                  <label>Payment Method</label>
+                  <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                    <option value="cash">Cash</option>
+                    <option value="mobile_money">Mobile Money</option>
+                    <option value="card">Card</option>
+                  </select>
+                </div>
+                <button className="btn btn-success" style={{ width: "100%", marginTop: 12, padding: "12px", fontSize: 14, fontWeight: 700, justifyContent: "center" }} onClick={completeSale}>
+                  <Check size={16} /> Complete Sale — {formatUGX(cartTotal)}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── MANAGE PRODUCTS TAB (Admin only) ── */}
+      {tab === "products" && isAdmin && (
+        <div>
+          <div className="toolbar">
+            <div />
+            <button className="btn btn-primary" onClick={() => { setProductForm({ name: "", category: "Supplements", price: "", stock: "" }); setEditProduct(null); setProductModal("add"); }}><Plus size={16} /> Add Product</button>
+          </div>
+          <div className="table-wrapper">
+            <table>
+              <thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>
+                {data.products.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ color: "var(--text)", fontWeight: 500 }}>{p.name}</td>
+                    <td><Badge variant="info">{p.category}</Badge></td>
+                    <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(p.price)}</td>
+                    <td style={{ color: p.stock <= 3 ? "var(--danger)" : "var(--text)", fontWeight: p.stock <= 3 ? 700 : 400 }}>{p.stock}{p.stock <= 3 && " ⚠"}</td>
+                    <td>{p.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Hidden</Badge>}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button className="btn btn-icon btn-secondary" onClick={() => { setEditProduct(p); setProductForm({ name: p.name, category: p.category, price: String(p.price), stock: String(p.stock) }); setProductModal("edit"); }}><Edit2 size={14} /></button>
+                        <button className="btn btn-icon btn-danger" onClick={() => setData((d) => ({ ...d, products: d.products.map((x) => x.id === p.id ? { ...x, isActive: !x.isActive } : x) }))}>{p.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {productModal && (
+            <Modal title={productModal === "add" ? "Add Product" : "Edit Product"} onClose={() => setProductModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setProductModal(null)}>Cancel</button><button className="btn btn-primary" onClick={saveProduct}><Check size={14} /> Save</button></>}>
+              <div className="form-grid">
+                <div className="form-group full"><label>Product Name *</label><input value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="e.g. Whey Protein" /></div>
+                <div className="form-group"><label>Category</label>
+                  <select value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}>
+                    <option>Supplements</option><option>Accessories</option><option>Drinks</option><option>Apparel</option><option>Other</option>
+                  </select>
+                </div>
+                <div className="form-group"><label>Price (UGX) *</label><input type="number" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: e.target.value })} /></div>
+                <div className="form-group"><label>Stock Quantity</label><input type="number" value={productForm.stock} onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })} /></div>
+              </div>
+            </Modal>
+          )}
+        </div>
+      )}
+
+      {/* ── SALES HISTORY TAB ── */}
+      {tab === "history" && (
+        <div>
+          <div className="card-grid" style={{ marginBottom: 20 }}>
+            <StatCard icon={DollarSign} label="Today's Shop Sales" value={formatUGX(todayShopRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
+            <StatCard icon={Receipt} label="Transactions Today" value={todaySales.length} color="var(--info)" bg="var(--info-dim)" />
+          </div>
+          <div className="table-wrapper">
+            <table>
+              <thead><tr><th>Date</th><th>Items</th><th>Method</th><th>Total</th><th>Sold By</th></tr></thead>
+              <tbody>
+                {[...data.productSales].sort((a, b) => new Date(b.soldAt) - new Date(a.soldAt)).map((sale) => (
+                  <tr key={sale.id}>
+                    <td>{formatDate(sale.soldAt)} {formatTime(sale.soldAt)}</td>
+                    <td style={{ color: "var(--text)", fontSize: 12 }}>{sale.items.map((i) => `${i.name} x${i.qty}`).join(", ")}</td>
+                    <td><Badge variant="neutral">{sale.method === "mobile_money" ? "Mobile Money" : sale.method.charAt(0).toUpperCase() + sale.method.slice(1)}</Badge></td>
+                    <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(sale.total)}</td>
+                    <td style={{ color: "var(--text-dim)" }}>{sale.soldBy}</td>
+                  </tr>
+                ))}
+                {data.productSales.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No sales recorded yet</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── EXPENSES ───────────────────────────────────────────────
+const EXPENSE_CATEGORIES = ["Utilities", "Rent", "Salaries", "Maintenance", "Supplies", "Equipment Purchase", "Marketing", "Insurance", "Transport", "Miscellaneous"];
+
+const Expenses = ({ data, setData, currentUser }) => {
+  const [modal, setModal] = useState(null); // 'add' | 'edit' | null
+  const [form, setForm] = useState({ category: "Utilities", description: "", amount: "", date: today(), method: "cash", receipt: "" });
+  const [editTarget, setEditTarget] = useState(null);
+  const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const isAdmin = currentUser?.role === "admin";
+
+  const filteredExpenses = data.expenses.filter((e) => e.date.startsWith(filterMonth));
+  const totalExpenses = filteredExpenses.reduce((s, e) => s + e.amount, 0);
+  const todayExpenses = data.expenses.filter((e) => e.date === today()).reduce((s, e) => s + e.amount, 0);
+  const categoryTotals = {};
+  filteredExpenses.forEach((e) => { categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount; });
+  const topCategory = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0];
+
+  const save = () => {
+    if (!form.description || !form.amount || !form.date) { alert("Please fill in description, amount, and date."); return; }
+    if (modal === "add") {
+      setData((d) => ({
+        ...d,
+        expenses: [...d.expenses, { ...form, id: generateId(), amount: Number(form.amount), approvedBy: currentUser?.name || "Staff", createdAt: new Date().toISOString() }],
+      }));
+    } else if (editTarget) {
+      setData((d) => ({
+        ...d,
+        expenses: d.expenses.map((e) => e.id === editTarget.id ? { ...editTarget, amount: Number(editTarget.amount) } : e),
+      }));
+    }
+    setModal(null); setEditTarget(null);
+  };
+
+  const deleteExpense = (id) => {
+    if (confirm("Delete this expense record?")) {
+      setData((d) => ({ ...d, expenses: d.expenses.filter((e) => e.id !== id) }));
+    }
+  };
+
+  return (
+    <div>
+      <div className="page-header"><h2>Expenses</h2><p>Track and manage gym operating costs</p></div>
+
+      <div className="card-grid" style={{ marginBottom: 20 }}>
+        <StatCard icon={DollarSign} label="Today's Expenses" value={formatUGX(todayExpenses)} color="var(--danger)" bg="var(--danger-dim)" />
+        <StatCard icon={TrendingUp} label={`${filterMonth} Total`} value={formatUGX(totalExpenses)} color="var(--warning)" bg="var(--warning-dim)" />
+        <StatCard icon={Receipt} label="Transactions" value={filteredExpenses.length} color="var(--info)" bg="var(--info-dim)" />
+        <StatCard icon={AlertTriangle} label="Top Category" value={topCategory ? topCategory[0] : "—"} color="var(--accent)" bg="var(--accent-dim)" />
+      </div>
+
+      <div className="toolbar">
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} style={{ padding: "8px 12px", background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", color: "var(--text)", fontSize: 13 }} />
+        </div>
+        <button className="btn btn-primary" onClick={() => { setForm({ category: "Utilities", description: "", amount: "", date: today(), method: "cash", receipt: "" }); setModal("add"); }}><Plus size={16} /> Record Expense</button>
+      </div>
+
+      {/* Category breakdown */}
+      {Object.keys(categoryTotals).length > 0 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Category Breakdown — {filterMonth}</h3>
+          <div style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden", background: "var(--bg-input)", marginBottom: 12 }}>
+            {Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]).map(([cat], i) => (
+              <div key={cat} style={{ width: `${categoryTotals[cat] / totalExpenses * 100}%`, background: `hsl(${i * 35 + 10}, 70%, 55%)` }} />
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
+            {Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]).map(([cat, amt], i) => (
+              <div key={cat} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "var(--bg-elevated)", borderRadius: "var(--radius-xs)", borderLeft: `3px solid hsl(${i * 35 + 10}, 70%, 55%)` }}>
+                <span style={{ fontSize: 12, color: "var(--text)" }}>{cat}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--danger)" }}>{formatUGX(amt)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="table-wrapper">
+        <table>
+          <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Method</th><th>Amount</th><th>Approved By</th>{isAdmin && <th>Actions</th>}</tr></thead>
+          <tbody>
+            {[...filteredExpenses].sort((a, b) => b.date.localeCompare(a.date)).map((e) => (
+              <tr key={e.id}>
+                <td>{formatDate(e.date)}</td>
+                <td><Badge variant="warning">{e.category}</Badge></td>
+                <td style={{ color: "var(--text)", maxWidth: 250 }}>{e.description}</td>
+                <td><Badge variant="neutral">{e.method === "mobile_money" ? "M-Money" : e.method.charAt(0).toUpperCase() + e.method.slice(1)}</Badge></td>
+                <td style={{ fontWeight: 600, color: "var(--danger)" }}>{formatUGX(e.amount)}</td>
+                <td style={{ fontSize: 12, color: "var(--text-dim)" }}>{e.approvedBy}</td>
+                {isAdmin && (
+                  <td>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button className="btn btn-icon btn-secondary" onClick={() => { setEditTarget({ ...e }); setModal("edit"); }}><Edit2 size={14} /></button>
+                      <button className="btn btn-icon btn-danger" onClick={() => deleteExpense(e.id)}><X size={14} /></button>
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+            {filteredExpenses.length === 0 && <tr><td colSpan={isAdmin ? 7 : 6} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No expenses recorded for {filterMonth}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ADD EXPENSE */}
+      {modal === "add" && (
+        <Modal title="Record Expense" onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save}><Check size={14} /> Save</button></>}>
+          <div className="form-grid">
+            <div className="form-group"><label>Category *</label>
+              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="form-group"><label>Date *</label><input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
+            <div className="form-group full"><label>Description *</label><input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g. Electricity bill, equipment repair..." /></div>
+            <div className="form-group"><label>Amount (UGX) *</label><input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="e.g. 450000" /></div>
+            <div className="form-group"><label>Payment Method</label>
+              <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
+                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option>
+              </select>
+            </div>
+            <div className="form-group full"><label>Receipt / Reference</label><input value={form.receipt} onChange={(e) => setForm({ ...form, receipt: e.target.value })} placeholder="Receipt number or reference (optional)" /></div>
+          </div>
+        </Modal>
+      )}
+
+      {/* EDIT EXPENSE */}
+      {modal === "edit" && editTarget && isAdmin && (
+        <Modal title="Edit Expense" onClose={() => { setModal(null); setEditTarget(null); }} footer={<><button className="btn btn-secondary" onClick={() => { setModal(null); setEditTarget(null); }}>Cancel</button><button className="btn btn-primary" onClick={save}><Check size={14} /> Save</button></>}>
+          <div className="form-grid">
+            <div className="form-group"><label>Category</label>
+              <select value={editTarget.category} onChange={(e) => setEditTarget({ ...editTarget, category: e.target.value })}>
+                {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="form-group"><label>Date</label><input type="date" value={editTarget.date} onChange={(e) => setEditTarget({ ...editTarget, date: e.target.value })} /></div>
+            <div className="form-group full"><label>Description</label><input value={editTarget.description} onChange={(e) => setEditTarget({ ...editTarget, description: e.target.value })} /></div>
+            <div className="form-group"><label>Amount (UGX)</label><input type="number" value={editTarget.amount} onChange={(e) => setEditTarget({ ...editTarget, amount: e.target.value })} /></div>
+            <div className="form-group"><label>Payment Method</label>
+              <select value={editTarget.method} onChange={(e) => setEditTarget({ ...editTarget, method: e.target.value })}>
+                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option>
+              </select>
+            </div>
+            <div className="form-group full"><label>Receipt / Reference</label><input value={editTarget.receipt || ""} onChange={(e) => setEditTarget({ ...editTarget, receipt: e.target.value })} /></div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+};
+
 // ─── RECONCILIATION ─────────────────────────────────────────
 const Reconciliation = ({ data, setData }) => {
   const [modal, setModal] = useState(false);
   const [declaredCash, setDeclaredCash] = useState("");
 
+  // SINGLE SOURCE OF TRUTH: all revenue flows through data.payments
   const todayPayments = data.payments.filter((p) => p.paidAt.startsWith(today()));
-  const systemCash = todayPayments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0) + data.walkIns.filter((w) => w.visitDate === today()).reduce((s, w) => s + w.amountPaid, 0);
+
+  // Breakdown by payment method
+  const systemCash = todayPayments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
   const systemMobile = todayPayments.filter((p) => p.method === "mobile_money").reduce((s, p) => s + p.amount, 0);
   const systemCard = todayPayments.filter((p) => p.method === "card").reduce((s, p) => s + p.amount, 0);
+  const totalRevenue = systemCash + systemMobile + systemCard;
+
+  // Breakdown by source type
+  const membershipRevenue = todayPayments.filter((p) => p.membershipId && p.type !== "addon").reduce((s, p) => s + p.amount, 0);
+  const addonRevenue = todayPayments.filter((p) => p.type === "addon").reduce((s, p) => s + p.amount, 0);
+  const walkinRevenue = todayPayments.filter((p) => p.type === "walkin").reduce((s, p) => s + p.amount, 0);
+  const shopRevenue = todayPayments.filter((p) => p.type === "product_sale").reduce((s, p) => s + p.amount, 0);
+  const otherRevenue = totalRevenue - membershipRevenue - addonRevenue - walkinRevenue - shopRevenue;
+
+  // Expenses
+  const todayExpenses = data.expenses ? data.expenses.filter((e) => e.date === today()) : [];
+  const totalExpensesToday = todayExpenses.reduce((s, e) => s + e.amount, 0);
+  const expenseByCat = {};
+  todayExpenses.forEach((e) => { expenseByCat[e.category] = (expenseByCat[e.category] || 0) + e.amount; });
+  const cashExpenses = todayExpenses.filter((e) => e.method === "cash").reduce((s, e) => s + e.amount, 0);
+  const netProfit = totalRevenue - totalExpensesToday;
+
+  // Pending walk-in payments
+  const pendingWalkIns = data.walkIns.filter((w) => w.visitDate === today() && w.paymentStatus === "pending");
+  const pendingAmount = pendingWalkIns.reduce((s, w) => s + (w.amountDue || 0), 0);
 
   const submit = () => {
     const declared = Number(declaredCash);
-    const variance = declared - systemCash;
+    const expectedCash = systemCash - cashExpenses;
+    const variance = declared - expectedCash;
     setData((d) => ({
       ...d,
       reconciliations: [...d.reconciliations, {
         id: generateId(), staffId: "s2", shiftDate: today(), declaredCash: declared,
-        systemCash, systemMobileMoney: systemMobile, systemCard, variance,
+        systemCash, systemMobileMoney: systemMobile, systemCard,
+        totalRevenue, totalExpenses: totalExpensesToday, cashExpenses, netProfit, expectedCash, variance,
+        breakdown: { memberships: membershipRevenue, addons: addonRevenue, walkIns: walkinRevenue, shop: shopRevenue, other: otherRevenue },
+        expenseBreakdown: expenseByCat,
         status: variance === 0 ? "balanced" : "flagged", adminNote: "",
       }],
     }));
@@ -2234,15 +3593,144 @@ const Reconciliation = ({ data, setData }) => {
 
   return (
     <div>
-      <div className="page-header"><h2>Daily Reconciliation</h2><p>End-of-shift cash verification</p></div>
+      <div className="page-header"><h2>Daily Reconciliation</h2><p>Full end-of-shift financial summary — revenue, expenses & cash verification</p></div>
 
-      <div className="card-grid" style={{ marginBottom: 24 }}>
-        <StatCard icon={DollarSign} label="System Cash" value={formatUGX(systemCash)} color="var(--success)" bg="var(--success-dim)" />
-        <StatCard icon={CreditCard} label="Mobile Money" value={formatUGX(systemMobile)} color="var(--info)" bg="var(--info-dim)" />
-        <StatCard icon={CreditCard} label="Card" value={formatUGX(systemCard)} color="var(--accent)" bg="var(--accent-dim)" />
-        <StatCard icon={TrendingUp} label="Total Revenue" value={formatUGX(systemCash + systemMobile + systemCard)} color="var(--accent)" bg="var(--accent-dim)" />
+      {/* Top-level summary: Revenue vs Expenses vs Net */}
+      <div className="card-grid" style={{ marginBottom: 20 }}>
+        <StatCard icon={TrendingUp} label="Total Revenue" value={formatUGX(totalRevenue)} color="var(--success)" bg="var(--success-dim)" />
+        <StatCard icon={AlertTriangle} label="Total Expenses" value={formatUGX(totalExpensesToday)} color="var(--danger)" bg="var(--danger-dim)" />
+        <StatCard icon={DollarSign} label="Net Profit" value={formatUGX(netProfit)} color={netProfit >= 0 ? "var(--success)" : "var(--danger)"} bg={netProfit >= 0 ? "var(--success-dim)" : "var(--danger-dim)"} />
+        <StatCard icon={DollarSign} label="Expected Cash" value={formatUGX(systemCash - cashExpenses)} color="var(--accent)" bg="var(--accent-dim)" />
       </div>
 
+      {/* Revenue by Payment Method */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Revenue by Payment Method</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--success)" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase" }}>Cash In</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "var(--success)", marginTop: 4 }}>{formatUGX(systemCash)}</div>
+          </div>
+          <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--info)" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase" }}>Mobile Money</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "var(--info)", marginTop: 4 }}>{formatUGX(systemMobile)}</div>
+          </div>
+          <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--accent)" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase" }}>Card</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "var(--accent)", marginTop: 4 }}>{formatUGX(systemCard)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Revenue by Source Breakdown */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 16 }}>Today's Revenue Breakdown by Source</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+          {[
+            { label: "Memberships", value: membershipRevenue, color: "var(--success)" },
+            { label: "Activity Add-ons", value: addonRevenue, color: "var(--info)" },
+            { label: "Walk-In Guests", value: walkinRevenue, color: "var(--warning)" },
+            { label: "Shop / Products", value: shopRevenue, color: "var(--accent)" },
+            ...(otherRevenue > 0 ? [{ label: "Other", value: otherRevenue, color: "var(--text-dim)" }] : []),
+          ].map((item) => (
+            <div key={item.label} style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: `3px solid ${item.color}` }}>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{item.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: item.color, marginTop: 4 }}>{formatUGX(item.value)}</div>
+            </div>
+          ))}
+        </div>
+        {totalRevenue > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", background: "var(--bg-input)" }}>
+              {membershipRevenue > 0 && <div style={{ width: `${membershipRevenue / totalRevenue * 100}%`, background: "var(--success)" }} />}
+              {addonRevenue > 0 && <div style={{ width: `${addonRevenue / totalRevenue * 100}%`, background: "var(--info)" }} />}
+              {walkinRevenue > 0 && <div style={{ width: `${walkinRevenue / totalRevenue * 100}%`, background: "var(--warning)" }} />}
+              {shopRevenue > 0 && <div style={{ width: `${shopRevenue / totalRevenue * 100}%`, background: "var(--accent)" }} />}
+            </div>
+            <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: "var(--text-muted)", flexWrap: "wrap" }}>
+              <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--success)", marginRight: 4 }} />Memberships</span>
+              <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--info)", marginRight: 4 }} />Add-ons</span>
+              <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--warning)", marginRight: 4 }} />Walk-Ins</span>
+              <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--accent)", marginRight: 4 }} />Shop</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Expenses Breakdown */}
+      {todayExpenses.length > 0 && (
+        <div className="card" style={{ marginBottom: 20, borderLeft: "3px solid var(--danger)" }}>
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Today's Expenses ({todayExpenses.length})</h3>
+          <div style={{ maxHeight: 200, overflowY: "auto" }}>
+            {todayExpenses.map((e) => (
+              <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Badge variant="warning">{e.category}</Badge>
+                  <span style={{ color: "var(--text)" }}>{e.description}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <Badge variant="neutral">{e.method === "mobile_money" ? "M-Money" : e.method === "bank_transfer" ? "Bank" : e.method.charAt(0).toUpperCase() + e.method.slice(1)}</Badge>
+                  <span style={{ fontWeight: 600, color: "var(--danger)", minWidth: 80, textAlign: "right" }}>-{formatUGX(e.amount)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {Object.keys(expenseByCat).length > 0 && (
+            <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {Object.entries(expenseByCat).map(([cat, amt]) => (
+                <div key={cat} style={{ padding: "4px 10px", background: "var(--bg-elevated)", borderRadius: "var(--radius-xs)", fontSize: 11 }}>
+                  <span style={{ color: "var(--text-muted)" }}>{cat}: </span>
+                  <span style={{ color: "var(--danger)", fontWeight: 600 }}>{formatUGX(amt)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: 12, padding: "10px 14px", background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", display: "flex", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Cash expenses (deducted from expected cash):</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--danger)" }}>{formatUGX(cashExpenses)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Pending Payments Warning */}
+      {pendingWalkIns.length > 0 && (
+        <div style={{ background: "var(--warning-dim)", border: "1px solid rgba(249,115,22,0.3)", borderRadius: "var(--radius)", padding: "14px 20px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
+          <AlertTriangle size={18} style={{ color: "var(--warning)", flexShrink: 0 }} />
+          <span style={{ fontSize: 13, color: "var(--warning)" }}>
+            <strong>{pendingWalkIns.length}</strong> walk-in payment{pendingWalkIns.length > 1 ? "s" : ""} still pending ({formatUGX(pendingAmount)}) — not included in totals until paid.
+          </span>
+        </div>
+      )}
+
+      {/* Today's Transactions Detail */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Today's Transactions ({todayPayments.length})</h3>
+        {todayPayments.length > 0 ? (
+          <div style={{ maxHeight: 250, overflowY: "auto" }}>
+            {[...todayPayments].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)).map((p) => {
+              const member = p.memberId ? data.members.find((m) => m.id === p.memberId) : null;
+              const typeLabel = p.type === "product_sale" ? "Shop" : p.type === "walkin" ? "Walk-In" : p.type === "addon" ? "Add-on" : "Membership";
+              const typeColor = p.type === "product_sale" ? "var(--accent)" : p.type === "walkin" ? "var(--warning)" : p.type === "addon" ? "var(--info)" : "var(--success)";
+              return (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Badge variant={p.type === "product_sale" ? "warning" : p.type === "walkin" ? "warning" : p.type === "addon" ? "info" : "success"}>{typeLabel}</Badge>
+                    <span style={{ color: "var(--text)" }}>{member ? fullName(member) : p.note?.slice(0, 40) || "—"}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <Badge variant="neutral">{p.method === "mobile_money" ? "M-Money" : p.method?.charAt(0).toUpperCase() + p.method?.slice(1)}</Badge>
+                    <span style={{ fontWeight: 600, color: "var(--accent)", minWidth: 80, textAlign: "right" }}>{formatUGX(p.amount)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p style={{ color: "var(--text-muted)", fontSize: 13 }}>No transactions recorded today.</p>
+        )}
+      </div>
+
+      {/* Reconciliation Submission */}
       {!todayRec ? (
         <div className="card" style={{ textAlign: "center", padding: 40 }}>
           <AlertTriangle size={40} style={{ color: "var(--warning)", marginBottom: 12 }} />
@@ -2265,13 +3753,14 @@ const Reconciliation = ({ data, setData }) => {
       {data.reconciliations.length > 0 && (
         <div className="table-wrapper" style={{ marginTop: 20 }}>
           <table>
-            <thead><tr><th>Date</th><th>Declared</th><th>System Cash</th><th>Variance</th><th>Status</th></tr></thead>
+            <thead><tr><th>Date</th><th>Declared</th><th>System Cash</th><th>Total Revenue</th><th>Variance</th><th>Status</th></tr></thead>
             <tbody>
               {[...data.reconciliations].sort((a, b) => b.shiftDate.localeCompare(a.shiftDate)).map((r) => (
                 <tr key={r.id}>
                   <td>{formatDate(r.shiftDate)}</td>
                   <td>{formatUGX(r.declaredCash)}</td>
                   <td>{formatUGX(r.systemCash)}</td>
+                  <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(r.totalRevenue || (r.systemCash + (r.systemMobileMoney || 0) + (r.systemCard || 0)))}</td>
                   <td style={{ color: r.variance === 0 ? "var(--success)" : "var(--danger)", fontWeight: 600 }}>{formatUGX(r.variance)}</td>
                   <td>{r.status === "balanced" ? <Badge variant="success">Balanced</Badge> : <Badge variant="danger">Flagged</Badge>}</td>
                 </tr>
@@ -2283,11 +3772,27 @@ const Reconciliation = ({ data, setData }) => {
 
       {modal && (
         <Modal title="Submit Reconciliation" onClose={() => setModal(false)} footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button><button className="btn btn-primary" onClick={submit}>Submit</button></>}>
-          <p style={{ marginBottom: 16, color: "var(--text-dim)" }}>System-recorded cash today: <strong style={{ color: "var(--accent)" }}>{formatUGX(systemCash)}</strong></p>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 13 }}>
+              <span style={{ color: "var(--text-dim)" }}>Cash revenue (in):</span>
+              <span style={{ color: "var(--success)", fontWeight: 600 }}>{formatUGX(systemCash)}</span>
+            </div>
+            {cashExpenses > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 13 }}>
+                <span style={{ color: "var(--text-dim)" }}>Cash expenses (out):</span>
+                <span style={{ color: "var(--danger)", fontWeight: 600 }}>-{formatUGX(cashExpenses)}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 14, fontWeight: 700, borderTop: "1px solid var(--border)", marginTop: 4 }}>
+              <span style={{ color: "var(--text)" }}>Expected cash in drawer:</span>
+              <span style={{ color: "var(--accent)" }}>{formatUGX(systemCash - cashExpenses)}</span>
+            </div>
+          </div>
           <div className="form-group">
             <label>Declared Physical Cash (UGX)</label>
             <input type="number" value={declaredCash} onChange={(e) => setDeclaredCash(e.target.value)} placeholder="Enter actual cash collected..." />
           </div>
+          {pendingWalkIns.length > 0 && <p style={{ marginTop: 12, fontSize: 12, color: "var(--warning)" }}>Note: {pendingWalkIns.length} pending walk-in payment(s) not included.</p>}
         </Modal>
       )}
     </div>
@@ -2387,20 +3892,50 @@ const Lockers = ({ data, setData }) => {
     setData((d) => ({ ...d, lockers: d.lockers.map((x) => x.id === l.id ? { ...x, isOccupied: !x.isOccupied, memberId: x.isOccupied ? null : x.memberId } : x) }));
   };
 
-  return (
-    <div>
-      <div className="page-header"><h2>Lockers</h2><p>Manage locker assignments — {data.lockers.filter((l) => !l.isOccupied).length} of {data.lockers.length} available</p></div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 10 }}>
-        {data.lockers.map((l) => (
+  const gentsLockers = data.lockers.filter((l) => l.section === "gents");
+  const ladiesLockers = data.lockers.filter((l) => l.section === "ladies");
+  const gentsAvail = gentsLockers.filter((l) => !l.isOccupied).length;
+  const ladiesAvail = ladiesLockers.filter((l) => !l.isOccupied).length;
+  const totalAvail = gentsAvail + ladiesAvail;
+
+  const renderSection = (lockers, section, accentColor, dimColor, borderColor, label, available, total) => (
+    <div style={{ flex: 1, minWidth: 280 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, padding: "10px 14px", background: dimColor, borderRadius: "var(--radius-sm)", border: `1px solid ${borderColor}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 12, height: 12, borderRadius: "50%", background: accentColor }} />
+          <span style={{ fontWeight: 600, color: accentColor, fontSize: 14 }}>{label}</span>
+        </div>
+        <span style={{ fontSize: 12, color: "var(--text-dim)" }}>{available}/{total} available</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: 8 }}>
+        {lockers.map((l) => (
           <div key={l.id} onClick={() => toggle(l)} style={{
-            background: l.isOccupied ? "var(--danger-dim)" : "var(--success-dim)",
-            border: `1px solid ${l.isOccupied ? "var(--danger)" : "var(--success)"}`,
-            borderRadius: "var(--radius-sm)", padding: 16, textAlign: "center", cursor: "pointer", transition: "var(--transition)",
+            background: l.isOccupied ? "var(--danger-dim)" : dimColor,
+            border: `1px solid ${l.isOccupied ? "var(--danger)" : borderColor}`,
+            borderRadius: "var(--radius-xs)", padding: 12, textAlign: "center", cursor: "pointer", transition: "var(--transition)",
           }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: l.isOccupied ? "var(--danger)" : "var(--success)" }}>#{l.number}</div>
-            <div style={{ fontSize: 11, marginTop: 4, color: "var(--text-dim)" }}>{l.isOccupied ? "Occupied" : "Available"}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: l.isOccupied ? "var(--danger)" : accentColor }}>#{l.number}</div>
+            <div style={{ fontSize: 10, marginTop: 2, color: l.isOccupied ? "var(--danger)" : "var(--text-muted)" }}>{l.isOccupied ? "Occupied" : "Free"}</div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="page-header">
+        <h2>Lockers</h2>
+        <p>40 lockers — {totalAvail} available ({gentsAvail} gents, {ladiesAvail} ladies)</p>
+      </div>
+      <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+        {renderSection(gentsLockers, "gents", "#3b82f6", "rgba(59,130,246,0.08)", "rgba(59,130,246,0.25)", "Gents Lockers", gentsAvail, gentsLockers.length)}
+        {renderSection(ladiesLockers, "ladies", "#ec4899", "rgba(236,72,153,0.08)", "rgba(236,72,153,0.25)", "Ladies Lockers", ladiesAvail, ladiesLockers.length)}
+      </div>
+      <div style={{ marginTop: 16, display: "flex", gap: 16, fontSize: 12, color: "var(--text-muted)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "rgba(59,130,246,0.2)", border: "1px solid rgba(59,130,246,0.4)" }} /> Gents — Free</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "rgba(236,72,153,0.2)", border: "1px solid rgba(236,72,153,0.4)" }} /> Ladies — Free</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "var(--danger-dim)", border: "1px solid var(--danger)" }} /> Occupied</div>
       </div>
     </div>
   );
@@ -2438,7 +3973,17 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
     if (k === "del") setPhone((p) => p.slice(0, -1));
     else if (k === "go") {
       const found = data.members.find((m) => m.phone === phone && m.isActive);
-      if (found) { setMember(found); setStep("confirm"); }
+      if (found) {
+        setMember(found);
+        // Skip PIN — validate membership and check in directly
+        const ms = data.memberships.find((ms) => ms.memberId === found.id && ms.isActive);
+        if (!ms || new Date(ms.endDate) < new Date()) { setStep("blocked"); setTimeout(reset, 5000); return; }
+        if (ms.status === "frozen") { setStep("blocked"); setTimeout(reset, 5000); return; }
+        const alreadyIn = data.attendance.some((a) => a.memberId === found.id && a.date === today());
+        if (alreadyIn) { setStep("success"); return; }
+        setData((d) => ({ ...d, attendance: [...d.attendance, { id: generateId(), memberId: found.id, checkIn: new Date().toISOString(), checkOut: null, date: today(), source: "self", locker: null }] }));
+        setStep("success");
+      }
       else { setStep("blocked"); setTimeout(reset, 5000); }
     }
     else if (phone.length < 10) setPhone((p) => p + k);
@@ -2490,8 +4035,8 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
 
       {step === "confirm" && member && (
         <div style={{ textAlign: "center" }}>
-          <div style={{ width: 100, height: 100, borderRadius: "50%", overflow: "hidden", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", border: "3px solid var(--accent)" }}>{member.photo ? <img src={member.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 36, fontFamily: "var(--font-display)", color: "var(--accent)", fontWeight: 700 }}>{member.name.charAt(0)}</span>}</div>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24 }}>{member.name}</h2>
+          <div style={{ width: 100, height: 100, borderRadius: "50%", overflow: "hidden", background: "var(--accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", border: "3px solid var(--accent)" }}>{member.photo ? <img src={member.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 36, fontFamily: "var(--font-display)", color: "var(--accent)", fontWeight: 700 }}>{memberInitials(member)}</span>}</div>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24 }}>{fullName(member)}</h2>
           <p style={{ color: "var(--text-dim)", marginTop: 8, marginBottom: 24 }}>Enter your 4-digit PIN</p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 20 }}>
             {[0, 1, 2, 3].map((i) => <div key={i} style={{ width: 20, height: 20, borderRadius: "50%", background: pin.length > i ? "var(--accent)" : "var(--border)" }} />)}
@@ -2506,7 +4051,7 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
           <div style={{ width: 120, height: 120, borderRadius: "50%", background: "var(--success-dim)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", border: "3px solid var(--success)" }}>
             <Check size={56} style={{ color: "var(--success)" }} />
           </div>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, color: "var(--success)" }}>Welcome, {member?.name}!</h2>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, color: "var(--success)" }}>Welcome, {fullName(member)}!</h2>
           <p style={{ color: "var(--text-dim)", marginTop: 8 }}>Checked in at {formatTime(new Date())}</p>
           <p style={{ color: "var(--text-muted)", marginTop: 24, fontSize: 13 }}>Screen resets in 10 seconds...</p>
         </div>
@@ -2535,9 +4080,9 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
 
 // ─── REPORTS ────────────────────────────────────────────────
 const Reports = ({ data }) => {
-  const totalRevenue = data.payments.reduce((s, p) => s + p.amount, 0) + data.walkIns.reduce((s, w) => s + w.amountPaid, 0);
+  const totalRevenue = data.payments.reduce((s, p) => s + p.amount, 0);
   const currentMonth = new Date().toISOString().slice(0, 7);
-  const monthlyRevenue = data.payments.filter((p) => p.paidAt.startsWith(currentMonth)).reduce((s, p) => s + p.amount, 0) + data.walkIns.filter((w) => w.visitDate.startsWith(currentMonth)).reduce((s, w) => s + w.amountPaid, 0);
+  const monthlyRevenue = data.payments.filter((p) => p.paidAt.startsWith(currentMonth)).reduce((s, p) => s + p.amount, 0);
   const totalDiscounts = data.payments.reduce((s, p) => s + (p.discountAmount || 0), 0);
   const planBreakdown = {};
   data.memberships.forEach((ms) => {
@@ -2545,40 +4090,141 @@ const Reports = ({ data }) => {
     planBreakdown[key] = (planBreakdown[key] || 0) + 1;
   });
 
+  const [tab, setTab] = useState("overview"); // overview | debtors
+
+  // DEBTORS: members with pending_payment memberships (partial payments)
+  const memberDebtors = data.memberships.filter((ms) => ms.status === "pending_payment" || (ms.isActive && ms.totalDue)).map((ms) => {
+    const bal = getMembershipBalance(ms, data.payments);
+    if (bal.isPaidInFull) return null;
+    const member = data.members.find((m) => m.id === ms.memberId);
+    if (!member) return null;
+    return { type: "membership", member, membership: ms, ...bal };
+  }).filter(Boolean);
+
+  // DEBTORS: walk-ins with pending payment
+  const walkinDebtors = data.walkIns.filter((w) => w.paymentStatus === "pending").map((w) => ({
+    type: "walkin", name: `${w.firstName || ""} ${w.lastName || w.name || ""}`.trim(), phone: w.phone,
+    totalDue: w.amountDue || w.amountPaid || 0, totalPaid: 0, balance: w.amountDue || w.amountPaid || 0,
+    date: w.visitDate, activities: w.activities?.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(", ") || "",
+  }));
+
+  const allDebtors = [...memberDebtors, ...walkinDebtors];
+  const totalOutstanding = allDebtors.reduce((s, d) => s + d.balance, 0);
+
   return (
     <div>
-      <div className="page-header"><h2>Reports</h2><p>Revenue and membership analytics</p></div>
-      <div className="card-grid">
-        <StatCard icon={DollarSign} label="Total Revenue" value={formatUGX(totalRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
-        <StatCard icon={TrendingUp} label="This Month" value={formatUGX(monthlyRevenue)} color="var(--success)" bg="var(--success-dim)" />
-        <StatCard icon={Tag} label="Total Discounts Given" value={formatUGX(totalDiscounts)} color="var(--warning)" bg="var(--warning-dim)" />
-        <StatCard icon={Users} label="Total Registrations" value={data.members.length} color="var(--info)" bg="var(--info-dim)" />
+      <div className="page-header"><h2>Reports</h2><p>Revenue analytics and debtor tracking</p></div>
+
+      <div className="tabs" style={{ marginBottom: 20 }}>
+        <button className={`tab ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Revenue Overview</button>
+        <button className={`tab ${tab === "debtors" ? "active" : ""}`} onClick={() => setTab("debtors")}>Debtors Report ({allDebtors.length})</button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 8 }}>
-        <div className="card">
-          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Membership Distribution</h3>
-          {Object.entries(planBreakdown).map(([plan, count]) => (
-            <div key={plan} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-              <span style={{ color: "var(--text)" }}>{plan}</span>
-              <Badge variant="info">{count}</Badge>
+      {tab === "overview" && (
+        <>
+          <div className="card-grid">
+            <StatCard icon={DollarSign} label="Total Revenue" value={formatUGX(totalRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
+            <StatCard icon={TrendingUp} label="This Month" value={formatUGX(monthlyRevenue)} color="var(--success)" bg="var(--success-dim)" />
+            <StatCard icon={Tag} label="Total Discounts Given" value={formatUGX(totalDiscounts)} color="var(--warning)" bg="var(--warning-dim)" />
+            <StatCard icon={Users} label="Total Registrations" value={data.members.length} color="var(--info)" bg="var(--info-dim)" />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 8 }}>
+            <div className="card">
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Membership Distribution</h3>
+              {Object.entries(planBreakdown).map(([plan, count]) => (
+                <div key={plan} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                  <span style={{ color: "var(--text)" }}>{plan}</span>
+                  <Badge variant="info">{count}</Badge>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        <div className="card">
-          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Payment Methods</h3>
-          {["cash", "mobile_money", "card"].map((method) => {
-            const total = data.payments.filter((p) => p.method === method).reduce((s, p) => s + p.amount, 0);
-            return (
-              <div key={method} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ color: "var(--text)" }}>{method === "mobile_money" ? "Mobile Money" : method.charAt(0).toUpperCase() + method.slice(1)}</span>
-                <span style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(total)}</span>
+            <div className="card">
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Payment Methods</h3>
+              {["cash", "mobile_money", "card"].map((method) => {
+                const total = data.payments.filter((p) => p.method === method).reduce((s, p) => s + p.amount, 0);
+                return (
+                  <div key={method} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                    <span style={{ color: "var(--text)" }}>{method === "mobile_money" ? "Mobile Money" : method.charAt(0).toUpperCase() + method.slice(1)}</span>
+                    <span style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(total)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === "debtors" && (
+        <>
+          <div className="card-grid" style={{ marginBottom: 20 }}>
+            <StatCard icon={AlertTriangle} label="Total Debtors" value={allDebtors.length} color="var(--danger)" bg="var(--danger-dim)" />
+            <StatCard icon={DollarSign} label="Total Outstanding" value={formatUGX(totalOutstanding)} color="var(--danger)" bg="var(--danger-dim)" />
+            <StatCard icon={Users} label="Member Debtors" value={memberDebtors.length} color="var(--warning)" bg="var(--warning-dim)" />
+            <StatCard icon={UserCheck} label="Walk-In Debtors" value={walkinDebtors.length} color="var(--info)" bg="var(--info-dim)" />
+          </div>
+
+          {allDebtors.length === 0 ? (
+            <div className="card" style={{ textAlign: "center", padding: 40 }}>
+              <Check size={40} style={{ color: "var(--success)", marginBottom: 12 }} />
+              <h3 style={{ fontFamily: "var(--font-display)", marginBottom: 8, color: "var(--success)" }}>No Outstanding Debts</h3>
+              <p style={{ color: "var(--text-dim)" }}>All payments are up to date.</p>
+            </div>
+          ) : (
+            <div className="table-wrapper">
+              <table>
+                <thead><tr><th>Type</th><th>Name</th><th>Phone</th><th>Details</th><th>Total Due</th><th>Paid</th><th>Balance</th><th>Progress</th></tr></thead>
+                <tbody>
+                  {allDebtors.map((d, i) => (
+                    <tr key={i}>
+                      <td><Badge variant={d.type === "membership" ? "warning" : "info"}>{d.type === "membership" ? "Member" : "Walk-In"}</Badge></td>
+                      <td style={{ color: "var(--text)", fontWeight: 500 }}>{d.type === "membership" ? fullName(d.member) : d.name}</td>
+                      <td>{d.type === "membership" ? d.member.phone : d.phone}</td>
+                      <td style={{ fontSize: 12, color: "var(--text-dim)" }}>
+                        {d.type === "membership" ? (
+                          <span>{getPlanName(d.membership.plan)} • {formatDate(d.membership.startDate)}</span>
+                        ) : (
+                          <span>{d.activities} • {formatDate(d.date)}</span>
+                        )}
+                      </td>
+                      <td>{formatUGX(d.totalDue)}</td>
+                      <td style={{ color: "var(--success)" }}>{formatUGX(d.totalPaid)}</td>
+                      <td style={{ fontWeight: 700, color: "var(--danger)" }}>{formatUGX(d.balance)}</td>
+                      <td style={{ minWidth: 100 }}>
+                        <div style={{ height: 6, background: "var(--bg-input)", borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${d.totalDue > 0 ? Math.round(d.totalPaid / d.totalDue * 100) : 0}%`, background: "var(--warning)", borderRadius: 3 }} />
+                        </div>
+                        <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{d.totalDue > 0 ? Math.round(d.totalPaid / d.totalDue * 100) : 0}%</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {allDebtors.length > 0 && (
+            <div className="card" style={{ marginTop: 20 }}>
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Summary</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+                <div>
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Total Owed</p>
+                  <p style={{ fontSize: 22, fontWeight: 700, color: "var(--danger)" }}>{formatUGX(totalOutstanding)}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Already Collected</p>
+                  <p style={{ fontSize: 22, fontWeight: 700, color: "var(--success)" }}>{formatUGX(allDebtors.reduce((s, d) => s + d.totalPaid, 0))}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Collection Rate</p>
+                  <p style={{ fontSize: 22, fontWeight: 700, color: "var(--accent)" }}>{allDebtors.reduce((s, d) => s + d.totalDue, 0) > 0 ? Math.round(allDebtors.reduce((s, d) => s + d.totalPaid, 0) / allDebtors.reduce((s, d) => s + d.totalDue, 0) * 100) : 0}%</p>
+                </div>
               </div>
-            );
-          })}
-        </div>
-      </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 };
@@ -2619,12 +4265,12 @@ const SESSION_TIMEOUT = 15 * 60 * 1000;
 // Role-Based Access Control definitions
 const ROLE_PERMISSIONS = {
   admin: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "walkins", "timetable", "trainers", "equipment", "lockers", "payments", "discounts", "reconciliation", "reports", "staff", "audit"],
-    actions: ["create_member", "edit_member", "deactivate_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_staff", "manage_equipment", "manage_trainers", "view_reports", "view_payments", "reconcile", "export_data", "view_audit_log"],
+    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "trainers", "equipment", "lockers", "payments", "shop", "expenses", "discounts", "reconciliation", "reports", "staff", "audit"],
+    actions: ["create_member", "edit_member", "deactivate_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_staff", "manage_equipment", "manage_trainers", "manage_products", "manage_expenses", "view_reports", "view_payments", "reconcile", "export_data", "view_audit_log", "edit_walkin", "delete_expense"],
   },
   staff: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "walkins", "timetable", "lockers"],
-    actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member"],
+    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "shop", "payments", "expenses", "reports"],
+    actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member", "sell_products", "record_expense"],
   },
 };
 
@@ -2789,7 +4435,6 @@ const NAV = [
     { id: "members", label: "Members", icon: Users },
     { id: "memberships", label: "Memberships", icon: CreditCard },
     { id: "attendance", label: "Attendance", icon: ClipboardList },
-    { id: "walkins", label: "Walk-Ins", icon: UserCheck },
   ]},
   { section: "Operations", items: [
     { id: "timetable", label: "Timetable", icon: Calendar },
@@ -2799,6 +4444,8 @@ const NAV = [
   ]},
   { section: "Finance", items: [
     { id: "payments", label: "Payments", icon: DollarSign },
+    { id: "shop", label: "Shop / POS", icon: Award },
+    { id: "expenses", label: "Expenses", icon: CreditCard },
     { id: "discounts", label: "Discounts", icon: Tag },
     { id: "reconciliation", label: "Reconciliation", icon: Receipt },
     { id: "reports", label: "Reports", icon: TrendingUp },
@@ -2929,11 +4576,12 @@ export default function App() {
     if (!canAccessPage(currentUser.role, page)) return <Dashboard data={data} />;
     switch (page) {
       case "dashboard": return <Dashboard data={data} />;
-      case "checkin": return <CheckIn data={data} setData={securedSetData} />;
-      case "members": return <Members data={data} setData={securedSetData} />;
-      case "memberships": return <Memberships data={data} setData={securedSetData} />;
+      case "checkin": return <CheckIn data={data} setData={securedSetData} currentUser={currentUser} />;
+      case "members": return <Members data={data} setData={securedSetData} currentUser={currentUser} />;
+      case "memberships": return <Memberships data={data} setData={securedSetData} currentUser={currentUser} />;
       case "payments": return <Payments data={data} />;
-      case "walkins": return <WalkIns data={data} setData={securedSetData} />;
+      case "shop": return <Shop data={data} setData={securedSetData} currentUser={currentUser} />;
+      case "expenses": return <Expenses data={data} setData={securedSetData} currentUser={currentUser} />;
       case "attendance": return <Attendance data={data} setData={securedSetData} />;
       case "timetable": return <TimetablePage />;
       case "trainers": return <Trainers data={data} setData={securedSetData} />;
@@ -2979,7 +4627,7 @@ export default function App() {
             </nav>
             <div className="sidebar-footer">
               <div className="user-info">
-                <div className="user-avatar">{currentUser.name.charAt(0)}</div>
+                <div className="user-avatar">{currentUser.name?.charAt(0) || "U"}</div>
                 <div>
                   <div style={{ color: "var(--text)", fontWeight: 500, fontSize: 13 }}>{currentUser.name}</div>
                   <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{currentUser.role === "admin" ? "Administrator" : "Front Desk Staff"}</div>
