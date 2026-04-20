@@ -19,6 +19,7 @@ const PLANS = {
   combo_3month: { name: "3 Months (Gym+Steam)", price: 1100000, days: 90, category: "combo" },
   combo_half: { name: "Half Year (Gym+Steam)", price: 2000000, days: 180, category: "combo" },
   combo_annual: { name: "Annual (Gym+Steam)", price: 3800000, days: 365, category: "combo" },
+  prepaid: { name: "Pre-Paid Balance", price: 0, days: 365, category: "prepaid", dailyRate: 20000, isPrepaid: true },
 };
 
 const GROUP_PLANS = {
@@ -977,7 +978,7 @@ const Dashboard = ({ data }) => {
   const activeMembers = data.members.filter((m) => m.isActive).length;
   const todayCheckins = data.attendance.filter((a) => a.date === today()).length;
   const todayWalkIns = data.walkIns.filter((w) => w.visitDate === today()).length;
-  const todayRevenue = data.payments.filter((p) => p.paidAt.startsWith(today())).reduce((s, p) => s + p.amount, 0);
+  const todayRevenue = data.payments.filter((p) => p.paidAt.startsWith(today()) && p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
   const availableLockers = data.lockers.filter((l) => !l.isOccupied).length;
   const frozenCount = data.memberships.filter((ms) => ms.status === "frozen").length;
   const maintenanceEquip = data.equipment.filter((eq) => eq.status === "maintenance").length;
@@ -1068,7 +1069,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const isAdmin = currentUser?.role === "admin";
 
   // Walk-in quick form
-  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash" });
+  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null });
+  const [editWalkin, setEditWalkin] = useState(null);
 
   const results = search.length >= 2 ? data.members.filter((m) => {
     const q = search.toLowerCase();
@@ -1085,6 +1087,9 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const isPendingPayment = membership?.status === "pending_payment";
   const alreadyCheckedIn = selected ? data.attendance.some((a) => a.memberId === selected.id && a.date === today()) : false;
   const isDailyPlan = membership?.plan === "gym_daily" || membership?.plan === "combo_session";
+  const isPrepaid = membership?.plan === "prepaid";
+  const prepaidBalance = membership?.prepaidBalance || 0;
+  const insufficientPrepaid = isPrepaid && prepaidBalance < PLANS.prepaid.dailyRate;
   const memberBalance = membership ? getMembershipBalance(membership, data.payments) : null;
 
   const memberGender = selected?.gender;
@@ -1095,7 +1100,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const todayUncheckedWalkIns = data.walkIns.filter((w) => w.visitDate === today() && !w.checkedIn && (w.paymentStatus === "paid" || !w.paymentStatus));
 
   const handleCheckIn = () => {
-    if (isExpired || isFrozen || alreadyCheckedIn || isPendingPayment) return;
+    if (isExpired || isFrozen || alreadyCheckedIn || isPendingPayment || insufficientPrepaid) return;
 
     const newAttendance = {
       id: generateId(), memberId: selected.id,
@@ -1106,11 +1111,23 @@ const CheckIn = ({ data, setData, currentUser }) => {
       lockerId: selectedLocker ? selectedLocker.id : null,
     };
 
-    // Calculate prices: if 2 activities, apply UGX 10,000 bundle discount
+    // PREPAID: deduct daily rate from balance and record payment
+    let prepaidDeduction = null;
+    if (isPrepaid) {
+      const deductAmount = PLANS.prepaid.dailyRate;
+      prepaidDeduction = {
+        id: generateId(), memberId: selected.id, membershipId: membership.id,
+        amount: deductAmount, method: "prepaid", paidAt: new Date().toISOString(),
+        type: "prepaid_visit", discountId: null, discountAmount: 0,
+        note: `Pre-paid visit deduction: ${formatUGX(deductAmount)} (balance before: ${formatUGX(prepaidBalance)})`,
+      };
+    }
+
+    // Calculate add-on prices: if 2 activities, apply UGX 10,000 bundle discount
     const bundleDiscount = addons.length > 1 ? 10000 : 0;
     const activityPrices = addons.map((actId) => {
       const act = ACTIVITIES.find((a) => a.id === actId);
-      return isDailyPlan ? act.standalone : act.addon;
+      return isDailyPlan || isPrepaid ? act.standalone : act.addon;
     });
     const totalBeforeDiscount = activityPrices.reduce((s, p) => s + p, 0);
     const totalAfterDiscount = totalBeforeDiscount - bundleDiscount;
@@ -1119,15 +1136,17 @@ const CheckIn = ({ data, setData, currentUser }) => {
       ? [{ id: generateId(), memberId: selected.id, membershipId: null, amount: totalAfterDiscount, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: addons.join("+"), discountId: null, discountAmount: bundleDiscount, note: `Bundle: ${addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ")} (${formatUGX(bundleDiscount)} discount)` }]
       : addons.map((actId) => {
           const act = ACTIVITIES.find((a) => a.id === actId);
-          const price = isDailyPlan ? act.standalone : act.addon;
+          const price = isDailyPlan || isPrepaid ? act.standalone : act.addon;
           return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0 };
         });
 
     setData((d) => ({
       ...d,
       attendance: [...d.attendance, newAttendance],
-      payments: [...d.payments, ...newPayments],
-      // Assign locker if selected
+      payments: [...d.payments, ...newPayments, ...(prepaidDeduction ? [prepaidDeduction] : [])],
+      memberships: isPrepaid
+        ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, prepaidBalance: prepaidBalance - PLANS.prepaid.dailyRate } : ms)
+        : d.memberships,
       lockers: selectedLocker
         ? d.lockers.map((l) => l.id === selectedLocker.id ? { ...l, isOccupied: true, memberId: selected.id } : l)
         : d.lockers,
@@ -1135,7 +1154,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
     setCheckedIn(true);
   };
 
-  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash" }); };
+  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null }); };
 
   // Quick walk-in check-in from the walk-ins panel
   const checkInWalkInGuest = (w) => {
@@ -1169,31 +1188,42 @@ const CheckIn = ({ data, setData, currentUser }) => {
     const total = prices.reduce((s, p) => s + p, 0) - (walkinForm.selectedActivities.length > 1 ? 10000 : 0);
     const actNames = walkinForm.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(" + ");
     const walkInId = generateId();
+    const isPaid = walkinForm.paymentStatus === "paid";
+    const isCheckedIn = isPaid; // Check-in only if paid
+    const lockerToAssign = (isCheckedIn && walkinForm.locker) ? walkinForm.locker : null;
 
     setData((d) => ({
       ...d,
       walkIns: [...d.walkIns, {
         id: walkInId, firstName: walkinForm.firstName, lastName: walkinForm.lastName,
         phone: walkinForm.phone, emergency: walkinForm.emergency, emergency2: "",
-        activities: walkinForm.selectedActivities, amountDue: total, amountPaid: total,
-        paymentMethod: walkinForm.paymentMethod, paymentStatus: "paid",
-        checkedIn: true, checkInTime: new Date().toISOString(), visitDate: today(),
+        gender: walkinForm.gender,
+        activities: walkinForm.selectedActivities, amountDue: total, amountPaid: isPaid ? total : 0,
+        paymentMethod: walkinForm.paymentMethod, paymentStatus: walkinForm.paymentStatus,
+        checkedIn: isCheckedIn, checkInTime: isCheckedIn ? new Date().toISOString() : null,
+        visitDate: today(),
+        locker: lockerToAssign?.number || null, lockerSection: lockerToAssign?.section || null, lockerId: lockerToAssign?.id || null,
         note: walkinForm.selectedActivities.length > 1 ? `Bundle: ${actNames} (UGX 10,000 discount)` : actNames,
       }],
-      payments: [...d.payments, {
+      payments: isPaid ? [...d.payments, {
         id: generateId(), memberId: null, membershipId: null, amount: total,
         method: walkinForm.paymentMethod, paidAt: new Date().toISOString(),
         type: "walkin", discountId: null, discountAmount: 0,
         note: `Walk-in: ${walkinForm.firstName} ${walkinForm.lastName} — ${actNames}`,
-      }],
-      attendance: [...d.attendance, {
+      }] : d.payments,
+      attendance: isCheckedIn ? [...d.attendance, {
         id: generateId(), memberId: null, guestName: `${walkinForm.firstName} ${walkinForm.lastName}`,
         checkIn: new Date().toISOString(), checkOut: null,
-        date: today(), source: "walkin", locker: null, lockerId: null, lockerSection: null,
-      }],
+        date: today(), source: "walkin",
+        locker: lockerToAssign?.number || null,
+        lockerId: lockerToAssign?.id || null,
+        lockerSection: lockerToAssign?.section || null,
+      }] : d.attendance,
+      lockers: lockerToAssign ? d.lockers.map((l) => l.id === lockerToAssign.id ? { ...l, isOccupied: true, memberId: null } : l) : d.lockers,
     }));
     setCheckedIn(true);
-    setSelected({ firstName: walkinForm.firstName, lastName: walkinForm.lastName, phone: walkinForm.phone, _isWalkIn: true });
+    setSelected({ firstName: walkinForm.firstName, lastName: walkinForm.lastName, phone: walkinForm.phone, gender: walkinForm.gender, _isWalkIn: true, _paymentStatus: walkinForm.paymentStatus });
+    setSelectedLocker(lockerToAssign);
   };
 
   return (
@@ -1281,17 +1311,35 @@ const CheckIn = ({ data, setData, currentUser }) => {
 
       {/* WALK-IN QUICK FORM */}
       {!selected && !checkedIn && mode === "walkin" && (
-        <div className="card" style={{ maxWidth: 600 }}>
+        <div className="card" style={{ maxWidth: 700 }}>
           <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Quick Walk-In — Register, Pay & Check In</h3>
           <div className="form-grid">
             <div className="form-group"><label>Surname *</label><input value={walkinForm.lastName} onChange={(e) => setWalkinForm({ ...walkinForm, lastName: e.target.value })} placeholder="e.g. Kamya" /></div>
             <div className="form-group"><label>Other Name(s) *</label><input value={walkinForm.firstName} onChange={(e) => setWalkinForm({ ...walkinForm, firstName: e.target.value })} placeholder="e.g. John" /></div>
             <div className="form-group"><label>Phone *</label><input value={walkinForm.phone} onChange={(e) => setWalkinForm({ ...walkinForm, phone: e.target.value })} placeholder="e.g. 0771234567" /></div>
+            <div className="form-group"><label>Gender *</label>
+              <select value={walkinForm.gender} onChange={(e) => setWalkinForm({ ...walkinForm, gender: e.target.value, locker: null })}>
+                <option>Male</option><option>Female</option>
+              </select>
+            </div>
             <div className="form-group"><label>Emergency Contact *</label><input value={walkinForm.emergency} onChange={(e) => setWalkinForm({ ...walkinForm, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
             <div className="form-group"><label>Payment Method *</label>
               <select value={walkinForm.paymentMethod} onChange={(e) => setWalkinForm({ ...walkinForm, paymentMethod: e.target.value })}>
                 <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
               </select>
+            </div>
+            <div className="form-group full"><label>Payment Status *</label>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button type="button" className={`btn ${walkinForm.paymentStatus === "paid" ? "btn-success" : "btn-secondary"}`} style={{ flex: 1, padding: "10px 14px", fontWeight: 600, justifyContent: "center" }}
+                  onClick={() => setWalkinForm({ ...walkinForm, paymentStatus: "paid" })}>
+                  <Check size={14} /> Paid Now
+                </button>
+                <button type="button" className={`btn ${walkinForm.paymentStatus === "pending" ? "btn-primary" : "btn-secondary"}`} style={{ flex: 1, padding: "10px 14px", fontWeight: 600, justifyContent: "center", ...(walkinForm.paymentStatus === "pending" ? { background: "var(--warning)", borderColor: "var(--warning)", color: "#000" } : {}) }}
+                  onClick={() => setWalkinForm({ ...walkinForm, paymentStatus: "pending", locker: null })}>
+                  <AlertTriangle size={14} /> Pending (Pay Later)
+                </button>
+              </div>
+              {walkinForm.paymentStatus === "pending" && <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 6 }}>⚠ Guest will NOT be checked in until payment is completed.</p>}
             </div>
           </div>
 
@@ -1328,8 +1376,50 @@ const CheckIn = ({ data, setData, currentUser }) => {
               </div>
             )}
           </div>
-          <button className="btn btn-success" style={{ marginTop: 20, width: "100%", padding: "14px 24px", fontSize: 15, fontWeight: 700, justifyContent: "center" }} onClick={handleQuickWalkIn} disabled={walkinForm.selectedActivities.length === 0}>
-            <Check size={18} /> Pay & Check In Guest
+
+          {/* LOCKER ASSIGNMENT (only if paid) */}
+          {walkinForm.paymentStatus === "paid" && (() => {
+            const section = walkinForm.gender === "Female" ? "ladies" : "gents";
+            const sectionColor = section === "ladies" ? "#ec4899" : "#3b82f6";
+            const availLockers = data.lockers.filter((l) => l.section === section && !l.isOccupied);
+            return (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 500, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    Locker Key <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none" }}>— optional</span>
+                  </label>
+                  <span style={{ fontSize: 11, color: sectionColor }}>
+                    {section === "ladies" ? "Ladies ♀" : "Gents ♂"} • {availLockers.length} available
+                  </span>
+                </div>
+                {walkinForm.locker ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "var(--success-dim)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "var(--radius-sm)" }}>
+                    <div style={{ width: 36, height: 36, borderRadius: "var(--radius-xs)", background: section === "ladies" ? "rgba(236,72,153,0.15)" : "rgba(59,130,246,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, color: sectionColor }}>
+                      #{walkinForm.locker.number}
+                    </div>
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--success)" }}>Locker #{walkinForm.locker.number} ({section === "ladies" ? "Ladies" : "Gents"}) will be assigned</span>
+                    <button type="button" className="btn btn-sm btn-secondary" onClick={() => setWalkinForm({ ...walkinForm, locker: null })} style={{ padding: "4px 10px", fontSize: 11 }}>Remove</button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {availLockers.slice(0, 10).map((l) => (
+                      <button key={l.id} type="button" className="btn btn-sm btn-secondary" onClick={() => setWalkinForm({ ...walkinForm, locker: l })} style={{ padding: "6px 10px", minWidth: 44, fontSize: 13, fontWeight: 700, color: sectionColor }}>
+                        #{l.number}
+                      </button>
+                    ))}
+                    {availLockers.length > 10 && <span style={{ fontSize: 11, color: "var(--text-muted)", alignSelf: "center" }}>+{availLockers.length - 10} more</span>}
+                    {availLockers.length === 0 && <p style={{ fontSize: 12, color: "var(--danger)" }}>No {section} lockers available</p>}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          <button className="btn btn-success" style={{ marginTop: 20, width: "100%", padding: "14px 24px", fontSize: 15, fontWeight: 700, justifyContent: "center", ...(walkinForm.paymentStatus === "pending" ? { background: "var(--warning)", borderColor: "var(--warning)", color: "#000" } : {}) }} onClick={handleQuickWalkIn} disabled={walkinForm.selectedActivities.length === 0}>
+            <Check size={18} />
+            {walkinForm.paymentStatus === "paid"
+              ? ` Pay & Check In Guest${walkinForm.locker ? ` + Locker #${walkinForm.locker.number}` : ""}`
+              : " Register (Payment Pending)"}
           </button>
         </div>
       )}
@@ -1344,12 +1434,36 @@ const CheckIn = ({ data, setData, currentUser }) => {
           <p style={{ color: "var(--text-dim)", marginTop: 4 }}>{selected.phone}</p>
           {membership && (
             <div style={{ marginTop: 12 }}>
-              <Badge variant={isExpired ? "danger" : isFrozen ? "warning" : isPendingPayment ? "warning" : "success"}>
-                {getPlanName(membership.plan)} • {isExpired ? "EXPIRED" : isFrozen ? "FROZEN" : isPendingPayment ? "PENDING PAYMENT" : `Expires ${formatDate(membership.endDate)}`}
+              <Badge variant={isExpired ? "danger" : isFrozen ? "warning" : isPendingPayment ? "warning" : insufficientPrepaid ? "danger" : "success"}>
+                {getPlanName(membership.plan)} • {isExpired ? "EXPIRED" : isFrozen ? "FROZEN" : isPendingPayment ? "PENDING PAYMENT" : insufficientPrepaid ? "INSUFFICIENT BALANCE" : isPrepaid ? `Balance: ${formatUGX(prepaidBalance)}` : `Expires ${formatDate(membership.endDate)}`}
               </Badge>
             </div>
           )}
           {!membership && <div style={{ marginTop: 12 }}><Badge variant="danger">No Active Membership</Badge></div>}
+
+          {/* Prepaid balance display */}
+          {isPrepaid && !isExpired && !alreadyCheckedIn && (
+            <div style={{ marginTop: 16, padding: 16, background: insufficientPrepaid ? "var(--danger-dim)" : "var(--accent-dim)", border: `1px solid ${insufficientPrepaid ? "var(--danger)" : "var(--accent)"}`, borderRadius: "var(--radius-sm)", textAlign: "left" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Pre-Paid Balance</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: insufficientPrepaid ? "var(--danger)" : "var(--accent)", fontFamily: "var(--font-display)" }}>{formatUGX(prepaidBalance)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: "var(--text-dim)" }}>
+                <span>Daily rate</span>
+                <span>-{formatUGX(PLANS.prepaid.dailyRate)}/visit</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 12, color: "var(--text-dim)" }}>
+                <span>Visits remaining</span>
+                <span style={{ fontWeight: 600, color: insufficientPrepaid ? "var(--danger)" : "var(--success)" }}>{Math.floor(prepaidBalance / PLANS.prepaid.dailyRate)}</span>
+              </div>
+              {insufficientPrepaid && (
+                <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8, fontWeight: 600 }}>⚠ Insufficient balance. Please top up via Memberships before check-in.</p>
+              )}
+              {!insufficientPrepaid && prepaidBalance < PLANS.prepaid.dailyRate * 3 && (
+                <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 8 }}>⚠ Low balance — consider topping up soon.</p>
+              )}
+            </div>
+          )}
 
           {/* Pending payment warning */}
           {isPendingPayment && memberBalance && (
@@ -1375,7 +1489,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
 
           {alreadyCheckedIn && <p style={{ color: "var(--warning)", marginTop: 16, fontWeight: 600 }}>Already checked in today</p>}
 
-          {!isExpired && !isFrozen && !isPendingPayment && !alreadyCheckedIn && (
+          {!isExpired && !isFrozen && !isPendingPayment && !alreadyCheckedIn && !insufficientPrepaid && (
             <>
               <div style={{ marginTop: 20, textAlign: "left" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -1513,7 +1627,20 @@ const CheckIn = ({ data, setData, currentUser }) => {
                     <td style={{ fontSize: 12 }}>{w.activities ? w.activities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name || id).join(", ") : ACTIVITIES.find((a) => a.id === w.activityId)?.name || w.activityId}</td>
                     <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(w.amountDue || w.amountPaid)}</td>
                     <td>
-                      {(w.paymentStatus === "paid" || !w.paymentStatus) ? <Badge variant="success">Paid</Badge> : (
+                      {(w.paymentStatus === "paid" || !w.paymentStatus) ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <Badge variant="success">Paid</Badge>
+                          <button className="btn btn-sm btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} title="Mark as Pending" onClick={() => {
+                            if (!confirm("Mark this walk-in as Pending? This will remove the payment record.")) return;
+                            setData((d) => ({
+                              ...d,
+                              walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, paymentStatus: "pending", amountPaid: 0 } : x),
+                              // Remove the matching payment record (last one for this walk-in)
+                              payments: d.payments.filter((p) => !(p.type === "walkin" && p.note?.includes(`${w.firstName || ""} ${w.lastName || ""}`) && p.amount === (w.amountDue || w.amountPaid))),
+                            }));
+                          }}>Revert</button>
+                        </div>
+                      ) : (
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <Badge variant="warning">Pending</Badge>
                           <button className="btn btn-sm btn-success" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => {
@@ -1523,7 +1650,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                               walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, paymentStatus: "paid", amountPaid: total } : x),
                               payments: [...d.payments, { id: generateId(), memberId: null, membershipId: null, amount: total, method: w.paymentMethod || "cash", paidAt: new Date().toISOString(), type: "walkin", discountId: null, discountAmount: 0, note: `Walk-in payment: ${w.firstName || ""} ${w.lastName || ""}` }],
                             }));
-                          }}>Pay</button>
+                          }}>Mark Paid</button>
                         </div>
                       )}
                     </td>
@@ -1533,13 +1660,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                       ) : <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Pay first</span>}
                     </td>
                     {isAdmin && (
-                      <td><button className="btn btn-icon btn-secondary" onClick={() => {
-                        const newName = prompt("Edit name (Surname Other):", `${w.lastName || ""} ${w.firstName || ""}`);
-                        if (newName) {
-                          const parts = newName.trim().split(" ");
-                          setData((d) => ({ ...d, walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, lastName: parts[0] || "", firstName: parts.slice(1).join(" ") || "" } : x) }));
-                        }
-                      }}><Edit2 size={14} /></button></td>
+                      <td><button className="btn btn-icon btn-secondary" onClick={() => setEditWalkin({ ...w })}><Edit2 size={14} /></button></td>
                     )}
                   </tr>
                 ))}
@@ -1548,6 +1669,71 @@ const CheckIn = ({ data, setData, currentUser }) => {
             </table>
           </div>
         </div>
+      )}
+
+      {/* EDIT WALK-IN MODAL (Admin only) */}
+      {editWalkin && isAdmin && (
+        <Modal title="Edit Walk-In Record" onClose={() => setEditWalkin(null)} footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setEditWalkin(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={() => {
+              setData((d) => ({
+                ...d,
+                walkIns: d.walkIns.map((x) => x.id === editWalkin.id ? {
+                  ...editWalkin,
+                  amountDue: Number(editWalkin.amountDue) || 0,
+                  amountPaid: editWalkin.paymentStatus === "paid" ? (Number(editWalkin.amountDue) || 0) : 0,
+                } : x),
+              }));
+              setEditWalkin(null);
+            }}><Check size={14} /> Save Changes</button>
+          </>
+        }>
+          <div className="form-grid">
+            <div className="form-group"><label>Surname</label><input value={editWalkin.lastName || ""} onChange={(e) => setEditWalkin({ ...editWalkin, lastName: e.target.value })} /></div>
+            <div className="form-group"><label>Other Name(s)</label><input value={editWalkin.firstName || ""} onChange={(e) => setEditWalkin({ ...editWalkin, firstName: e.target.value })} /></div>
+            <div className="form-group"><label>Phone</label><input value={editWalkin.phone || ""} onChange={(e) => setEditWalkin({ ...editWalkin, phone: e.target.value })} /></div>
+            <div className="form-group"><label>Emergency Contact</label><input value={editWalkin.emergency || ""} onChange={(e) => setEditWalkin({ ...editWalkin, emergency: e.target.value })} /></div>
+            <div className="form-group"><label>Gender</label>
+              <select value={editWalkin.gender || "Male"} onChange={(e) => setEditWalkin({ ...editWalkin, gender: e.target.value })}>
+                <option>Male</option><option>Female</option>
+              </select>
+            </div>
+            <div className="form-group"><label>Visit Date</label><input type="date" value={editWalkin.visitDate || ""} onChange={(e) => setEditWalkin({ ...editWalkin, visitDate: e.target.value })} /></div>
+            <div className="form-group"><label>Amount (UGX)</label><input type="number" value={editWalkin.amountDue || editWalkin.amountPaid || 0} onChange={(e) => setEditWalkin({ ...editWalkin, amountDue: e.target.value })} /></div>
+            <div className="form-group"><label>Payment Method</label>
+              <select value={editWalkin.paymentMethod || "cash"} onChange={(e) => setEditWalkin({ ...editWalkin, paymentMethod: e.target.value })}>
+                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
+              </select>
+            </div>
+            <div className="form-group"><label>Payment Status</label>
+              <select value={editWalkin.paymentStatus || "paid"} onChange={(e) => setEditWalkin({ ...editWalkin, paymentStatus: e.target.value })}>
+                <option value="paid">Paid</option><option value="pending">Pending</option>
+              </select>
+            </div>
+            <div className="form-group full"><label>Activities</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {ACTIVITIES.map((act) => {
+                  const isSel = (editWalkin.activities || []).includes(act.id);
+                  const isDis = !isSel && (editWalkin.activities || []).length >= MAX_ACTIVITIES;
+                  return (
+                    <button key={act.id} type="button" className={`btn btn-sm ${isSel ? "btn-primary" : "btn-secondary"}`}
+                      style={isDis ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+                      onClick={() => {
+                        if (isDis) return;
+                        const current = editWalkin.activities || [];
+                        const updated = current.includes(act.id) ? current.filter((x) => x !== act.id) : [...current, act.id];
+                        const newTotal = updated.reduce((s, id) => s + (ACTIVITIES.find((a) => a.id === id)?.standalone || 0), 0) - (updated.length > 1 ? 10000 : 0);
+                        setEditWalkin({ ...editWalkin, activities: updated, amountDue: newTotal });
+                      }}>
+                      {act.name} ({formatUGX(act.standalone)})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -2090,11 +2276,44 @@ const getMembershipBalance = (ms, payments) => {
 const Memberships = ({ data, setData, currentUser }) => {
   const isAdmin = currentUser?.role === "admin";
   const [modal, setModal] = useState(null); // 'assign' | 'pay' | null
-  const [form, setForm] = useState({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full" });
+  const [form, setForm] = useState({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "" });
   const [payTarget, setPayTarget] = useState(null); // membership for additional payment
 
   const assign = () => {
     if (!form.memberId || !form.plan) return;
+
+    // PREPAID PLAN — deposit amount becomes initial balance, deducted per check-in
+    if (form.plan === "prepaid") {
+      const deposit = Number(form.depositAmount) || 0;
+      if (deposit < PLANS.prepaid.dailyRate) {
+        alert(`Deposit must be at least UGX ${PLANS.prepaid.dailyRate.toLocaleString()} (one day's worth).`);
+        return;
+      }
+      const start = new Date();
+      const end = new Date(start.getTime() + PLANS.prepaid.days * 86400000);
+      const newMs = {
+        id: generateId(), memberId: form.memberId, plan: "prepaid",
+        startDate: start.toISOString().split("T")[0], endDate: end.toISOString().split("T")[0],
+        isActive: true, frozenDays: 0, status: "active",
+        totalDue: deposit,
+        prepaidBalance: deposit,
+        prepaidDeposits: [{ amount: deposit, date: new Date().toISOString(), method: form.method }],
+      };
+      const newPay = {
+        id: generateId(), memberId: form.memberId, membershipId: newMs.id,
+        amount: deposit, method: form.method, paidAt: new Date().toISOString(),
+        type: "prepaid_deposit", discountId: null, discountAmount: 0,
+        note: `Pre-paid deposit: ${formatUGX(deposit)}`,
+      };
+      setData((d) => ({
+        ...d,
+        memberships: [...d.memberships.map((ms) => ms.memberId === form.memberId && ms.isActive ? { ...ms, isActive: false, status: "replaced" } : ms), newMs],
+        payments: [...d.payments, newPay],
+      }));
+      setModal(null);
+      return;
+    }
+
     const isGroup = form.plan.startsWith("group_");
     const planInfo = isGroup ? GROUP_PLANS[form.plan] : PLANS[form.plan];
     if (!planInfo) return;
@@ -2140,6 +2359,38 @@ const Memberships = ({ data, setData, currentUser }) => {
     setPayTarget(ms);
     setForm((f) => ({ ...f, method: "cash", paymentAmount: String(bal.balance) }));
     setModal("pay");
+  };
+
+  const openTopUp = (ms) => {
+    setPayTarget(ms);
+    setForm((f) => ({ ...f, method: "cash", paymentAmount: "" }));
+    setModal("topup");
+  };
+
+  const topUp = () => {
+    if (!payTarget) return;
+    const amount = Number(form.paymentAmount) || 0;
+    if (amount <= 0) { alert("Enter a valid top-up amount."); return; }
+
+    const newPay = {
+      id: generateId(), memberId: payTarget.memberId, membershipId: payTarget.id,
+      amount, method: form.method, paidAt: new Date().toISOString(),
+      type: "prepaid_deposit", discountId: null, discountAmount: 0,
+      note: `Pre-paid top-up: ${formatUGX(amount)} (new balance: ${formatUGX((payTarget.prepaidBalance || 0) + amount)})`,
+    };
+
+    setData((d) => ({
+      ...d,
+      payments: [...d.payments, newPay],
+      memberships: d.memberships.map((ms) => ms.id === payTarget.id ? {
+        ...ms,
+        prepaidBalance: (ms.prepaidBalance || 0) + amount,
+        totalDue: (ms.totalDue || 0) + amount,
+        prepaidDeposits: [...(ms.prepaidDeposits || []), { amount, date: new Date().toISOString(), method: form.method }],
+      } : ms),
+    }));
+    setModal(null);
+    setPayTarget(null);
   };
 
   const recordPayment = () => {
@@ -2201,7 +2452,7 @@ const Memberships = ({ data, setData, currentUser }) => {
 
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full" }); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "" }); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
       </div>
       <div className="table-wrapper">
         <table>
@@ -2212,14 +2463,24 @@ const Memberships = ({ data, setData, currentUser }) => {
               const exp = new Date(ms.endDate) < new Date() && ms.status !== "frozen" && ms.status !== "pending_payment";
               const bal = getMembershipBalance(ms, data.payments);
               const isPending = ms.status === "pending_payment";
+              const isPrepaidMs = ms.plan === "prepaid";
+              const prepaidBal = ms.prepaidBalance || 0;
               return (
                 <tr key={ms.id} style={isPending ? { background: "rgba(249,115,22,0.04)" } : undefined}>
                   <td style={{ color: "var(--text)", fontWeight: 500 }}>{fullName(member)}</td>
-                  <td>{getPlanName(ms.plan)}</td>
+                  <td>{getPlanName(ms.plan)}{isPrepaidMs && <span style={{ fontSize: 10, color: "var(--accent)", marginLeft: 4 }}>(Pre-Paid)</span>}</td>
                   <td>{formatDate(ms.startDate)}</td>
                   <td>{formatDate(ms.endDate)}</td>
                   <td>
-                    {bal.totalDue > 0 ? (
+                    {isPrepaidMs ? (
+                      <div style={{ minWidth: 150 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
+                          <span style={{ color: "var(--text-dim)" }}>Balance</span>
+                          <span style={{ fontWeight: 700, color: prepaidBal < PLANS.prepaid.dailyRate ? "var(--danger)" : prepaidBal < PLANS.prepaid.dailyRate * 3 ? "var(--warning)" : "var(--success)", fontSize: 13 }}>{formatUGX(prepaidBal)}</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{Math.floor(prepaidBal / PLANS.prepaid.dailyRate)} visits left</div>
+                      </div>
+                    ) : bal.totalDue > 0 ? (
                       <div style={{ minWidth: 150 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
                           <span style={{ color: "var(--text-dim)" }}>{formatUGX(bal.totalPaid)} / {formatUGX(bal.totalDue)}</span>
@@ -2235,13 +2496,14 @@ const Memberships = ({ data, setData, currentUser }) => {
                     )}
                   </td>
                   <td>
-                    {isPending ? <Badge variant="warning">Pending Payment</Badge> : ms.status === "frozen" ? <Badge variant="warning">Frozen</Badge> : exp ? <Badge variant="danger">Expired</Badge> : <Badge variant="success">Active</Badge>}
+                    {isPending ? <Badge variant="warning">Pending Payment</Badge> : ms.status === "frozen" ? <Badge variant="warning">Frozen</Badge> : exp ? <Badge variant="danger">Expired</Badge> : isPrepaidMs && prepaidBal < PLANS.prepaid.dailyRate ? <Badge variant="danger">Low Balance</Badge> : <Badge variant="success">Active</Badge>}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {isPending && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
-                      {!isPending && !bal.isPaidInFull && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
-                      {isAdmin && ms.status === "active" && !exp && <button className="btn btn-sm btn-secondary" onClick={() => freeze(ms)}><Pause size={12} /> Freeze</button>}
+                      {isPrepaidMs && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openTopUp(ms)}><Plus size={12} /> Top Up</button>}
+                      {!isPrepaidMs && isPending && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
+                      {!isPrepaidMs && !isPending && !bal.isPaidInFull && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
+                      {isAdmin && !isPrepaidMs && ms.status === "active" && !exp && <button className="btn btn-sm btn-secondary" onClick={() => freeze(ms)}><Pause size={12} /> Freeze</button>}
                       {isAdmin && ms.status === "frozen" && <button className="btn btn-sm btn-secondary" onClick={() => unfreeze(ms)}><Play size={12} /> Unfreeze</button>}
                     </div>
                   </td>
@@ -2265,7 +2527,7 @@ const Memberships = ({ data, setData, currentUser }) => {
             </div>
             <div className="form-group">
               <label>Plan</label>
-              <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}>
+              <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value, paymentType: e.target.value === "prepaid" ? "full" : form.paymentType })}>
                 <optgroup label="Gym Only">
                   {Object.entries(PLANS).filter(([, v]) => v.category === "gym").map(([k, v]) => <option key={k} value={k}>{v.name} — {formatUGX(v.price)}</option>)}
                 </optgroup>
@@ -2274,6 +2536,9 @@ const Memberships = ({ data, setData, currentUser }) => {
                 </optgroup>
                 <optgroup label="Group Plans (per month)">
                   {Object.entries(GROUP_PLANS).map(([k, v]) => <option key={k} value={k}>{v.name} — {formatUGX(v.price)} ({formatUGX(v.perPerson)}/person)</option>)}
+                </optgroup>
+                <optgroup label="Pre-Paid (Pay-as-you-go)">
+                  <option value="prepaid">Pre-Paid Balance — variable deposit, deducts UGX {(PLANS.prepaid.dailyRate).toLocaleString()}/visit</option>
                 </optgroup>
               </select>
             </div>
@@ -2293,18 +2558,36 @@ const Memberships = ({ data, setData, currentUser }) => {
               </select>
             </div>
 
-            {/* PAYMENT TYPE TOGGLE */}
-            <div className="form-group full">
-              <label>Payment Type</label>
-              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                <button type="button" className={`btn btn-sm ${form.paymentType === "full" ? "btn-primary" : "btn-secondary"}`} onClick={() => setForm({ ...form, paymentType: "full", paymentAmount: "" })} style={{ flex: 1 }}>
-                  <Check size={14} /> Full Payment
-                </button>
-                <button type="button" className={`btn btn-sm ${form.paymentType === "partial" ? "btn-primary" : "btn-secondary"}`} onClick={() => setForm({ ...form, paymentType: "partial", paymentAmount: "" })} style={{ flex: 1 }}>
-                  <Layers size={14} /> Partial Payment
-                </button>
+            {/* PAYMENT TYPE TOGGLE — hidden for prepaid (always deposit) */}
+            {form.plan !== "prepaid" && (
+              <div className="form-group full">
+                <label>Payment Type</label>
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <button type="button" className={`btn btn-sm ${form.paymentType === "full" ? "btn-primary" : "btn-secondary"}`} onClick={() => setForm({ ...form, paymentType: "full", paymentAmount: "" })} style={{ flex: 1 }}>
+                    <Check size={14} /> Full Payment
+                  </button>
+                  <button type="button" className={`btn btn-sm ${form.paymentType === "partial" ? "btn-primary" : "btn-secondary"}`} onClick={() => setForm({ ...form, paymentType: "partial", paymentAmount: "" })} style={{ flex: 1 }}>
+                    <Layers size={14} /> Partial Payment
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* DEPOSIT AMOUNT for prepaid */}
+            {form.plan === "prepaid" && (
+              <div className="form-group full">
+                <label>Deposit Amount (UGX) *</label>
+                <input type="number" value={form.depositAmount} onChange={(e) => setForm({ ...form, depositAmount: e.target.value })} placeholder="e.g. 200000" />
+                <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  Each gym visit will deduct UGX {PLANS.prepaid.dailyRate.toLocaleString()} from this balance. Member is checked in as long as balance ≥ UGX {PLANS.prepaid.dailyRate.toLocaleString()}.
+                </p>
+                {form.depositAmount && Number(form.depositAmount) >= PLANS.prepaid.dailyRate && (
+                  <p style={{ fontSize: 11, color: "var(--success)", marginTop: 4 }}>
+                    ✓ Covers approximately {Math.floor(Number(form.depositAmount) / PLANS.prepaid.dailyRate)} visit{Math.floor(Number(form.depositAmount) / PLANS.prepaid.dailyRate) !== 1 ? "s" : ""}
+                  </p>
+                )}
+              </div>
+            )}
 
             {form.paymentType === "partial" && (
               <div className="form-group full">
@@ -2319,6 +2602,38 @@ const Memberships = ({ data, setData, currentUser }) => {
 
           {form.plan && (
             (() => {
+              // PREPAID SUMMARY
+              if (form.plan === "prepaid") {
+                const deposit = Number(form.depositAmount) || 0;
+                const visits = deposit >= PLANS.prepaid.dailyRate ? Math.floor(deposit / PLANS.prepaid.dailyRate) : 0;
+                return (
+                  <div style={{ marginTop: 16, padding: 16, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Plan</span>
+                      <strong style={{ color: "var(--text)" }}>{PLANS.prepaid.name}</strong>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Daily Rate</span>
+                      <strong style={{ color: "var(--text)" }}>{formatUGX(PLANS.prepaid.dailyRate)}/visit</strong>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Validity</span>
+                      <strong style={{ color: "var(--text)" }}>{PLANS.prepaid.days} days</strong>
+                    </div>
+                    <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>Deposit</span>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: "var(--accent)" }}>{formatUGX(deposit)}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 13, color: "var(--success)" }}>Covers</span>
+                        <span style={{ fontWeight: 600, color: "var(--success)" }}>{visits} visit{visits !== 1 ? "s" : ""}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
               const isGroup = form.plan.startsWith("group_");
               const planInfo = isGroup ? GROUP_PLANS[form.plan] : PLANS[form.plan];
               if (!planInfo) return null;
@@ -2452,6 +2767,76 @@ const Memberships = ({ data, setData, currentUser }) => {
                       After this payment, <strong>{formatUGX(remainingAfter)}</strong> will still be outstanding. Membership stays in pending status.
                     </p>
                   )}
+                </div>
+              )}
+            </Modal>
+          );
+        })()
+      )}
+
+      {/* TOP-UP PRE-PAID BALANCE MODAL */}
+      {modal === "topup" && payTarget && (
+        (() => {
+          const member = data.members.find((m) => m.id === payTarget.memberId);
+          const currentBal = payTarget.prepaidBalance || 0;
+          const topUpAmount = Number(form.paymentAmount) || 0;
+          const newBal = currentBal + topUpAmount;
+          return (
+            <Modal title="Top Up Pre-Paid Balance" onClose={() => { setModal(null); setPayTarget(null); }} footer={
+              <>
+                <button className="btn btn-secondary" onClick={() => { setModal(null); setPayTarget(null); }}>Cancel</button>
+                <button className="btn btn-primary" onClick={topUp} disabled={!topUpAmount || topUpAmount <= 0}><Plus size={14} /> Top Up {topUpAmount > 0 ? formatUGX(topUpAmount) : ""}</button>
+              </>
+            }>
+              <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>{fullName(member)}</h3>
+                <p style={{ color: "var(--text-dim)", marginTop: 2 }}>Pre-Paid Balance Account</p>
+              </div>
+
+              <div style={{ background: "var(--accent-dim)", border: "1px solid var(--accent)", borderRadius: "var(--radius-sm)", padding: 16, marginBottom: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Current Balance</span>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-display)" }}>{formatUGX(currentBal)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: "var(--text-muted)" }}>
+                  <span>Visits remaining</span>
+                  <span style={{ fontWeight: 600 }}>{Math.floor(currentBal / PLANS.prepaid.dailyRate)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 12, color: "var(--text-muted)" }}>
+                  <span>Daily rate</span>
+                  <span>{formatUGX(PLANS.prepaid.dailyRate)}/visit</span>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Top-up Amount (UGX) *</label>
+                <input type="number" value={form.paymentAmount} onChange={(e) => setForm({ ...form, paymentAmount: e.target.value })} placeholder="e.g. 100000" autoFocus />
+              </div>
+
+              <div className="form-group">
+                <label>Payment Method</label>
+                <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
+                  <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
+                </select>
+              </div>
+
+              <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: "20000" })} style={{ padding: "4px 10px" }}>+20k</button>
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: "50000" })} style={{ padding: "4px 10px" }}>+50k</button>
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: "100000" })} style={{ padding: "4px 10px" }}>+100k</button>
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: "200000" })} style={{ padding: "4px 10px" }}>+200k</button>
+              </div>
+
+              {topUpAmount > 0 && (
+                <div style={{ marginTop: 16, padding: 12, background: "var(--success-dim)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                    <span style={{ color: "var(--text-dim)" }}>After top-up</span>
+                    <span style={{ fontWeight: 700, color: "var(--success)", fontSize: 16 }}>{formatUGX(newBal)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 4 }}>
+                    <span style={{ color: "var(--text-muted)" }}>Visits covered</span>
+                    <span style={{ color: "var(--success)", fontWeight: 600 }}>{Math.floor(newBal / PLANS.prepaid.dailyRate)} visits</span>
+                  </div>
                 </div>
               )}
             </Modal>
@@ -3543,7 +3928,7 @@ const Reconciliation = ({ data, setData }) => {
   const [declaredCash, setDeclaredCash] = useState("");
 
   // SINGLE SOURCE OF TRUTH: all revenue flows through data.payments
-  const todayPayments = data.payments.filter((p) => p.paidAt.startsWith(today()));
+  const todayPayments = data.payments.filter((p) => p.paidAt.startsWith(today()) && p.type !== "prepaid_visit");
 
   // Breakdown by payment method
   const systemCash = todayPayments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
@@ -4080,9 +4465,9 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
 
 // ─── REPORTS ────────────────────────────────────────────────
 const Reports = ({ data }) => {
-  const totalRevenue = data.payments.reduce((s, p) => s + p.amount, 0);
+  const totalRevenue = data.payments.filter((p) => p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
   const currentMonth = new Date().toISOString().slice(0, 7);
-  const monthlyRevenue = data.payments.filter((p) => p.paidAt.startsWith(currentMonth)).reduce((s, p) => s + p.amount, 0);
+  const monthlyRevenue = data.payments.filter((p) => p.paidAt.startsWith(currentMonth) && p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
   const totalDiscounts = data.payments.reduce((s, p) => s + (p.discountAmount || 0), 0);
   const planBreakdown = {};
   data.memberships.forEach((ms) => {
@@ -4143,7 +4528,7 @@ const Reports = ({ data }) => {
             <div className="card">
               <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Payment Methods</h3>
               {["cash", "mobile_money", "card"].map((method) => {
-                const total = data.payments.filter((p) => p.method === method).reduce((s, p) => s + p.amount, 0);
+                const total = data.payments.filter((p) => p.method === method && p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
                 return (
                   <div key={method} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                     <span style={{ color: "var(--text)" }}>{method === "mobile_money" ? "Mobile Money" : method.charAt(0).toUpperCase() + method.slice(1)}</span>
