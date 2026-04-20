@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, Pause, Play, Hash, Receipt, TrendingUp, ArrowLeft, Camera, RefreshCw, Star, Zap, Award } from "lucide-react";
+import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, Pause, Play, Hash, Receipt, TrendingUp, ArrowLeft, Camera, RefreshCw, Star, Zap, Award, Upload } from "lucide-react";
 
 // ─── DATA STORE ─────────────────────────────────────────────
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -177,7 +177,7 @@ const initData = () => {
     { id: "ex3", category: "Supplies", description: "Cleaning supplies and detergents", amount: 120000, date: "2025-04-01", method: "cash", approvedBy: "Admin User", receipt: "", createdAt: "2025-04-01" },
   ];
 
-  return { members, memberships, payments, attendance, trainers, staff, equipment, lockers, discounts, walkIns, reconciliations, freezes, products, productSales, expenses };
+  return { members, memberships, payments, attendance, trainers, staff, equipment, lockers, discounts, walkIns, reconciliations, freezes, products, productSales, expenses, timetable: TIMETABLE.map((t, i) => ({ ...t, id: `tt${i + 1}` })) };
 };
 
 // ─── STYLES ─────────────────────────────────────────────────
@@ -1616,7 +1616,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
           </div>
           <div className="table-wrapper">
             <table>
-              <thead><tr><th>Date</th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>Activity</th><th>Amount</th><th>Payment</th><th>Check-In</th>{isAdmin && <th>Edit</th>}</tr></thead>
+              <thead><tr><th>Date</th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>Activity</th><th>Amount</th><th>Payment</th><th>Check-In</th><th>Edit</th></tr></thead>
               <tbody>
                 {[...data.walkIns].reverse().map((w) => (
                   <tr key={w.id}>
@@ -1659,59 +1659,146 @@ const CheckIn = ({ data, setData, currentUser }) => {
                         <button className="btn btn-sm btn-primary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => checkInWalkInGuest(w)}><LogIn size={12} /> In</button>
                       ) : <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Pay first</span>}
                     </td>
-                    {isAdmin && (
-                      <td><button className="btn btn-icon btn-secondary" onClick={() => setEditWalkin({ ...w })}><Edit2 size={14} /></button></td>
-                    )}
+                    <td><button className="btn btn-icon btn-secondary" onClick={() => setEditWalkin({ ...w, _originalAmount: w.amountDue || w.amountPaid, _originalStatus: w.paymentStatus || "paid", _originalLockerId: w.lockerAssigned || null })} title="Edit walk-in"><Edit2 size={14} /></button></td>
                   </tr>
                 ))}
-                {data.walkIns.length === 0 && <tr><td colSpan={isAdmin ? 9 : 8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No walk-in records yet</td></tr>}
+                {data.walkIns.length === 0 && <tr><td colSpan={9} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No walk-in records yet</td></tr>}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* EDIT WALK-IN MODAL (Admin only) */}
-      {editWalkin && isAdmin && (
-        <Modal title="Edit Walk-In Record" onClose={() => setEditWalkin(null)} footer={
+      {/* EDIT WALK-IN MODAL — staff can edit payment/activity, admin has full access */}
+      {editWalkin && (
+        <Modal title={isAdmin ? "Edit Walk-In Record" : "Update Walk-In — Payment & Activities"} onClose={() => setEditWalkin(null)} footer={
           <>
             <button className="btn btn-secondary" onClick={() => setEditWalkin(null)}>Cancel</button>
             <button className="btn btn-primary" onClick={() => {
-              setData((d) => ({
-                ...d,
-                walkIns: d.walkIns.map((x) => x.id === editWalkin.id ? {
+              const newAmount = Number(editWalkin.amountDue) || 0;
+              const newStatus = editWalkin.paymentStatus || "paid";
+              const newMethod = editWalkin.paymentMethod || "cash";
+              const origStatus = editWalkin._originalStatus;
+              const origAmount = editWalkin._originalAmount;
+              const nameStr = `${editWalkin.firstName || ""} ${editWalkin.lastName || ""}`.trim();
+              const origLockerId = editWalkin._originalLockerId;
+              const newLockerId = editWalkin.lockerAssigned;
+
+              setData((d) => {
+                // Update the walk-in record
+                let updatedWalkIns = d.walkIns.map((x) => x.id === editWalkin.id ? {
                   ...editWalkin,
-                  amountDue: Number(editWalkin.amountDue) || 0,
-                  amountPaid: editWalkin.paymentStatus === "paid" ? (Number(editWalkin.amountDue) || 0) : 0,
-                } : x),
-              }));
+                  amountDue: newAmount,
+                  amountPaid: newStatus === "paid" ? newAmount : 0,
+                  _originalAmount: undefined, _originalStatus: undefined, _originalLockerId: undefined,
+                } : x);
+
+                // Remove the internal flags from the stored object
+                updatedWalkIns = updatedWalkIns.map(w => {
+                  const { _originalAmount, _originalStatus, _originalLockerId, ...clean } = w;
+                  return clean;
+                });
+
+                // Manage locker occupancy when locker changes
+                let updatedLockers = d.lockers;
+                if (origLockerId !== newLockerId) {
+                  // Release old locker if it was assigned
+                  if (origLockerId) {
+                    updatedLockers = updatedLockers.map((l) => l.id === origLockerId ? { ...l, isOccupied: false } : l);
+                  }
+                  // Occupy new locker if one is selected
+                  if (newLockerId) {
+                    updatedLockers = updatedLockers.map((l) => l.id === newLockerId ? { ...l, isOccupied: true } : l);
+                  }
+                }
+
+                // Manage payment records based on status transition
+                let updatedPayments = d.payments;
+
+                // Case 1: WAS paid, NOW pending → remove the payment record
+                if (origStatus === "paid" && newStatus === "pending") {
+                  updatedPayments = updatedPayments.filter((p) => !(p.type === "walkin" && p.note?.includes(nameStr) && p.amount === origAmount));
+                }
+                // Case 2: WAS pending, NOW paid → add a payment record
+                else if (origStatus === "pending" && newStatus === "paid") {
+                  updatedPayments = [...updatedPayments, {
+                    id: generateId(), memberId: null, membershipId: null,
+                    amount: newAmount, method: newMethod, paidAt: new Date().toISOString(),
+                    type: "walkin", discountId: null, discountAmount: 0,
+                    note: `Walk-in payment: ${nameStr}`,
+                  }];
+                }
+                // Case 3: WAS paid, STILL paid but amount/method changed → replace the payment
+                else if (origStatus === "paid" && newStatus === "paid" && (origAmount !== newAmount || editWalkin.paymentMethod !== editWalkin._originalMethod)) {
+                  updatedPayments = updatedPayments.filter((p) => !(p.type === "walkin" && p.note?.includes(nameStr) && p.amount === origAmount));
+                  updatedPayments = [...updatedPayments, {
+                    id: generateId(), memberId: null, membershipId: null,
+                    amount: newAmount, method: newMethod, paidAt: new Date().toISOString(),
+                    type: "walkin", discountId: null, discountAmount: 0,
+                    note: `Walk-in payment: ${nameStr} (edited)`,
+                  }];
+                }
+
+                return { ...d, walkIns: updatedWalkIns, payments: updatedPayments, lockers: updatedLockers };
+              });
               setEditWalkin(null);
             }}><Check size={14} /> Save Changes</button>
           </>
         }>
+          {!isAdmin && (
+            <div style={{ padding: "10px 14px", background: "var(--info-dim)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: "var(--radius-xs)", marginBottom: 16, fontSize: 12, color: "var(--info)" }}>
+              <AlertTriangle size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 6 }} />
+              Front Desk: you can update payment status, method, and activities. Contact admin to change personal details.
+            </div>
+          )}
+
           <div className="form-grid">
-            <div className="form-group"><label>Surname</label><input value={editWalkin.lastName || ""} onChange={(e) => setEditWalkin({ ...editWalkin, lastName: e.target.value })} /></div>
-            <div className="form-group"><label>Other Name(s)</label><input value={editWalkin.firstName || ""} onChange={(e) => setEditWalkin({ ...editWalkin, firstName: e.target.value })} /></div>
-            <div className="form-group"><label>Phone</label><input value={editWalkin.phone || ""} onChange={(e) => setEditWalkin({ ...editWalkin, phone: e.target.value })} /></div>
-            <div className="form-group"><label>Emergency Contact</label><input value={editWalkin.emergency || ""} onChange={(e) => setEditWalkin({ ...editWalkin, emergency: e.target.value })} /></div>
-            <div className="form-group"><label>Gender</label>
-              <select value={editWalkin.gender || "Male"} onChange={(e) => setEditWalkin({ ...editWalkin, gender: e.target.value })}>
-                <option>Male</option><option>Female</option>
+            {/* ADMIN-ONLY FIELDS */}
+            {isAdmin && <>
+              <div className="form-group"><label>Surname</label><input value={editWalkin.lastName || ""} onChange={(e) => setEditWalkin({ ...editWalkin, lastName: e.target.value })} /></div>
+              <div className="form-group"><label>Other Name(s)</label><input value={editWalkin.firstName || ""} onChange={(e) => setEditWalkin({ ...editWalkin, firstName: e.target.value })} /></div>
+              <div className="form-group"><label>Phone</label><input value={editWalkin.phone || ""} onChange={(e) => setEditWalkin({ ...editWalkin, phone: e.target.value })} /></div>
+              <div className="form-group"><label>Emergency Contact</label><input value={editWalkin.emergency || ""} onChange={(e) => setEditWalkin({ ...editWalkin, emergency: e.target.value })} /></div>
+              <div className="form-group"><label>Gender</label>
+                <select value={editWalkin.gender || "Male"} onChange={(e) => setEditWalkin({ ...editWalkin, gender: e.target.value })}>
+                  <option>Male</option><option>Female</option>
+                </select>
+              </div>
+              <div className="form-group"><label>Visit Date</label><input type="date" value={editWalkin.visitDate || ""} onChange={(e) => setEditWalkin({ ...editWalkin, visitDate: e.target.value })} /></div>
+            </>}
+
+            {/* STAFF-FRIENDLY READ-ONLY GUEST INFO (when not admin) */}
+            {!isAdmin && (
+              <div className="form-group full" style={{ padding: "12px 14px", background: "var(--bg-elevated)", borderRadius: "var(--radius-xs)", border: "1px solid var(--border)" }}>
+                <label>Guest</label>
+                <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 500 }}>
+                  {editWalkin.lastName || ""} {editWalkin.firstName || ""} — {editWalkin.phone || "No phone"}
+                </p>
+              </div>
+            )}
+
+            {/* SHARED EDITABLE FIELDS */}
+            <div className="form-group"><label>Payment Status *</label>
+              <select value={editWalkin.paymentStatus || "paid"} onChange={(e) => setEditWalkin({ ...editWalkin, paymentStatus: e.target.value })}
+                style={{
+                  background: (editWalkin.paymentStatus || "paid") === "paid" ? "var(--success-dim)" : "var(--warning-dim)",
+                  color: (editWalkin.paymentStatus || "paid") === "paid" ? "var(--success)" : "var(--warning)",
+                  borderColor: (editWalkin.paymentStatus || "paid") === "paid" ? "rgba(34,197,94,0.3)" : "rgba(249,115,22,0.3)",
+                  fontWeight: 600,
+                }}>
+                <option value="paid">✓ Paid</option><option value="pending">⚠ Pending</option>
               </select>
             </div>
-            <div className="form-group"><label>Visit Date</label><input type="date" value={editWalkin.visitDate || ""} onChange={(e) => setEditWalkin({ ...editWalkin, visitDate: e.target.value })} /></div>
-            <div className="form-group"><label>Amount (UGX)</label><input type="number" value={editWalkin.amountDue || editWalkin.amountPaid || 0} onChange={(e) => setEditWalkin({ ...editWalkin, amountDue: e.target.value })} /></div>
-            <div className="form-group"><label>Payment Method</label>
+            <div className="form-group"><label>Payment Method *</label>
               <select value={editWalkin.paymentMethod || "cash"} onChange={(e) => setEditWalkin({ ...editWalkin, paymentMethod: e.target.value })}>
                 <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
               </select>
             </div>
-            <div className="form-group"><label>Payment Status</label>
-              <select value={editWalkin.paymentStatus || "paid"} onChange={(e) => setEditWalkin({ ...editWalkin, paymentStatus: e.target.value })}>
-                <option value="paid">Paid</option><option value="pending">Pending</option>
-              </select>
+            <div className="form-group full"><label>Amount (UGX)</label>
+              <input type="number" value={editWalkin.amountDue || 0} onChange={(e) => setEditWalkin({ ...editWalkin, amountDue: e.target.value })} />
+              <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Auto-calculated when you change activities below. You can also enter manually.</p>
             </div>
-            <div className="form-group full"><label>Activities</label>
+            <div className="form-group full"><label>Activities * <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none" }}>— select 1 or 2, max 2</span></label>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {ACTIVITIES.map((act) => {
                   const isSel = (editWalkin.activities || []).includes(act.id);
@@ -1731,6 +1818,29 @@ const CheckIn = ({ data, setData, currentUser }) => {
                   );
                 })}
               </div>
+              {(editWalkin.activities || []).length > 1 && (
+                <p style={{ fontSize: 11, color: "var(--success)", marginTop: 6 }}>✓ Bundle discount of UGX 10,000 applied for selecting 2 activities</p>
+              )}
+            </div>
+
+            {/* LOCKER SELECTION (optional, gender-filtered) */}
+            <div className="form-group full"><label>Locker (Optional)</label>
+              <select value={editWalkin.lockerAssigned || ""} onChange={(e) => setEditWalkin({ ...editWalkin, lockerAssigned: e.target.value })}>
+                <option value="">— No locker assigned —</option>
+                {data.lockers
+                  .filter((l) => {
+                    if (editWalkin.gender === "Male") return l.section === "gents";
+                    if (editWalkin.gender === "Female") return l.section === "ladies";
+                    return true;
+                  })
+                  .sort((a, b) => a.number - b.number)
+                  .map((l) => (
+                    <option key={l.id} value={l.id} disabled={l.isOccupied && l.id !== (editWalkin.lockerAssigned || "")}>
+                      Locker {l.number} ({l.section}) {l.isOccupied && l.id !== (editWalkin.lockerAssigned || "") ? "— occupied" : ""}
+                    </option>
+                  ))}
+              </select>
+              <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Gender-filtered based on guest gender. Occupied lockers are disabled unless already assigned to this guest.</p>
             </div>
           </div>
         </Modal>
@@ -1791,8 +1901,10 @@ const generateAvatarPhoto = (name) => {
 
 const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
   const videoRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [mode, setMode] = useState("idle"); // idle | streaming | captured
   const [cameraReady, setCameraReady] = useState(false);
+  const [error, setError] = useState(null);
   const streamRef = useRef(null);
 
   const stopCamera = useCallback(() => {
@@ -1808,6 +1920,21 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
 
   const startCamera = async () => {
     stopCamera();
+    setError(null);
+
+    // Check browser support first
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setError("Your browser doesn't support camera access. Please use the Upload option or Auto Avatar.");
+      return;
+    }
+
+    // Check HTTPS (camera requires secure context, except on localhost)
+    const isSecure = window.isSecureContext || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    if (!isSecure) {
+      setError("Camera requires a secure (HTTPS) connection. Please use the Upload or Auto Avatar option.");
+      return;
+    }
+
     setMode("streaming");
     setCameraReady(false);
 
@@ -1818,21 +1945,44 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
       });
       streamRef.current = stream;
 
-      // Wait a tick for React to ensure video element is visible
-      await new Promise((r) => setTimeout(r, 100));
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        try { await videoRef.current.play(); } catch (e) { /* autoplay blocked, user will see frozen frame */ }
-        setCameraReady(true);
-      }
+      // Retry binding to video element (handles race condition)
+      let attempts = 0;
+      const bindVideo = async () => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          try {
+            await videoRef.current.play();
+            setCameraReady(true);
+          } catch (playErr) {
+            // Autoplay blocked — user needs to interact. Show the stream anyway.
+            setCameraReady(true);
+            console.warn("Autoplay blocked, user can still see preview:", playErr.message);
+          }
+        } else if (attempts < 10) {
+          attempts++;
+          setTimeout(bindVideo, 50);
+        } else {
+          throw new Error("Video element not available");
+        }
+      };
+      await bindVideo();
     } catch (err) {
-      console.warn("Camera error:", err.message);
-      // Fallback to simulated avatar
+      console.warn("Camera error:", err.name, err.message);
       stopCamera();
-      const dataUrl = generateAvatarPhoto(memberName);
-      onCapture(dataUrl);
       setMode("idle");
+
+      // User-friendly error messages
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        setError("Camera permission denied. Please allow camera access in your browser settings, or use the Upload option.");
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        setError("No camera found on this device. Please use the Upload option or Auto Avatar.");
+      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        setError("Camera is already in use by another app. Close other camera apps and try again.");
+      } else if (err.name === "OverconstrainedError") {
+        setError("Camera doesn't meet the required settings. Try the Upload option.");
+      } else {
+        setError(`Camera unavailable: ${err.message}. Please use the Upload option.`);
+      }
     }
   };
 
@@ -1842,11 +1992,16 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
     const w = video.videoWidth || 640;
     const h = video.videoHeight || 480;
 
+    if (w === 0 || h === 0) {
+      setError("Camera not ready yet. Please wait and try again.");
+      return;
+    }
+
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
-    // Mirror horizontally
+    // Mirror horizontally (natural selfie view)
     ctx.translate(w, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, w, h);
@@ -1857,14 +2012,65 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
     if (dataUrl && dataUrl.length > 500) {
       onCapture(dataUrl);
     } else {
+      setError("Failed to capture image. Please try again.");
       onCapture(generateAvatarPhoto(memberName));
     }
     setMode("idle");
   };
 
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please select an image file (JPG, PNG, etc.)");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image too large. Please use an image smaller than 5MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      // Compress via canvas
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 640;
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          const ratio = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        onCapture(dataUrl);
+        setError(null);
+      };
+      img.onerror = () => setError("Unable to load this image. Please try another file.");
+      img.src = ev.target.result;
+    };
+    reader.onerror = () => setError("Failed to read file.");
+    reader.readAsDataURL(file);
+
+    // Reset input so the same file can be re-selected
+    e.target.value = "";
+  };
+
+  const useAvatar = () => {
+    const dataUrl = generateAvatarPhoto(memberName);
+    onCapture(dataUrl);
+    setError(null);
+  };
+
   const handleRetake = () => {
     onRetake();
-    startCamera();
+    setError(null);
   };
 
   const cancelCamera = () => {
@@ -1877,7 +2083,24 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
 
   return (
     <div className="photo-capture-area">
-      <label>Member Photo <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Optional</span></label>
+      <label>Photo <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Optional</span></label>
+
+      {/* Hidden file input for uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={handleFileUpload}
+      />
+
+      {/* Error banner */}
+      {error && (
+        <div style={{ padding: "10px 14px", background: "var(--warning-dim)", border: "1px solid rgba(249,115,22,0.3)", borderRadius: "var(--radius-xs)", marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <AlertTriangle size={14} style={{ color: "var(--warning)", flexShrink: 0, marginTop: 2 }} />
+          <span style={{ fontSize: 12, color: "var(--warning)", lineHeight: 1.4 }}>{error}</span>
+        </div>
+      )}
 
       {/* ALWAYS render the video — just hide it when not streaming */}
       <div style={{ display: mode === "streaming" ? "block" : "none", width: "100%", maxWidth: 320, margin: "0 auto" }}>
@@ -1908,7 +2131,7 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
         </div>
         {cameraReady && (
           <p style={{ color: "var(--success)", fontSize: 11, textAlign: "center", marginTop: 6 }}>
-            Camera ready — position the member and tap "Take Photo"
+            Camera ready — position the person and tap "Take Photo"
           </p>
         )}
       </div>
@@ -1922,11 +2145,19 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
               <span style={{ fontSize: 11 }}>No photo</span>
             </div>
           </div>
-          <button type="button" className="btn btn-primary" onClick={startCamera}>
-            <Camera size={16} /> Capture Photo
-          </button>
-          <p style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center" }}>
-            Opens camera to capture member photo
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button type="button" className="btn btn-primary" onClick={startCamera} style={{ justifyContent: "center" }}>
+              <Camera size={16} /> Use Camera
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => fileInputRef.current?.click()} style={{ justifyContent: "center" }}>
+              <Upload size={16} /> Upload Image
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={useAvatar} style={{ justifyContent: "center", fontSize: 11 }}>
+              <Users size={12} /> Use Auto Avatar (Initials)
+            </button>
+          </div>
+          <p style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center", marginTop: 6 }}>
+            Camera, upload from device, or use generated initials avatar
           </p>
         </>
       )}
@@ -1935,14 +2166,14 @@ const PhotoCapture = ({ photo, onCapture, onRetake, memberName }) => {
       {photo && mode !== "streaming" && (
         <>
           <div className="photo-preview-frame">
-            <img src={photo} alt="Member" />
+            <img src={photo} alt="Captured" />
           </div>
-          <div className="camera-controls">
+          <div className="camera-controls" style={{ flexWrap: "wrap", gap: 6 }}>
             <button type="button" className="btn btn-sm btn-success" disabled>
-              <Check size={14} /> Photo Captured
+              <Check size={14} /> Photo Set
             </button>
             <button type="button" className="btn btn-sm btn-secondary" onClick={handleRetake}>
-              <RefreshCw size={14} /> Retake
+              <RefreshCw size={14} /> Change
             </button>
           </div>
         </>
@@ -3141,20 +3372,90 @@ const Attendance = ({ data, setData }) => {
 };
 
 // ─── TIMETABLE ──────────────────────────────────────────────
-const TimetablePage = () => {
+const TimetablePage = ({ data, setData, currentUser }) => {
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState({ day: "Mon", class: "Spinning", time: "6:30pm – 7:30pm" });
+  const [current, setCurrent] = useState(null);
+  const isAdmin = currentUser?.role === "admin";
   const colors = ["#f59e0b", "#3b82f6", "#22c55e", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
+
+  const save = () => {
+    if (!form.class || !form.day || !form.time) return;
+    if (modal === "add") {
+      setData((d) => ({ ...d, timetable: [...d.timetable, { ...form, id: generateId() }] }));
+    } else if (modal === "edit" && current) {
+      setData((d) => ({ ...d, timetable: d.timetable.map((t) => t.id === current.id ? { ...t, ...form } : t) }));
+    }
+    setModal(null);
+  };
+
+  const deleteClass = (id) => {
+    if (confirm("Delete this class from the timetable?")) {
+      setData((d) => ({ ...d, timetable: d.timetable.filter((t) => t.id !== id) }));
+    }
+  };
+
   return (
     <div>
-      <div className="page-header"><h2>Class Timetable</h2><p>Weekly schedule • Mon–Sat: 6:30am – 9:00pm | Sun: 8:00am – 9:00pm</p></div>
+      <div className="page-header">
+        <h2>Class Timetable</h2>
+        <p>Weekly schedule • Mon–Sat: 6:30am – 9:00pm | Sun: 8:00am – 9:00pm</p>
+      </div>
+
+      {isAdmin && (
+        <div className="toolbar">
+          <div />
+          <button className="btn btn-primary" onClick={() => { setForm({ day: "Mon", class: "Spinning", time: "6:30pm – 7:30pm" }); setModal("add"); }}><Plus size={16} /> Add Class</button>
+        </div>
+      )}
+
       <div className="timetable-grid">
-        {TIMETABLE.map((t, i) => (
-          <div key={i} className="timetable-slot" style={{ borderLeftColor: colors[i % colors.length] }}>
+        {(data.timetable || []).map((t, i) => (
+          <div key={t.id} className="timetable-slot" style={{ borderLeftColor: colors[i % colors.length], position: "relative" }}>
             <div className="slot-day" style={{ color: colors[i % colors.length] }}>{t.day}</div>
             <div className="slot-class">{t.class}</div>
             <div className="slot-time">{t.time}</div>
+            {isAdmin && (
+              <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 4 }}>
+                <button className="btn btn-icon btn-sm" style={{ padding: 4, background: "rgba(59,130,246,0.1)", color: "var(--info)" }} 
+                  onClick={() => { setCurrent(t); setForm(t); setModal("edit"); }} title="Edit">
+                  <Edit2 size={12} />
+                </button>
+                <button className="btn btn-icon btn-sm" style={{ padding: 4, background: "rgba(239,68,68,0.1)", color: "var(--danger)" }}
+                  onClick={() => deleteClass(t.id)} title="Delete">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
+
+      {/* ADD/EDIT MODAL — admin only */}
+      {modal && isAdmin && (
+        <Modal title={modal === "add" ? "Add Class" : "Edit Class"} onClose={() => setModal(null)} footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={save}>Save</button>
+          </>
+        }>
+          <div className="form-grid">
+            <div className="form-group"><label>Day *</label>
+              <select value={form.day} onChange={(e) => setForm({ ...form, day: e.target.value })}>
+                <option>Mon</option><option>Tue</option><option>Wed</option><option>Thu</option><option>Fri</option><option>Sat</option><option>Sun</option>
+              </select>
+            </div>
+            <div className="form-group"><label>Class Name *</label>
+              <select value={form.class} onChange={(e) => setForm({ ...form, class: e.target.value })}>
+                {ACTIVITIES.filter((a) => !["daily", "steam", "massage"].includes(a.id)).map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group full"><label>Time (e.g., 6:30pm – 7:30pm) *</label>
+              <input value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} placeholder="e.g. 6:30pm – 7:30pm" />
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
@@ -3430,10 +3731,11 @@ const Trainers = ({ data, setData }) => {
 };
 
 // ─── EQUIPMENT ──────────────────────────────────────────────
-const Equipment = ({ data, setData }) => {
+const Equipment = ({ data, setData, currentUser }) => {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({ name: "", type: "Cardio", serialNumber: "", purchaseDate: "", status: "operational" });
   const [current, setCurrent] = useState(null);
+  const isAdmin = currentUser?.role === "admin";
 
   const save = () => {
     if (!form.name) return;
@@ -3445,16 +3747,49 @@ const Equipment = ({ data, setData }) => {
     setModal(null);
   };
 
+  const updateStatus = (eqId, newStatus) => {
+    setData((d) => ({
+      ...d,
+      equipment: d.equipment.map((e) => e.id === eqId ? { ...e, status: newStatus, statusUpdatedAt: new Date().toISOString(), statusUpdatedBy: currentUser?.name || "Staff" } : e),
+    }));
+  };
+
+  const statusStyle = (status) => {
+    if (status === "operational") return { background: "var(--success-dim)", color: "var(--success)", borderColor: "rgba(34,197,94,0.3)" };
+    if (status === "maintenance") return { background: "var(--warning-dim)", color: "var(--warning)", borderColor: "rgba(249,115,22,0.3)" };
+    return { background: "var(--danger-dim)", color: "var(--danger)", borderColor: "rgba(239,68,68,0.3)" };
+  };
+
   return (
     <div>
-      <div className="page-header"><h2>Equipment</h2><p>Track gym equipment and maintenance schedules</p></div>
-      <div className="toolbar">
-        <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ name: "", type: "Cardio", serialNumber: "", purchaseDate: today(), status: "operational" }); setModal("add"); }}><Plus size={16} /> Add Equipment</button>
+      <div className="page-header">
+        <h2>Equipment</h2>
+        <p>{isAdmin ? "Track gym equipment and maintenance schedules" : "Update equipment status — flag issues to admin for follow-up"}</p>
       </div>
+
+      {/* Stat cards */}
+      <div className="card-grid" style={{ marginBottom: 20 }}>
+        <StatCard icon={Check} label="Operational" value={data.equipment.filter((e) => e.status === "operational").length} color="var(--success)" bg="var(--success-dim)" />
+        <StatCard icon={Wrench} label="Under Maintenance" value={data.equipment.filter((e) => e.status === "maintenance").length} color="var(--warning)" bg="var(--warning-dim)" />
+        <StatCard icon={X} label="Decommissioned" value={data.equipment.filter((e) => e.status === "decommissioned").length} color="var(--danger)" bg="var(--danger-dim)" />
+        <StatCard icon={Dumbbell} label="Total Equipment" value={data.equipment.length} color="var(--accent)" bg="var(--accent-dim)" />
+      </div>
+
+      <div className="toolbar">
+        <div>
+          {!isAdmin && (
+            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              <AlertTriangle size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4, color: "var(--warning)" }} />
+              Front Desk: You can update the status column. Admin manages equipment records.
+            </p>
+          )}
+        </div>
+        {isAdmin && <button className="btn btn-primary" onClick={() => { setForm({ name: "", type: "Cardio", serialNumber: "", purchaseDate: today(), status: "operational" }); setModal("add"); }}><Plus size={16} /> Add Equipment</button>}
+      </div>
+
       <div className="table-wrapper">
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Serial</th><th>Purchased</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Serial</th><th>Purchased</th><th>Status</th>{isAdmin && <th>Actions</th>}</tr></thead>
           <tbody>
             {data.equipment.map((eq) => (
               <tr key={eq.id}>
@@ -3463,17 +3798,47 @@ const Equipment = ({ data, setData }) => {
                 <td style={{ fontFamily: "monospace", fontSize: 12 }}>{eq.serialNumber}</td>
                 <td>{formatDate(eq.purchaseDate)}</td>
                 <td>
-                  {eq.status === "operational" ? <Badge variant="success">Operational</Badge> : eq.status === "maintenance" ? <Badge variant="warning">Maintenance</Badge> : <Badge variant="danger">Decommissioned</Badge>}
+                  <select
+                    value={eq.status}
+                    onChange={(e) => updateStatus(eq.id, e.target.value)}
+                    style={{
+                      padding: "6px 10px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      borderRadius: "var(--radius-xs)",
+                      border: `1px solid ${statusStyle(eq.status).borderColor}`,
+                      background: statusStyle(eq.status).background,
+                      color: statusStyle(eq.status).color,
+                      cursor: "pointer",
+                      minWidth: 160,
+                    }}
+                  >
+                    <option value="operational">✓ Operational</option>
+                    <option value="maintenance">⚠ Under Maintenance</option>
+                    <option value="decommissioned">✗ Decommissioned</option>
+                  </select>
+                  {eq.statusUpdatedBy && (
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+                      Updated by {eq.statusUpdatedBy}
+                    </div>
+                  )}
                 </td>
-                <td>
-                  <button className="btn btn-icon btn-secondary" onClick={() => { setCurrent(eq); setForm(eq); setModal("edit"); }}><Edit2 size={14} /></button>
-                </td>
+                {isAdmin && (
+                  <td>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button className="btn btn-icon btn-secondary" onClick={() => { setCurrent(eq); setForm(eq); setModal("edit"); }} title="Edit details"><Edit2 size={14} /></button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
+            {data.equipment.length === 0 && <tr><td colSpan={isAdmin ? 6 : 5} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No equipment recorded</td></tr>}
           </tbody>
         </table>
       </div>
-      {modal && (
+
+      {/* ADD/EDIT modal — admin only */}
+      {modal && isAdmin && (
         <Modal title={modal === "add" ? "Add Equipment" : "Edit Equipment"} onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save}>Save</button></>}>
           <div className="form-grid">
             <div className="form-group"><label>Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
@@ -3697,6 +4062,13 @@ const Shop = ({ data, setData, currentUser }) => {
       {/* ── MANAGE PRODUCTS TAB (Admin only) ── */}
       {tab === "products" && isAdmin && (
         <div>
+          <div className="card-grid" style={{ marginBottom: 20 }}>
+            <StatCard icon={Layers} label="Total Products" value={data.products.length} color="var(--accent)" bg="var(--accent-dim)" />
+            <StatCard icon={AlertTriangle} label="Low Stock (<= 3)" value={data.products.filter((p) => p.stock <= 3 && p.isActive).length} color="var(--warning)" bg="var(--warning-dim)" />
+            <StatCard icon={DollarSign} label="Total Inventory Value" value={formatUGX(data.products.reduce((s, p) => s + (p.price * p.stock), 0))} color="var(--info)" bg="var(--info-dim)" />
+            <StatCard icon={Check} label="Active Products" value={data.products.filter((p) => p.isActive).length} color="var(--success)" bg="var(--success-dim)" />
+          </div>
+
           <div className="toolbar">
             <div />
             <button className="btn btn-primary" onClick={() => { setProductForm({ name: "", category: "Supplements", price: "", stock: "" }); setEditProduct(null); setProductModal("add"); }}><Plus size={16} /> Add Product</button>
@@ -3714,8 +4086,13 @@ const Shop = ({ data, setData, currentUser }) => {
                     <td>{p.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Hidden</Badge>}</td>
                     <td>
                       <div style={{ display: "flex", gap: 6 }}>
-                        <button className="btn btn-icon btn-secondary" onClick={() => { setEditProduct(p); setProductForm({ name: p.name, category: p.category, price: String(p.price), stock: String(p.stock) }); setProductModal("edit"); }}><Edit2 size={14} /></button>
-                        <button className="btn btn-icon btn-danger" onClick={() => setData((d) => ({ ...d, products: d.products.map((x) => x.id === p.id ? { ...x, isActive: !x.isActive } : x) }))}>{p.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
+                        <button className="btn btn-icon btn-secondary" onClick={() => { setEditProduct(p); setProductForm({ name: p.name, category: p.category, price: String(p.price), stock: String(p.stock) }); setProductModal("edit"); }} title="Edit"><Edit2 size={14} /></button>
+                        <button className="btn btn-icon btn-secondary" onClick={() => setData((d) => ({ ...d, products: d.products.map((x) => x.id === p.id ? { ...x, isActive: !x.isActive } : x) }))} title={p.isActive ? "Hide from shop" : "Show in shop"}>{p.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
+                        <button className="btn btn-icon btn-danger" onClick={() => {
+                          if (confirm(`Delete "${p.name}"? This cannot be undone.`)) {
+                            setData((d) => ({ ...d, products: d.products.filter((x) => x.id !== p.id) }));
+                          }
+                        }} title="Delete permanently"><Trash2 size={14} /></button>
                       </div>
                     </td>
                   </tr>
@@ -3725,16 +4102,49 @@ const Shop = ({ data, setData, currentUser }) => {
           </div>
 
           {productModal && (
-            <Modal title={productModal === "add" ? "Add Product" : "Edit Product"} onClose={() => setProductModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setProductModal(null)}>Cancel</button><button className="btn btn-primary" onClick={saveProduct}><Check size={14} /> Save</button></>}>
+            <Modal title={productModal === "add" ? "Add Product" : "Edit Product"} onClose={() => setProductModal(null)} footer={
+              <>
+                <button className="btn btn-secondary" onClick={() => setProductModal(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={saveProduct} disabled={!productForm.name || !productForm.price}><Check size={14} /> Save Product</button>
+              </>
+            }>
               <div className="form-grid">
-                <div className="form-group full"><label>Product Name *</label><input value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="e.g. Whey Protein" /></div>
-                <div className="form-group"><label>Category</label>
+                <div className="form-group full">
+                  <label>Product Name *</label>
+                  <input 
+                    value={productForm.name} 
+                    onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} 
+                    placeholder="e.g. Whey Protein, Dumbbell, Energy Drink" 
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Category</label>
                   <select value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}>
                     <option>Supplements</option><option>Accessories</option><option>Drinks</option><option>Apparel</option><option>Other</option>
                   </select>
                 </div>
-                <div className="form-group"><label>Price (UGX) *</label><input type="number" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: e.target.value })} /></div>
-                <div className="form-group"><label>Stock Quantity</label><input type="number" value={productForm.stock} onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })} /></div>
+                <div className="form-group">
+                  <label>Price (UGX) *</label>
+                  <input 
+                    type="number" 
+                    value={productForm.price} 
+                    onChange={(e) => setProductForm({ ...productForm, price: e.target.value })} 
+                    placeholder="0"
+                    min="0"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Stock Quantity</label>
+                  <input 
+                    type="number" 
+                    value={productForm.stock} 
+                    onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })} 
+                    placeholder="0"
+                    min="0"
+                  />
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Current stock. You can update this when items are sold or restocked.</p>
+                </div>
               </div>
             </Modal>
           )}
@@ -4654,8 +5064,8 @@ const ROLE_PERMISSIONS = {
     actions: ["create_member", "edit_member", "deactivate_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_staff", "manage_equipment", "manage_trainers", "manage_products", "manage_expenses", "view_reports", "view_payments", "reconcile", "export_data", "view_audit_log", "edit_walkin", "delete_expense"],
   },
   staff: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "shop", "payments", "expenses", "reports"],
-    actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member", "sell_products", "record_expense"],
+    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "equipment", "shop", "payments", "expenses", "reports"],
+    actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member", "sell_products", "record_expense", "update_equipment_status"],
   },
 };
 
@@ -4968,9 +5378,9 @@ export default function App() {
       case "shop": return <Shop data={data} setData={securedSetData} currentUser={currentUser} />;
       case "expenses": return <Expenses data={data} setData={securedSetData} currentUser={currentUser} />;
       case "attendance": return <Attendance data={data} setData={securedSetData} />;
-      case "timetable": return <TimetablePage />;
+      case "timetable": return <TimetablePage data={data} setData={securedSetData} currentUser={currentUser} />;
       case "trainers": return <Trainers data={data} setData={securedSetData} />;
-      case "equipment": return <Equipment data={data} setData={securedSetData} />;
+      case "equipment": return <Equipment data={data} setData={securedSetData} currentUser={currentUser} />;
       case "discounts": return <Discounts data={data} setData={securedSetData} />;
       case "reconciliation": return <Reconciliation data={data} setData={securedSetData} />;
       case "staff": return <StaffMgmt data={data} setData={securedSetData} currentUser={currentUser} />;
