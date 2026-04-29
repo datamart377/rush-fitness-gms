@@ -1,128 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, Pause, Play, Hash, Receipt, TrendingUp, ArrowLeft, Camera, RefreshCw, Star, Zap, Award, Upload } from "lucide-react";
-import {
-  authApi, membersApi, plansApi, membershipsApi, paymentsApi, trainersApi,
-  lockersApi, productsApi, equipmentApi, walkInsApi, attendanceApi,
-  discountsApi, expensesApi, usersApi, activitiesApi, auth as authStore,
-} from "./api/client";
-
-// Map backend user shape ({fullName}) to the shape the rest of App.jsx expects ({name})
-const adaptUser = (u) => u ? { ...u, name: u.fullName || u.username } : null;
-
-// ── Backend ↔ frontend adapters for memberships & payments ──
-// Frontend uses string `plan` codes (e.g. "gym_monthly"), API uses UUID planId.
-// Frontend uses `isActive` boolean, API uses `status` enum.
-const adaptMembership = (ms) => ms ? ({
-  ...ms,
-  plan: ms.planCode || ms.plan,                         // back-compat with in-memory rows
-  isActive: ms.status === "active" || ms.status === "frozen",
-}) : null;
-
-const adaptPayment = (p) => p ? ({
-  ...p,
-  paidAt: p.paidAt || p.createdAt,
-  // Map backend "mpesa" → frontend "mobile_money" so existing UI badges keep working.
-  method: p.method === "mpesa" ? "mobile_money" : p.method,
-  note: p.notes || p.note || "",
-}) : null;
-
-// Frontend → API: the form uses "mobile_money", API expects "mpesa".
-const paymentMethodToApi = (m) => m === "mobile_money" ? "mpesa" : m;
-
-// ── Locker adapter (backend status enum → frontend isOccupied bool) ──
-const adaptLocker = (l) => l ? ({
-  ...l,
-  number: Number(l.number),
-  isOccupied: l.status === "occupied",
-}) : null;
-
-// ── Product (Shop) adapter — frontend uses name/price/stock directly ──
-const adaptProduct = (p) => p ? ({
-  ...p,
-  price: Number(p.price),
-  stock: Number(p.stock),
-}) : null;
-
-// ── Equipment adapter — backend.status is operational/maintenance/retired ──
-const adaptEquipment = (e) => e ? ({
-  ...e,
-  // Map backend "operational" → "good" for backwards-compat with existing UI
-  status: e.status === "operational" ? "good" : e.status,
-}) : null;
-const equipmentStatusToApi = (s) => s === "good" ? "operational" : s;
-
-// ── Walk-in adapter — backend uses fullName, frontend has firstName/lastName/name ──
-const adaptWalkIn = (w) => w ? ({
-  ...w,
-  name: w.fullName || w.name || "",
-  visitDate: w.visitDate,
-  paymentStatus: w.paymentStatus || "pending",
-  checkedIn: !!w.checkedIn,
-}) : null;
-
-// ── Attendance adapter — backend uses checkInAt, frontend uses checkIn ──
-const adaptAttendance = (a) => a ? ({
-  ...a,
-  checkIn: a.checkInAt || a.checkIn,
-  checkOut: a.checkOutAt || a.checkOut,
-  date: a.visitDate || a.date,
-}) : null;
-
-// ── Discount adapter — backend uses type:percent|flat, frontend used percentage|fixed ──
-const adaptDiscount = (d) => d ? ({
-  ...d,
-  type: d.type === "percent" ? "percentage" : d.type === "flat" ? "fixed" : d.type,
-  usesCount: d.usesCount || 0,
-  maxUses: d.maxUses || 0,
-  name: d.code || d.name,
-}) : null;
-const discountTypeToApi = (t) => t === "percentage" ? "percent" : t === "fixed" ? "flat" : t;
-
-// ── Expense adapter — backend uses spentOn, frontend uses date ──
-const adaptExpense = (e) => e ? ({
-  ...e,
-  date: e.spentOn || e.date,
-  amount: Number(e.amount),
-  approvedBy: e.recordedBy ? "Staff" : (e.approvedBy || "Staff"),
-  method: e.paidBy || e.method || "cash",
-}) : null;
-
-// ── Staff/User adapter ──
-const adaptStaff = (u) => u ? ({
-  ...u,
-  name: u.fullName || u.username,
-}) : null;
-
-// ── Activity adapter — backend gives standalonePrice/addonPrice, the rest of
-//     App.jsx expects "standalone" and "addon" (matching the seed const).
-const adaptActivity = (a) => a ? ({
-  ...a,
-  standalone: Number(a.standalonePrice ?? a.standalone ?? 0),
-  addon: Number(a.addonPrice ?? a.addon ?? 0),
-  id: a.code || a.id,           // legacy code uses id="aerobics" etc.
-  uuid: a.id,                   // keep DB UUID for updates
-}) : null;
-
-// ── Trainer adapters ────────────────────────────────────────
-const adaptTrainer = (t) => t ? ({
-  ...t,
-  emergency: t.emergencyPhone || "",
-  emergency2: t.emergencyPhone2 || "",
-  photo: t.photoUrl || null,
-}) : null;
-const trainerFormToApi = (f) => ({
-  firstName: f.firstName?.trim(),
-  lastName: f.lastName?.trim(),
-  phone: f.phone?.trim(),
-  email: f.email || undefined,
-  gender: f.gender,
-  dob: f.dob || undefined,
-  nationalId: f.nationalId || undefined,
-  emergencyPhone: f.emergency || undefined,
-  emergencyPhone2: f.emergency2 || undefined,
-  photoUrl: f.photo || undefined,
-  specialisation: f.specialisation || undefined,
-});
 
 // ─── DATA STORE ─────────────────────────────────────────────
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -164,27 +41,20 @@ const memberInitials = (m) => {
   return "?";
 };
 
-// Seed data — used as initial state until activities load from /api/activities.
-// After login the live list comes from `data.activities` (managed via the
-// Activities admin tab).
-const ACTIVITIES_SEED = [
-  { id: "gym_daily_activity", code: "gym_daily_activity", name: "Daily Gym Access", standalone: 20000, addon: 10000 },
-  { id: "aerobics",   code: "aerobics",   name: "Aerobics",        standalone: 20000, addon: 10000 },
-  { id: "spinning",   code: "spinning",   name: "Spinning",        standalone: 25000, addon: 10000 },
-  { id: "bantu_vibes",code: "bantu_vibes",name: "Bantu Vibes",     standalone: 20000, addon: 10000 },
-  { id: "kona",       code: "kona",       name: "Kona Dance",      standalone: 20000, addon: 10000 },
-  { id: "fimbo",      code: "fimbo",      name: "Fimbo Dance",     standalone: 20000, addon: 10000 },
-  { id: "boxing",     code: "boxing",     name: "Boxing",          standalone: 20000, addon: 10000 },
-  { id: "bootcamp",   code: "bootcamp",   name: "Bootcamp",        standalone: 20000, addon: 10000 },
-  { id: "abs",        code: "abs",        name: "ABS Class",       standalone: 20000, addon: 10000 },
-  { id: "steam",      code: "steam",      name: "Steam Bath",      standalone: 20000, addon: 10000 },
-  { id: "massage",    code: "massage",    name: "Massage",         standalone: 20000, addon: 10000 },
-  { id: "ballet",     code: "ballet",     name: "Ballet Dance",    standalone:  7000, addon:  7000 },
-].sort((a, b) => a.name.localeCompare(b.name));
-
-// Back-compat alias — many sites in the file still reference ACTIVITIES.
-// Treat the seed list as a fallback when data.activities isn't loaded yet.
-const ACTIVITIES = ACTIVITIES_SEED;
+const ACTIVITIES = [
+  { id: "gym_daily_activity", name: "Daily Gym Access", standalone: 20000, addon: 10000 },
+  { id: "aerobics", name: "Aerobics", standalone: 20000, addon: 10000 },
+  { id: "spinning", name: "Spinning", standalone: 25000, addon: 10000 },
+  { id: "bantu_vibes", name: "Bantu Vibes", standalone: 20000, addon: 10000 },
+  { id: "kona", name: "Kona Dance", standalone: 20000, addon: 10000 },
+  { id: "fimbo", name: "Fimbo Dance", standalone: 20000, addon: 10000 },
+  { id: "boxing", name: "Boxing", standalone: 20000, addon: 10000 },
+  { id: "bootcamp", name: "Bootcamp", standalone: 20000, addon: 10000 },
+  { id: "abs", name: "ABS Class", standalone: 20000, addon: 10000 },
+  { id: "steam", name: "Steam Bath", standalone: 20000, addon: 10000 },
+  { id: "massage", name: "Massage", standalone: 20000, addon: 10000 },
+  { id: "ballet", name: "Ballet Dance", standalone: 7000, addon: 7000 },
+];
 
 const MAX_ACTIVITIES = 2;
 
@@ -307,7 +177,7 @@ const initData = () => {
     { id: "ex3", category: "Supplies", description: "Cleaning supplies and detergents", amount: 120000, date: "2025-04-01", method: "cash", approvedBy: "Admin User", receipt: "", createdAt: "2025-04-01" },
   ];
 
-  return { members, memberships, payments, attendance, trainers, staff, equipment, lockers, discounts, walkIns, reconciliations, freezes, products, productSales, expenses, activities: ACTIVITIES, timetable: TIMETABLE.map((t, i) => ({ ...t, id: `tt${i + 1}` })) };
+  return { members, memberships, payments, attendance, trainers, staff, equipment, lockers, discounts, walkIns, reconciliations, freezes, products, productSales, expenses, timetable: TIMETABLE.map((t, i) => ({ ...t, id: `tt${i + 1}` })) };
 };
 
 // ─── STYLES ─────────────────────────────────────────────────
@@ -1190,8 +1060,6 @@ const Dashboard = ({ data }) => {
 
 // ─── CHECK-IN ───────────────────────────────────────────────
 const CheckIn = ({ data, setData, currentUser }) => {
-  // Use live activities list from backend; fall back to seed before login.
-  const ACTIVITIES = (data?.activities && data.activities.length) ? data.activities : ACTIVITIES_SEED;
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [checkedIn, setCheckedIn] = useState(false);
@@ -1221,23 +1089,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const isDailyPlan = membership?.plan === "gym_daily" || membership?.plan === "combo_session";
   const isPrepaid = membership?.plan === "prepaid";
   const prepaidBalance = membership?.prepaidBalance || 0;
-
-  // ── Pricing helpers (Option C — prepaid uses actual activity prices) ──
-  // Base gym access fee (used when no add-ons are selected)
-  const PREPAID_BASE_FEE = ACTIVITIES.find((a) => a.id === "gym_daily_activity")?.standalone || PLANS.prepaid.dailyRate;
-  // Sum of standalone prices for currently selected add-ons.
-  const addonsStandaloneTotal = (selectedIds = addons) =>
-    selectedIds.reduce((sum, actId) => sum + (ACTIVITIES.find((a) => a.id === actId)?.standalone || 0), 0);
-  const PREPAID_BUNDLE_DISCOUNT = 10000;  // 2-activity bundle discount
-  // Today's prepaid cost for this check-in given current addon selection.
-  const prepaidVisitCost = (() => {
-    if (!isPrepaid) return 0;
-    if (!addons.length) return PREPAID_BASE_FEE;                         // basic gym access
-    const total = addonsStandaloneTotal();
-    return addons.length > 1 ? total - PREPAID_BUNDLE_DISCOUNT : total;  // bundle discount on >=2
-  })();
-  const insufficientPrepaid = isPrepaid && prepaidBalance < prepaidVisitCost;
-
+  const insufficientPrepaid = isPrepaid && prepaidBalance < PLANS.prepaid.dailyRate;
   const memberBalance = membership ? getMembershipBalance(membership, data.payments) : null;
 
   const memberGender = selected?.gender;
@@ -1247,30 +1099,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
   // Today's walk-ins not yet checked in
   const todayUncheckedWalkIns = data.walkIns.filter((w) => w.visitDate === today() && !w.checkedIn && (w.paymentStatus === "paid" || !w.paymentStatus));
 
-  const handleCheckIn = async () => {
+  const handleCheckIn = () => {
     if (isExpired || isFrozen || alreadyCheckedIn || isPendingPayment || insufficientPrepaid) return;
-
-    // Call backend first — it atomically creates the attendance row and occupies the locker.
-    try {
-      await attendanceApi.checkIn({
-        memberId: selected.id,
-        lockerId: selectedLocker ? selectedLocker.id : undefined,
-        source: "staff",
-      });
-      // Refresh attendance + lockers from backend so all browsers see the change.
-      const [attRes, lockRes] = await Promise.all([
-        attendanceApi.list({ limit: 500 }),
-        lockersApi.list({ limit: 200 }),
-      ]);
-      setData((d) => ({
-        ...d,
-        attendance: (attRes?.data || []).map(adaptAttendance),
-        lockers: (lockRes?.data || []).map(adaptLocker),
-      }));
-    } catch (err) {
-      alert(err?.message || "Check-in failed");
-      return;
-    }
 
     const newAttendance = {
       id: generateId(), memberId: selected.id,
@@ -1281,68 +1111,47 @@ const CheckIn = ({ data, setData, currentUser }) => {
       lockerId: selectedLocker ? selectedLocker.id : null,
     };
 
-    // ── PREPAID: deduct the ACTUAL cost of this visit (gym base + selected addons,
-    //    minus 10k bundle discount if 2+ activities). One single deduction record.
+    // PREPAID: deduct daily rate from balance and record payment
     let prepaidDeduction = null;
     if (isPrepaid) {
-      const deductAmount = prepaidVisitCost;
-      const breakdown = !addons.length
-        ? "gym access"
-        : addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ") +
-          (addons.length > 1 ? ` (-${formatUGX(PREPAID_BUNDLE_DISCOUNT)} bundle)` : "");
+      const deductAmount = PLANS.prepaid.dailyRate;
       prepaidDeduction = {
         id: generateId(), memberId: selected.id, membershipId: membership.id,
         amount: deductAmount, method: "prepaid", paidAt: new Date().toISOString(),
-        type: "prepaid_visit", discountId: null,
-        discountAmount: addons.length > 1 ? PREPAID_BUNDLE_DISCOUNT : 0,
-        note: `Pre-paid visit: ${breakdown} = ${formatUGX(deductAmount)} (balance before: ${formatUGX(prepaidBalance)})`,
+        type: "prepaid_visit", discountId: null, discountAmount: 0,
+        note: `Pre-paid visit deduction: ${formatUGX(deductAmount)} (balance before: ${formatUGX(prepaidBalance)})`,
       };
     }
 
-    // ── NON-PREPAID: charge add-ons separately (cash payment).
-    //    Daily plans pay standalone prices, monthly memberships pay addon prices.
-    let newPayments = [];
-    if (!isPrepaid) {
-      const bundleDiscount = addons.length > 1 ? PREPAID_BUNDLE_DISCOUNT : 0;
-      const activityPrices = addons.map((actId) => {
-        const act = ACTIVITIES.find((a) => a.id === actId);
-        return isDailyPlan ? act.standalone : act.addon;
-      });
-      const totalBeforeDiscount = activityPrices.reduce((s, p) => s + p, 0);
-      const totalAfterDiscount = totalBeforeDiscount - bundleDiscount;
-      newPayments = bundleDiscount > 0
-        ? [{ id: generateId(), memberId: selected.id, membershipId: null, amount: totalAfterDiscount, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: addons.join("+"), discountId: null, discountAmount: bundleDiscount, note: `Bundle: ${addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ")} (${formatUGX(bundleDiscount)} discount)` }]
-        : addons.map((actId) => {
-            const act = ACTIVITIES.find((a) => a.id === actId);
-            const price = isDailyPlan ? act.standalone : act.addon;
-            return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0 };
-          });
-    }
+    // Calculate add-on prices: if 2 activities, apply UGX 10,000 bundle discount
+    const bundleDiscount = addons.length > 1 ? 10000 : 0;
+    const activityPrices = addons.map((actId) => {
+      const act = ACTIVITIES.find((a) => a.id === actId);
+      return isDailyPlan || isPrepaid ? act.standalone : act.addon;
+    });
+    const totalBeforeDiscount = activityPrices.reduce((s, p) => s + p, 0);
+    const totalAfterDiscount = totalBeforeDiscount - bundleDiscount;
 
-    // Backend already created the attendance row & occupied the locker (above).
-    // Locally append non-persisted bits: prepaid balance change, addon payments.
+    const newPayments = bundleDiscount > 0
+      ? [{ id: generateId(), memberId: selected.id, membershipId: null, amount: totalAfterDiscount, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: addons.join("+"), discountId: null, discountAmount: bundleDiscount, note: `Bundle: ${addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ")} (${formatUGX(bundleDiscount)} discount)` }]
+      : addons.map((actId) => {
+          const act = ACTIVITIES.find((a) => a.id === actId);
+          const price = isDailyPlan || isPrepaid ? act.standalone : act.addon;
+          return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0 };
+        });
+
     setData((d) => ({
       ...d,
+      attendance: [...d.attendance, newAttendance],
       payments: [...d.payments, ...newPayments, ...(prepaidDeduction ? [prepaidDeduction] : [])],
       memberships: isPrepaid
-        ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, prepaidBalance: prepaidBalance - prepaidVisitCost } : ms)
+        ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, prepaidBalance: prepaidBalance - PLANS.prepaid.dailyRate } : ms)
         : d.memberships,
+      lockers: selectedLocker
+        ? d.lockers.map((l) => l.id === selectedLocker.id ? { ...l, isOccupied: true, memberId: selected.id } : l)
+        : d.lockers,
     }));
     setCheckedIn(true);
-
-    // Persist non-prepaid add-on payments to backend so they sync.
-    if (!isPrepaid && newPayments.length) {
-      Promise.all(newPayments.map((p) =>
-        paymentsApi.create({
-          memberId: p.memberId,
-          amount: p.amount,
-          method: paymentMethodToApi(p.method),
-          type: "addon",
-          discountAmount: p.discountAmount || undefined,
-          notes: p.note,
-        }).catch((e) => console.warn("Add-on payment persist failed:", e))
-      ));
-    }
   };
 
   const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null }); };
@@ -1632,7 +1441,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
           )}
           {!membership && <div style={{ marginTop: 12 }}><Badge variant="danger">No Active Membership</Badge></div>}
 
-          {/* Prepaid balance display — cost adapts to selected activities */}
+          {/* Prepaid balance display */}
           {isPrepaid && !isExpired && !alreadyCheckedIn && (
             <div style={{ marginTop: 16, padding: 16, background: insufficientPrepaid ? "var(--danger-dim)" : "var(--accent-dim)", border: `1px solid ${insufficientPrepaid ? "var(--danger)" : "var(--accent)"}`, borderRadius: "var(--radius-sm)", textAlign: "left" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1640,21 +1449,17 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 <span style={{ fontSize: 20, fontWeight: 700, color: insufficientPrepaid ? "var(--danger)" : "var(--accent)", fontFamily: "var(--font-display)" }}>{formatUGX(prepaidBalance)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: "var(--text-dim)" }}>
-                <span>This visit ({addons.length === 0 ? "gym only" : `${addons.length} activit${addons.length === 1 ? "y" : "ies"}`})</span>
-                <span style={{ fontWeight: 600 }}>-{formatUGX(prepaidVisitCost)}</span>
+                <span>Daily rate</span>
+                <span>-{formatUGX(PLANS.prepaid.dailyRate)}/visit</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 12, color: "var(--text-dim)" }}>
-                <span>Balance after check-in</span>
-                <span style={{ fontWeight: 600, color: insufficientPrepaid ? "var(--danger)" : "var(--success)" }}>{formatUGX(Math.max(0, prepaidBalance - prepaidVisitCost))}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 11, color: "var(--text-muted)" }}>
-                <span>Avg. visits left (gym only)</span>
-                <span>{Math.floor(prepaidBalance / PREPAID_BASE_FEE)}</span>
+                <span>Visits remaining</span>
+                <span style={{ fontWeight: 600, color: insufficientPrepaid ? "var(--danger)" : "var(--success)" }}>{Math.floor(prepaidBalance / PLANS.prepaid.dailyRate)}</span>
               </div>
               {insufficientPrepaid && (
-                <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8, fontWeight: 600 }}>⚠ Insufficient balance for this visit. Please top up via Memberships before check-in.</p>
+                <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8, fontWeight: 600 }}>⚠ Insufficient balance. Please top up via Memberships before check-in.</p>
               )}
-              {!insufficientPrepaid && prepaidBalance < prepaidVisitCost * 3 && (
+              {!insufficientPrepaid && prepaidBalance < PLANS.prepaid.dailyRate * 3 && (
                 <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 8 }}>⚠ Low balance — consider topping up soon.</p>
               )}
             </div>
@@ -2465,30 +2270,6 @@ By creating an account, you confirm that:
 • You agree to abide by all gym rules and policies
 • You voluntarily accept all risks associated with gym use`;
 
-// Map a backend member (camelCase from API) to the shape App.jsx expects.
-// Backend stores `emergencyPhone`/`emergencyPhone2`; frontend reads `emergency`/`emergency2`.
-const adaptMember = (m) => m ? ({
-  ...m,
-  emergency: m.emergencyPhone || "",
-  emergency2: m.emergencyPhone2 || "",
-  photo: m.photoUrl || null,
-}) : null;
-
-// Inverse: take frontend form → API body
-const memberFormToApi = (f) => ({
-  firstName: f.firstName?.trim(),
-  lastName: f.lastName?.trim(),
-  phone: f.phone?.trim(),
-  email: f.email || undefined,
-  gender: f.gender,
-  dob: f.dob || undefined,
-  nationalId: f.nationalId || undefined,
-  emergencyPhone: f.emergency || undefined,
-  emergencyPhone2: f.emergency2 || undefined,
-  photoUrl: f.photo || undefined,
-  pin: f.pin || undefined,
-});
-
 const Members = ({ data, setData, currentUser }) => {
   const isAdmin = currentUser?.role === "admin";
   const [search, setSearch] = useState("");
@@ -2497,32 +2278,12 @@ const Members = ({ data, setData, currentUser }) => {
   const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", pin: "", photo: null });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsScrolled, setTermsScrolled] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [apiError, setApiError] = useState("");
   const termsRef = useRef(null);
 
-  // Load members from the backend on mount, and mirror into shared `data.members`
-  // so other tabs that still read `data.members` keep working.
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setApiError("");
-    try {
-      const res = await membersApi.list({ limit: 500 });
-      const adapted = (res?.data || []).map(adaptMember);
-      setData((d) => ({ ...d, members: adapted }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load members");
-    } finally {
-      setLoading(false);
-    }
-  }, [setData]);
+  const filtered = data.members.filter((m) => fullName(m).toLowerCase().includes(search.toLowerCase()) || m.phone.includes(search));
 
-  useEffect(() => { reload(); }, [reload]);
-
-  const filtered = data.members.filter((m) => fullName(m).toLowerCase().includes(search.toLowerCase()) || (m.phone || "").includes(search));
-
-  const openAdd = () => { setForm({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", pin: Math.floor(1000 + Math.random() * 9000).toString(), photo: null }); setTermsAccepted(false); setTermsScrolled(false); setApiError(""); setModal("add"); };
-  const openEdit = (m) => { setCurrent(m); setForm({ ...m, emergency: m.emergency || "", emergency2: m.emergency2 || "" }); setApiError(""); setModal("edit"); };
+  const openAdd = () => { setForm({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", pin: Math.floor(1000 + Math.random() * 9000).toString(), photo: null }); setTermsAccepted(false); setTermsScrolled(false); setModal("add"); };
+  const openEdit = (m) => { setCurrent(m); setForm({ ...m }); setModal("edit"); };
   const openView = (m) => { setCurrent(m); setModal("view"); };
 
   const handleTermsScroll = () => {
@@ -2557,35 +2318,19 @@ const Members = ({ data, setData, currentUser }) => {
     setModal("terms");
   };
 
-  const save = async () => {
-    setLoading(true);
-    setApiError("");
-    try {
-      const payload = memberFormToApi(form);
-      if (modal === "add" || modal === "terms") {
-        await membersApi.create(payload);
-      } else if (current) {
-        await membersApi.update(current.id, payload);
-      }
-      await reload();
-      setModal(null);
-    } catch (err) {
-      const detail = Array.isArray(err?.details) && err.details.length
-        ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
-        : "";
-      setApiError([err?.message, detail].filter(Boolean).join(" – "));
-    } finally {
-      setLoading(false);
+  const save = () => {
+    // Photo is optional — member can be registered without one
+    if (modal === "add" || modal === "terms") {
+      const newMember = { ...form, id: generateId(), isActive: true, createdAt: today(), termsAcceptedAt: new Date().toISOString() };
+      setData((d) => ({ ...d, members: [...d.members, newMember] }));
+    } else {
+      setData((d) => ({ ...d, members: d.members.map((m) => m.id === current.id ? { ...m, ...form } : m) }));
     }
+    setModal(null);
   };
 
-  const toggleActive = async (m) => {
-    try {
-      await membersApi.update(m.id, { isActive: !m.isActive });
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to update member status");
-    }
+  const toggleActive = (m) => {
+    setData((d) => ({ ...d, members: d.members.map((x) => x.id === m.id ? { ...x, isActive: !x.isActive } : x) }));
   };
 
   return (
@@ -2599,17 +2344,6 @@ const Members = ({ data, setData, currentUser }) => {
         <div className="search-bar"><Search /><input placeholder="Search members..." value={search} onChange={(e) => setSearch(e.target.value)} /></div>
         <button className="btn btn-primary" onClick={openAdd}><UserPlus size={16} /> Add Member</button>
       </div>
-
-      {apiError && (
-        <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
-          <AlertTriangle size={14} /> {apiError}
-        </div>
-      )}
-      {loading && (
-        <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-          <RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Syncing with database...
-        </div>
-      )}
 
       <div className="table-wrapper">
         <table>
@@ -2775,65 +2509,32 @@ const Memberships = ({ data, setData, currentUser }) => {
   const [modal, setModal] = useState(null); // 'assign' | 'pay' | null
   const [form, setForm] = useState({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "" });
   const [payTarget, setPayTarget] = useState(null); // membership for additional payment
-  const [busy, setBusy] = useState(false);
-  const [apiError, setApiError] = useState("");
 
-  // Pull memberships + payments from backend; mirror into shared `data` state.
-  const reloadMemberships = useCallback(async () => {
-    setBusy(true);
-    setApiError("");
-    try {
-      const [msRes, payRes] = await Promise.all([
-        membershipsApi.list({ limit: 500 }),
-        paymentsApi.list({ limit: 500 }),
-      ]);
-      setData((d) => ({
-        ...d,
-        memberships: (msRes?.data || []).map(adaptMembership),
-        payments: (payRes?.data || []).map(adaptPayment),
-      }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load memberships");
-    } finally {
-      setBusy(false);
-    }
-  }, [setData]);
-
-  useEffect(() => { reloadMemberships(); }, [reloadMemberships]);
-
-  // Resolve a frontend plan code (e.g. "gym_monthly") to a backend plan UUID.
-  const resolvePlanId = (planCode) => {
-    const p = (data.plans || []).find((x) => x.code === planCode);
-    return p ? p.id : null;
-  };
-
-  const assign = async () => {
+  const assign = () => {
     if (!form.memberId || !form.plan) return;
-    setApiError("");
 
-    // PREPAID — backend has no prepaid_balance column yet, so keep this in-memory.
-    // (The user can still assign prepaid plans, but they won't sync to other browsers.)
+    // PREPAID PLAN — deposit amount becomes initial balance, deducted per check-in
     if (form.plan === "prepaid") {
       const deposit = Number(form.depositAmount) || 0;
       if (deposit < PLANS.prepaid.dailyRate) {
         alert(`Deposit must be at least UGX ${PLANS.prepaid.dailyRate.toLocaleString()} (one day's worth).`);
         return;
       }
-      console.warn("[memberships] prepaid plans are not yet persisted to the backend");
       const start = new Date();
       const end = new Date(start.getTime() + PLANS.prepaid.days * 86400000);
       const newMs = {
         id: generateId(), memberId: form.memberId, plan: "prepaid",
         startDate: start.toISOString().split("T")[0], endDate: end.toISOString().split("T")[0],
         isActive: true, frozenDays: 0, status: "active",
-        totalDue: deposit, prepaidBalance: deposit,
+        totalDue: deposit,
+        prepaidBalance: deposit,
         prepaidDeposits: [{ amount: deposit, date: new Date().toISOString(), method: form.method }],
       };
       const newPay = {
         id: generateId(), memberId: form.memberId, membershipId: newMs.id,
         amount: deposit, method: form.method, paidAt: new Date().toISOString(),
         type: "prepaid_deposit", discountId: null, discountAmount: 0,
-        note: `Pre-paid deposit: ${formatUGX(deposit)} (LOCAL ONLY)`,
+        note: `Pre-paid deposit: ${formatUGX(deposit)}`,
       };
       setData((d) => ({
         ...d,
@@ -2844,59 +2545,44 @@ const Memberships = ({ data, setData, currentUser }) => {
       return;
     }
 
-    // Group plans aren't in the backend plans table yet either — warn and skip persistence
-    if (form.plan.startsWith("group_")) {
-      alert("Group plans are not yet persisted to the backend. Use individual plans for now.");
-      return;
-    }
-
-    const planInfo = PLANS[form.plan];
-    if (!planInfo) { setApiError(`Unknown plan: ${form.plan}`); return; }
-    const planId = resolvePlanId(form.plan);
-    if (!planId) {
-      setApiError(`Plan "${form.plan}" not found in backend. Has the seed run?`);
-      return;
-    }
-
+    const isGroup = form.plan.startsWith("group_");
+    const planInfo = isGroup ? GROUP_PLANS[form.plan] : PLANS[form.plan];
+    if (!planInfo) return;
     const price = planInfo.price;
+    const days = planInfo.days;
+    const start = new Date();
+    const end = new Date(start.getTime() + days * 86400000);
     const discount = form.discountId ? data.discounts.find((d) => d.id === form.discountId) : null;
-    const discountAmt = discount
-      ? (discount.type === "percentage" ? Math.round(price * discount.value / 100) : discount.value)
-      : 0;
+    let discountAmt = 0;
+    if (discount) {
+      discountAmt = discount.type === "percentage" ? Math.round(price * discount.value / 100) : discount.value;
+    }
     const totalDue = price - discountAmt;
     const payAmount = form.paymentType === "full" ? totalDue : Math.min(Number(form.paymentAmount) || 0, totalDue);
-    if (payAmount <= 0) { setApiError("Payment amount must be > 0"); return; }
+    if (payAmount <= 0) return;
     const isPaidFull = payAmount >= totalDue;
 
-    setBusy(true);
-    try {
-      // 1. Create the membership
-      const ms = await membershipsApi.create({
-        memberId: form.memberId,
-        planId,
-        totalDue,
-      });
-      // 2. Record the payment (backend auto-bumps membership.total_paid)
-      await paymentsApi.create({
-        memberId: form.memberId,
-        membershipId: ms.id,
-        amount: payAmount,
-        method: paymentMethodToApi(form.method),
-        type: "membership",
-        discountAmount: discountAmt || undefined,
-        notes: isPaidFull ? "Full payment" : `Partial payment (${Math.round(payAmount / totalDue * 100)}%)`,
-      });
-      // 3. Refresh local cache from backend so all browsers see the change
-      await reloadMemberships();
-      setModal(null);
-    } catch (err) {
-      const detail = Array.isArray(err?.details) && err.details.length
-        ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
-        : "";
-      setApiError([err?.message, detail].filter(Boolean).join(" – "));
-    } finally {
-      setBusy(false);
-    }
+    const newMs = {
+      id: generateId(), memberId: form.memberId, plan: form.plan,
+      startDate: start.toISOString().split("T")[0], endDate: end.toISOString().split("T")[0],
+      isActive: isPaidFull, frozenDays: 0,
+      status: isPaidFull ? "active" : "pending_payment",
+      totalDue,
+    };
+    const newPay = {
+      id: generateId(), memberId: form.memberId, membershipId: newMs.id,
+      amount: payAmount, method: form.method, paidAt: new Date().toISOString(),
+      discountId: form.discountId || null, discountAmount: discountAmt,
+      note: isPaidFull ? "Full payment" : `Partial payment (${Math.round(payAmount / totalDue * 100)}%)`,
+    };
+
+    setData((d) => ({
+      ...d,
+      memberships: [...d.memberships.map((ms) => ms.memberId === form.memberId && ms.isActive ? { ...ms, isActive: false, status: "replaced" } : ms), newMs],
+      payments: [...d.payments, newPay],
+      discounts: discount ? d.discounts.map((dd) => dd.id === discount.id ? { ...dd, usesCount: dd.usesCount + 1 } : dd) : d.discounts,
+    }));
+    setModal(null);
   };
 
   const openPayBalance = (ms) => {
@@ -2938,56 +2624,44 @@ const Memberships = ({ data, setData, currentUser }) => {
     setPayTarget(null);
   };
 
-  const recordPayment = async () => {
+  const recordPayment = () => {
     if (!payTarget) return;
     const bal = getMembershipBalance(payTarget, data.payments);
     const payAmount = Math.min(Number(form.paymentAmount) || 0, bal.balance);
     if (payAmount <= 0) return;
     const willBeFullyPaid = payAmount >= bal.balance;
-    setBusy(true);
-    setApiError("");
-    try {
-      await paymentsApi.create({
-        memberId: payTarget.memberId,
-        membershipId: payTarget.id,
-        amount: payAmount,
-        method: paymentMethodToApi(form.method),
-        type: "membership",
-        notes: willBeFullyPaid
-          ? "Balance cleared — fully paid"
-          : `Installment payment (${formatUGX(bal.totalPaid + payAmount)} of ${formatUGX(bal.totalDue)})`,
-      });
-      await reloadMemberships();
-      setModal(null);
-      setPayTarget(null);
-    } catch (err) {
-      setApiError(err?.message || "Payment failed");
-    } finally {
-      setBusy(false);
-    }
+
+    const newPay = {
+      id: generateId(), memberId: payTarget.memberId, membershipId: payTarget.id,
+      amount: payAmount, method: form.method, paidAt: new Date().toISOString(),
+      discountId: null, discountAmount: 0,
+      note: willBeFullyPaid ? "Balance cleared — fully paid" : `Installment payment (${formatUGX(bal.totalPaid + payAmount)} of ${formatUGX(bal.totalDue)})`,
+    };
+
+    setData((d) => ({
+      ...d,
+      payments: [...d.payments, newPay],
+      memberships: willBeFullyPaid
+        ? d.memberships.map((ms) => ms.id === payTarget.id ? { ...ms, isActive: true, status: "active" } : ms)
+        : d.memberships,
+    }));
+    setModal(null);
+    setPayTarget(null);
   };
 
-  const freeze = async (ms) => {
-    const daysStr = window.prompt("Freeze for how many days?", "7");
-    const days = Number(daysStr);
-    if (!days || days < 1 || days > 365) return;
-    setApiError("");
-    try {
-      await membershipsApi.freeze(ms.id, days);
-      await reloadMemberships();
-    } catch (err) {
-      alert(err?.message || "Freeze failed");
-    }
+  const freeze = (ms) => {
+    setData((d) => ({ ...d, memberships: d.memberships.map((m) => m.id === ms.id ? { ...m, status: "frozen" } : m), freezes: [...d.freezes, { id: generateId(), membershipId: ms.id, freezeDate: today(), unfreezeDate: null, reason: "Member request" }] }));
   };
 
-  const unfreeze = async (ms) => {
-    setApiError("");
-    try {
-      await membershipsApi.unfreeze(ms.id);
-      await reloadMemberships();
-    } catch (err) {
-      alert(err?.message || "Unfreeze failed");
-    }
+  const unfreeze = (ms) => {
+    const fr = data.freezes.find((f) => f.membershipId === ms.id && !f.unfreezeDate);
+    const frozenDays = fr ? Math.ceil((new Date() - new Date(fr.freezeDate)) / 86400000) : 0;
+    const newEnd = new Date(new Date(ms.endDate).getTime() + frozenDays * 86400000).toISOString().split("T")[0];
+    setData((d) => ({
+      ...d,
+      memberships: d.memberships.map((m) => m.id === ms.id ? { ...m, status: "active", endDate: newEnd, frozenDays: m.frozenDays + frozenDays } : m),
+      freezes: d.freezes.map((f) => f.membershipId === ms.id && !f.unfreezeDate ? { ...f, unfreezeDate: today() } : f),
+    }));
   };
 
   // Count pending payments
@@ -3009,19 +2683,8 @@ const Memberships = ({ data, setData, currentUser }) => {
 
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "" }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "" }); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
       </div>
-
-      {apiError && (
-        <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
-          <AlertTriangle size={14} /> {apiError}
-        </div>
-      )}
-      {busy && (
-        <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-          <RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Syncing with database...
-        </div>
-      )}
       <div className="table-wrapper">
         <table>
           <thead><tr><th>Member</th><th>Plan</th><th>Start</th><th>End</th><th>Payment</th><th>Status</th><th>Actions</th></tr></thead>
@@ -3458,23 +3121,10 @@ const Payments = ({ data }) => {
 
 // ─── WALK-INS ───────────────────────────────────────────────
 const WalkIns = ({ data, setData, currentUser }) => {
-  const ACTIVITIES = (data?.activities && data.activities.length) ? data.activities : ACTIVITIES_SEED;
   const [modal, setModal] = useState(null); // 'add' | 'edit' | null
   const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid" });
   const [editTarget, setEditTarget] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [apiError, setApiError] = useState("");
   const isAdmin = currentUser?.role === "admin";
-
-  const reload = useCallback(async () => {
-    try {
-      const res = await walkInsApi.list({ limit: 500 });
-      setData((d) => ({ ...d, walkIns: (res?.data || []).map(adaptWalkIn) }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load walk-ins");
-    }
-  }, [setData]);
-  useEffect(() => { reload(); }, [reload]);
 
   const walkinTotal = (activities) => {
     const prices = activities.map((actId) => ACTIVITIES.find((a) => a.id === actId)?.standalone || 0);
@@ -3482,7 +3132,7 @@ const WalkIns = ({ data, setData, currentUser }) => {
     return activities.length > 1 ? sum - 10000 : sum;
   };
 
-  const save = async () => {
+  const save = () => {
     if (!form.firstName || !form.lastName || !form.phone) { alert("Please fill in Surname, Other Name(s), and Phone."); return; }
     if (!form.emergency) { alert("Emergency Contact 1 is required."); return; }
     if (form.selectedActivities.length === 0) { alert("Please select at least one activity."); return; }
@@ -3490,85 +3140,61 @@ const WalkIns = ({ data, setData, currentUser }) => {
 
     const total = walkinTotal(form.selectedActivities);
     const actNames = form.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(" + ");
+    const walkIn = {
+      id: generateId(), firstName: form.firstName, lastName: form.lastName,
+      phone: form.phone, emergency: form.emergency, emergency2: form.emergency2,
+      activities: form.selectedActivities,
+      amountDue: total, amountPaid: form.paymentStatus === "paid" ? total : 0,
+      paymentMethod: form.paymentMethod, paymentStatus: form.paymentStatus,
+      checkedIn: false, checkInTime: null,
+      visitDate: today(),
+      note: form.selectedActivities.length > 1 ? `Bundle: ${actNames} (UGX 10,000 discount)` : actNames,
+    };
 
-    setBusy(true);
-    setApiError("");
-    try {
-      const wi = await walkInsApi.create({
-        fullName: `${form.firstName} ${form.lastName}`.trim(),
-        phone: form.phone,
-        visitDate: today(),
-        amount: total,
-        paymentStatus: form.paymentStatus,
-        notes: form.selectedActivities.length > 1
-          ? `Bundle: ${actNames} (UGX 10,000 discount)`
-          : actNames,
-      });
-      // Record matching payment if paid
-      if (form.paymentStatus === "paid") {
-        try {
-          await paymentsApi.create({
-            amount: total,
-            method: paymentMethodToApi(form.paymentMethod),
-            type: "walk_in",
-            notes: `Walk-in: ${form.firstName} ${form.lastName} — ${actNames}`,
-          });
-        } catch (e) {
-          console.warn("Walk-in saved but payment record failed:", e);
-        }
-      }
-      await reload();
-      setModal(null);
-    } catch (err) {
-      setApiError(err?.message || "Failed to save walk-in");
-    } finally {
-      setBusy(false);
-    }
+    // Record payment if paid
+    const newPayments = form.paymentStatus === "paid" ? [{
+      id: generateId(), memberId: null, membershipId: null, amount: total,
+      method: form.paymentMethod, paidAt: new Date().toISOString(),
+      type: "walkin", discountId: null, discountAmount: 0,
+      note: `Walk-in: ${form.firstName} ${form.lastName} — ${actNames}`,
+    }] : [];
+
+    setData((d) => ({ ...d, walkIns: [...d.walkIns, walkIn], payments: [...d.payments, ...newPayments] }));
+    setModal(null);
   };
 
-  const updateWalkIn = async () => {
+  const updateWalkIn = () => {
     if (!editTarget) return;
-    try {
-      await walkInsApi.update(editTarget.id, {
-        fullName: editTarget.name || `${editTarget.firstName || ""} ${editTarget.lastName || ""}`.trim(),
-        phone: editTarget.phone,
-        amount: editTarget.amountDue,
-        paymentStatus: editTarget.paymentStatus,
-        notes: editTarget.note,
-      });
-      await reload();
-      setEditTarget(null);
-      setModal(null);
-    } catch (err) {
-      alert(err?.message || "Failed to update walk-in");
-    }
+    setData((d) => ({ ...d, walkIns: d.walkIns.map((w) => w.id === editTarget.id ? { ...editTarget } : w) }));
+    setEditTarget(null);
+    setModal(null);
   };
 
-  const markPaid = async (w) => {
-    const total = w.amountDue || w.amount || 0;
-    try {
-      await walkInsApi.update(w.id, { paymentStatus: "paid" });
-      await paymentsApi.create({
-        amount: total,
-        method: paymentMethodToApi(w.paymentMethod || "cash"),
-        type: "walk_in",
-        notes: `Walk-in payment: ${w.name || w.firstName || ""}`,
-      });
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to mark paid");
-    }
+  const markPaid = (w) => {
+    const total = w.amountDue || w.amountPaid;
+    setData((d) => ({
+      ...d,
+      walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, paymentStatus: "paid", amountPaid: total } : x),
+      payments: [...d.payments, {
+        id: generateId(), memberId: null, membershipId: null, amount: total,
+        method: w.paymentMethod || "cash", paidAt: new Date().toISOString(),
+        type: "walkin", discountId: null, discountAmount: 0,
+        note: `Walk-in payment: ${w.firstName || ""} ${w.lastName || ""}`
+      }],
+    }));
   };
 
-  const checkInGuest = async (w) => {
+  const checkInGuest = (w) => {
     if (w.paymentStatus !== "paid") { alert("Payment must be completed before check-in."); return; }
-    try {
-      await walkInsApi.checkIn(w.id);
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to check in walk-in");
-      return;
-    }
+    setData((d) => ({
+      ...d,
+      walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, checkedIn: true, checkInTime: new Date().toISOString() } : x),
+      attendance: [...d.attendance, {
+        id: generateId(), memberId: null, guestName: `${w.firstName} ${w.lastName}`,
+        checkIn: new Date().toISOString(), checkOut: null,
+        date: today(), source: "walkin", locker: null, lockerId: null, lockerSection: null,
+      }],
+    }));
   };
 
   const toggleActivity = (actId) => {
@@ -3746,63 +3372,19 @@ const Attendance = ({ data, setData }) => {
 };
 
 // ─── TIMETABLE ──────────────────────────────────────────────
-// Generate 30-minute time slots covering gym hours (6:00am – 9:30pm).
-const TIME_SLOTS = (() => {
-  const slots = [];
-  for (let h = 6; h <= 21; h++) {
-    for (const m of [0, 30]) {
-      if (h === 21 && m > 30) break;
-      const period = h >= 12 ? "pm" : "am";
-      const hour12 = ((h + 11) % 12) + 1;
-      slots.push(`${hour12}:${String(m).padStart(2, "0")}${period}`);
-    }
-  }
-  return slots;
-})();
-
-// Convert "6:30pm" → minutes since midnight (for ordering and end > start checks)
-const slotToMinutes = (s) => {
-  if (!s) return -1;
-  const m = s.match(/^(\d+):(\d+)(am|pm)$/i);
-  if (!m) return -1;
-  let h = parseInt(m[1], 10);
-  const min = parseInt(m[2], 10);
-  const p = m[3].toLowerCase();
-  if (p === "pm" && h !== 12) h += 12;
-  if (p === "am" && h === 12) h = 0;
-  return h * 60 + min;
-};
-
-// Parse "6:30pm – 7:30pm" → { start: "6:30pm", end: "7:30pm" }
-const parseTimeRange = (str) => {
-  if (!str) return { start: "6:30pm", end: "7:30pm" };
-  // Handle both en-dash, em-dash, and hyphen
-  const parts = str.split(/\s*[–—-]\s*/);
-  return {
-    start: (parts[0] || "6:30pm").trim().toLowerCase().replace(/\s+/g, ""),
-    end:   (parts[1] || "7:30pm").trim().toLowerCase().replace(/\s+/g, ""),
-  };
-};
-
 const TimetablePage = ({ data, setData, currentUser }) => {
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ day: "Mon", class: "Spinning", startTime: "6:30pm", endTime: "7:30pm" });
+  const [form, setForm] = useState({ day: "Mon", class: "Spinning", time: "6:30pm – 7:30pm" });
   const [current, setCurrent] = useState(null);
   const isAdmin = currentUser?.role === "admin";
   const colors = ["#f59e0b", "#3b82f6", "#22c55e", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
 
   const save = () => {
-    if (!form.class || !form.day || !form.startTime || !form.endTime) return;
-    if (slotToMinutes(form.endTime) <= slotToMinutes(form.startTime)) {
-      alert("End time must be after start time.");
-      return;
-    }
-    const time = `${form.startTime} – ${form.endTime}`;
-    const payload = { day: form.day, class: form.class, time };
+    if (!form.class || !form.day || !form.time) return;
     if (modal === "add") {
-      setData((d) => ({ ...d, timetable: [...d.timetable, { ...payload, id: generateId() }] }));
+      setData((d) => ({ ...d, timetable: [...d.timetable, { ...form, id: generateId() }] }));
     } else if (modal === "edit" && current) {
-      setData((d) => ({ ...d, timetable: d.timetable.map((t) => t.id === current.id ? { ...t, ...payload } : t) }));
+      setData((d) => ({ ...d, timetable: d.timetable.map((t) => t.id === current.id ? { ...t, ...form } : t) }));
     }
     setModal(null);
   };
@@ -3823,7 +3405,7 @@ const TimetablePage = ({ data, setData, currentUser }) => {
       {isAdmin && (
         <div className="toolbar">
           <div />
-          <button className="btn btn-primary" onClick={() => { setForm({ day: "Mon", class: "Spinning", startTime: "6:30pm", endTime: "7:30pm" }); setModal("add"); }}><Plus size={16} /> Add Class</button>
+          <button className="btn btn-primary" onClick={() => { setForm({ day: "Mon", class: "Spinning", time: "6:30pm – 7:30pm" }); setModal("add"); }}><Plus size={16} /> Add Class</button>
         </div>
       )}
 
@@ -3835,8 +3417,8 @@ const TimetablePage = ({ data, setData, currentUser }) => {
             <div className="slot-time">{t.time}</div>
             {isAdmin && (
               <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 4 }}>
-                <button className="btn btn-icon btn-sm" style={{ padding: 4, background: "rgba(59,130,246,0.1)", color: "var(--info)" }}
-                  onClick={() => { setCurrent(t); const { start, end } = parseTimeRange(t.time); setForm({ day: t.day, class: t.class, startTime: start, endTime: end }); setModal("edit"); }} title="Edit">
+                <button className="btn btn-icon btn-sm" style={{ padding: 4, background: "rgba(59,130,246,0.1)", color: "var(--info)" }} 
+                  onClick={() => { setCurrent(t); setForm(t); setModal("edit"); }} title="Edit">
                   <Edit2 size={12} />
                 </button>
                 <button className="btn btn-icon btn-sm" style={{ padding: 4, background: "rgba(239,68,68,0.1)", color: "var(--danger)" }}
@@ -3868,37 +3450,8 @@ const TimetablePage = ({ data, setData, currentUser }) => {
                 {ACTIVITIES.filter((a) => !["daily", "steam", "massage"].includes(a.id)).map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
               </select>
             </div>
-            <div className="form-group">
-              <label>Start Time *</label>
-              <select value={form.startTime} onChange={(e) => {
-                const newStart = e.target.value;
-                // If new start is at/after end, push end forward by 1 slot.
-                setForm((f) => {
-                  const startMin = slotToMinutes(newStart);
-                  const endMin = slotToMinutes(f.endTime);
-                  if (endMin <= startMin) {
-                    const idx = TIME_SLOTS.indexOf(newStart);
-                    const nextEnd = TIME_SLOTS[Math.min(idx + 2, TIME_SLOTS.length - 1)];
-                    return { ...f, startTime: newStart, endTime: nextEnd };
-                  }
-                  return { ...f, startTime: newStart };
-                });
-              }}>
-                {TIME_SLOTS.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>End Time *</label>
-              <select value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })}>
-                {TIME_SLOTS
-                  .filter((s) => slotToMinutes(s) > slotToMinutes(form.startTime))
-                  .map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="form-group full" style={{ marginTop: -4 }}>
-              <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                Preview: <strong style={{ color: "var(--accent)" }}>{form.startTime} – {form.endTime}</strong>
-              </p>
+            <div className="form-group full"><label>Time (e.g., 6:30pm – 7:30pm) *</label>
+              <input value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} placeholder="e.g. 6:30pm – 7:30pm" />
             </div>
           </div>
         </Modal>
@@ -3992,25 +3545,7 @@ const Trainers = ({ data, setData }) => {
   const [termsAccepted1, setTermsAccepted1] = useState(false);
   const [termsAccepted2, setTermsAccepted2] = useState(false);
   const [termsScrolled, setTermsScrolled] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [apiError, setApiError] = useState("");
   const trainerTermsRef = useRef(null);
-
-  // Refresh from backend (mirror into shared `data.trainers` so other tabs see it)
-  const reload = useCallback(async () => {
-    setBusy(true);
-    setApiError("");
-    try {
-      const res = await trainersApi.list({ limit: 200 });
-      setData((d) => ({ ...d, trainers: (res?.data || []).map(adaptTrainer) }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load trainers");
-    } finally {
-      setBusy(false);
-    }
-  }, [setData]);
-
-  useEffect(() => { reload(); }, [reload]);
 
   const handleTrainerTermsScroll = () => {
     if (trainerTermsRef.current) {
@@ -4029,44 +3564,21 @@ const Trainers = ({ data, setData }) => {
     setModal("terms");
   };
 
-  const save = async () => {
-    setBusy(true);
-    setApiError("");
-    try {
-      const payload = trainerFormToApi(form);
-      if (modal === "add" || modal === "terms") {
-        await trainersApi.create(payload);
-      } else if (current) {
-        await trainersApi.update(current.id, payload);
-      }
-      await reload();
-      setModal(null);
-    } catch (err) {
-      const detail = Array.isArray(err?.details) && err.details.length
-        ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
-        : "";
-      setApiError([err?.message, detail].filter(Boolean).join(" – "));
-    } finally {
-      setBusy(false);
+  const save = () => {
+    if (modal === "add" || modal === "terms") {
+      setData((d) => ({ ...d, trainers: [...d.trainers, { ...form, id: generateId(), isActive: true, termsAcceptedAt: new Date().toISOString() }] }));
+    } else {
+      setData((d) => ({ ...d, trainers: d.trainers.map((t) => t.id === current.id ? { ...t, ...form } : t) }));
     }
-  };
-
-  const toggleActive = async (t) => {
-    try {
-      await trainersApi.update(t.id, { isActive: !t.isActive });
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to update trainer status");
-    }
+    setModal(null);
   };
 
   const openAdd = () => {
     setForm({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", nationalId: "", emergency: "", emergency2: "", specialisation: "", photo: null });
-    setApiError("");
     setModal("add");
   };
 
-  const openEdit = (t) => { setCurrent(t); setForm({ ...t, emergency: t.emergency || "", emergency2: t.emergency2 || "" }); setApiError(""); setModal("edit"); };
+  const openEdit = (t) => { setCurrent(t); setForm({ ...t }); setModal("edit"); };
   const openView = (t) => { setCurrent(t); setModal("view"); };
 
   return (
@@ -4076,18 +3588,6 @@ const Trainers = ({ data, setData }) => {
         <div />
         <button className="btn btn-primary" onClick={openAdd}><Plus size={16} /> Add Trainer</button>
       </div>
-
-      {apiError && (
-        <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
-          <AlertTriangle size={14} /> {apiError}
-        </div>
-      )}
-      {busy && (
-        <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-          <RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Syncing with database...
-        </div>
-      )}
-
       <div className="table-wrapper">
         <table>
           <thead><tr><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>NIN</th><th>Specialisation</th><th>Status</th><th>Actions</th></tr></thead>
@@ -4104,7 +3604,7 @@ const Trainers = ({ data, setData }) => {
                   <div style={{ display: "flex", gap: 6 }}>
                     <button className="btn btn-icon btn-secondary" onClick={() => openView(t)}><Eye size={14} /></button>
                     <button className="btn btn-icon btn-secondary" onClick={() => openEdit(t)}><Edit2 size={14} /></button>
-                    <button className="btn btn-icon btn-danger" onClick={() => toggleActive(t)}>{t.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
+                    <button className="btn btn-icon btn-danger" onClick={() => setData((d) => ({ ...d, trainers: d.trainers.map((x) => x.id === t.id ? { ...x, isActive: !x.isActive } : x) }))}>{t.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
                   </div>
                 </td>
               </tr>
@@ -4230,273 +3730,28 @@ const Trainers = ({ data, setData }) => {
   );
 };
 
-// ─── ACTIVITIES (admin) ─────────────────────────────────────
-// Manage the catalog of classes / activities (price, status). Used for
-// member check-in add-ons, walk-in pricing, and prepaid deductions.
-const ActivitiesAdmin = ({ data, setData, currentUser }) => {
-  const [modal, setModal] = useState(null); // 'add' | 'edit' | null
-  const [form, setForm] = useState({ code: "", name: "", standalone: 20000, addon: 10000, description: "" });
-  const [current, setCurrent] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [apiError, setApiError] = useState("");
-  const isAdmin = currentUser?.role === "admin" || currentUser?.role === "manager";
-
-  const reload = useCallback(async () => {
-    setBusy(true);
-    setApiError("");
-    try {
-      const res = await activitiesApi.list({ limit: 200 });
-      setData((d) => ({ ...d, activities: (res?.data || []).map(adaptActivity) }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load activities");
-    } finally {
-      setBusy(false);
-    }
-  }, [setData]);
-
-  useEffect(() => { reload(); }, [reload]);
-
-  const openAdd = () => {
-    setForm({ code: "", name: "", standalone: 20000, addon: 10000, description: "" });
-    setCurrent(null);
-    setApiError("");
-    setModal("add");
-  };
-
-  const openEdit = (a) => {
-    setForm({
-      code: a.code || a.id || "",
-      name: a.name || "",
-      standalone: Number(a.standalone || 0),
-      addon: Number(a.addon || 0),
-      description: a.description || "",
-    });
-    setCurrent(a);
-    setApiError("");
-    setModal("edit");
-  };
-
-  const save = async () => {
-    if (!form.name) { setApiError("Name is required"); return; }
-    setBusy(true);
-    setApiError("");
-    try {
-      const payload = {
-        name: form.name.trim(),
-        standalonePrice: Number(form.standalone) || 0,
-        addonPrice: Number(form.addon) || 0,
-        description: form.description?.trim() || undefined,
-      };
-      if (modal === "add") {
-        // Auto-derive code from name if user didn't supply one
-        const code = form.code?.trim() || form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-        await activitiesApi.create({ ...payload, code });
-      } else if (current?.uuid || current?.id) {
-        // Use the DB UUID, not the legacy code-as-id
-        await activitiesApi.update(current.uuid || current.id, payload);
-      }
-      await reload();
-      setModal(null);
-    } catch (err) {
-      const detail = Array.isArray(err?.details) && err.details.length
-        ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
-        : "";
-      setApiError([err?.message, detail].filter(Boolean).join(" – "));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleActive = async (a) => {
-    try {
-      await activitiesApi.update(a.uuid || a.id, { isActive: !a.isActive });
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to toggle activity");
-    }
-  };
-
-  const remove = async (a) => {
-    if (!confirm(`Delete activity "${a.name}"? This cannot be undone and will affect historical records.`)) return;
-    try {
-      await activitiesApi.remove(a.uuid || a.id);
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to delete activity");
-    }
-  };
-
-  const sorted = [...(data.activities || [])].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-
-  return (
-    <div>
-      <div className="page-header">
-        <h2>Activities</h2>
-        <p>Manage the catalog of classes — name, prices, and availability</p>
-      </div>
-
-      <div className="card-grid" style={{ marginBottom: 20 }}>
-        <StatCard icon={Star} label="Total Activities" value={sorted.length} color="var(--accent)" bg="var(--accent-dim)" />
-        <StatCard icon={Check} label="Active" value={sorted.filter((a) => a.isActive !== false).length} color="var(--success)" bg="var(--success-dim)" />
-        <StatCard icon={Pause} label="Inactive" value={sorted.filter((a) => a.isActive === false).length} color="var(--warning)" bg="var(--warning-dim)" />
-        <StatCard icon={DollarSign} label="Avg. Standalone" value={sorted.length ? formatUGX(Math.round(sorted.reduce((s, a) => s + (a.standalone || 0), 0) / sorted.length)) : "—"} color="var(--info)" bg="var(--info-dim)" />
-      </div>
-
-      <div className="toolbar">
-        <div>
-          {!isAdmin && (
-            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              <AlertTriangle size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4, color: "var(--warning)" }} />
-              Read-only — only admins and managers can edit activities.
-            </p>
-          )}
-        </div>
-        {isAdmin && <button className="btn btn-primary" onClick={openAdd}><Plus size={16} /> Add Activity</button>}
-      </div>
-
-      {apiError && (
-        <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
-          <AlertTriangle size={14} /> {apiError}
-        </div>
-      )}
-      {busy && (
-        <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-          <RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Syncing with database...
-        </div>
-      )}
-
-      <div className="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Code</th>
-              <th>Standalone Price</th>
-              <th>Add-on Price</th>
-              <th>Description</th>
-              <th>Status</th>
-              {isAdmin && <th>Actions</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((a) => (
-              <tr key={a.uuid || a.id}>
-                <td style={{ color: "var(--text)", fontWeight: 500 }}>{a.name}</td>
-                <td style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text-dim)" }}>{a.code || a.id}</td>
-                <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(a.standalone || 0)}</td>
-                <td>{formatUGX(a.addon || 0)}</td>
-                <td style={{ fontSize: 12, color: "var(--text-dim)", maxWidth: 220 }}>{a.description || "—"}</td>
-                <td>{a.isActive === false ? <Badge variant="danger">Inactive</Badge> : <Badge variant="success">Active</Badge>}</td>
-                {isAdmin && (
-                  <td>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button className="btn btn-icon btn-secondary" onClick={() => openEdit(a)} title="Edit"><Edit2 size={14} /></button>
-                      <button className="btn btn-icon btn-secondary" onClick={() => toggleActive(a)} title={a.isActive === false ? "Activate" : "Deactivate"}>{a.isActive === false ? <Play size={14} /> : <Pause size={14} />}</button>
-                      <button className="btn btn-icon btn-danger" onClick={() => remove(a)} title="Delete"><Trash2 size={14} /></button>
-                    </div>
-                  </td>
-                )}
-              </tr>
-            ))}
-            {sorted.length === 0 && (
-              <tr>
-                <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
-                  No activities recorded
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {modal && (
-        <Modal
-          title={modal === "add" ? "Add Activity" : `Edit: ${current?.name || ""}`}
-          onClose={() => setModal(null)}
-          footer={
-            <>
-              <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save} disabled={busy || !form.name}><Check size={14} /> {modal === "add" ? "Add Activity" : "Save Changes"}</button>
-            </>
-          }
-        >
-          <div className="form-grid">
-            <div className="form-group full">
-              <label>Activity Name *</label>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Yoga, Pilates, HIIT Class" />
-            </div>
-            <div className="form-group">
-              <label>Code <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(auto if blank)</span></label>
-              <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_") })} placeholder="auto-generated" disabled={modal === "edit"} style={{ fontFamily: "monospace" }} />
-            </div>
-            <div className="form-group">
-              <label>Standalone Price (UGX) — for prepaid / walk-ins</label>
-              <input type="number" min="0" value={form.standalone} onChange={(e) => setForm({ ...form, standalone: e.target.value })} placeholder="20000" />
-            </div>
-            <div className="form-group">
-              <label>Add-on Price (UGX) — for members with active membership</label>
-              <input type="number" min="0" value={form.addon} onChange={(e) => setForm({ ...form, addon: e.target.value })} placeholder="10000" />
-            </div>
-            <div className="form-group full">
-              <label>Description</label>
-              <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Optional notes about this activity" />
-            </div>
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-};
-
 // ─── EQUIPMENT ──────────────────────────────────────────────
 const Equipment = ({ data, setData, currentUser }) => {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({ name: "", type: "Cardio", serialNumber: "", purchaseDate: "", status: "operational" });
   const [current, setCurrent] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [apiError, setApiError] = useState("");
   const isAdmin = currentUser?.role === "admin";
 
-  const reload = useCallback(async () => {
-    try {
-      const res = await equipmentApi.list({ limit: 200 });
-      setData((d) => ({ ...d, equipment: (res?.data || []).map(adaptEquipment) }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load equipment");
-    }
-  }, [setData]);
-  useEffect(() => { reload(); }, [reload]);
-
-  const save = async () => {
+  const save = () => {
     if (!form.name) return;
-    setBusy(true);
-    setApiError("");
-    try {
-      const payload = {
-        name: form.name,
-        category: form.type,
-        serialNumber: form.serialNumber || undefined,
-        purchasedOn: form.purchaseDate || undefined,
-        status: equipmentStatusToApi(form.status),
-      };
-      if (modal === "add") await equipmentApi.create(payload);
-      else if (current)    await equipmentApi.update(current.id, payload);
-      await reload();
-      setModal(null);
-    } catch (err) {
-      setApiError(err?.message || "Failed to save equipment");
-    } finally {
-      setBusy(false);
+    if (modal === "add") {
+      setData((d) => ({ ...d, equipment: [...d.equipment, { ...form, id: generateId() }] }));
+    } else {
+      setData((d) => ({ ...d, equipment: d.equipment.map((e) => e.id === current.id ? { ...e, ...form } : e) }));
     }
+    setModal(null);
   };
 
-  const updateStatus = async (eqId, newStatus) => {
-    try {
-      await equipmentApi.update(eqId, { status: equipmentStatusToApi(newStatus) });
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to update equipment status");
-    }
+  const updateStatus = (eqId, newStatus) => {
+    setData((d) => ({
+      ...d,
+      equipment: d.equipment.map((e) => e.id === eqId ? { ...e, status: newStatus, statusUpdatedAt: new Date().toISOString(), statusUpdatedBy: currentUser?.name || "Staff" } : e),
+    }));
   };
 
   const statusStyle = (status) => {
@@ -4602,46 +3857,11 @@ const Equipment = ({ data, setData, currentUser }) => {
 const Discounts = ({ data, setData }) => {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({ name: "", type: "percentage", value: 10, startDate: today(), endDate: "", maxUses: 100 });
-  const [busy, setBusy] = useState(false);
-  const [apiError, setApiError] = useState("");
 
-  const reload = useCallback(async () => {
-    try {
-      const res = await discountsApi.list({ limit: 200 });
-      setData((d) => ({ ...d, discounts: (res?.data || []).map(adaptDiscount) }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load discounts");
-    }
-  }, [setData]);
-  useEffect(() => { reload(); }, [reload]);
-
-  const save = async () => {
+  const save = () => {
     if (!form.name) return;
-    setBusy(true);
-    setApiError("");
-    try {
-      await discountsApi.create({
-        code: form.name,
-        description: form.name,
-        type: discountTypeToApi(form.type),
-        value: Number(form.value),
-      });
-      await reload();
-      setModal(null);
-    } catch (err) {
-      setApiError(err?.message || "Failed to save discount");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleActive = async (d) => {
-    try {
-      await discountsApi.update(d.id, { isActive: !d.isActive });
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to toggle discount");
-    }
+    setData((d) => ({ ...d, discounts: [...d.discounts, { ...form, id: generateId(), value: Number(form.value), maxUses: Number(form.maxUses), usesCount: 0, isActive: true }] }));
+    setModal(null);
   };
 
   return (
@@ -4663,7 +3883,7 @@ const Discounts = ({ data, setData }) => {
                 <td>{d.endDate ? formatDate(d.endDate) : "No limit"}</td>
                 <td>{d.usesCount}/{d.maxUses}</td>
                 <td>{d.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Inactive</Badge>}</td>
-                <td><button className="btn btn-icon btn-danger" onClick={() => toggleActive(d)}>{d.isActive ? <Pause size={14} /> : <Play size={14} />}</button></td>
+                <td><button className="btn btn-icon btn-danger" onClick={() => setData((x) => ({ ...x, discounts: x.discounts.map((dd) => dd.id === d.id ? { ...dd, isActive: !dd.isActive } : dd) }))}>{d.isActive ? <Pause size={14} /> : <Play size={14} />}</button></td>
               </tr>
             ))}
           </tbody>
@@ -4694,26 +3914,7 @@ const Shop = ({ data, setData, currentUser }) => {
   const [productForm, setProductForm] = useState({ name: "", category: "Supplements", price: "", stock: "" });
   const [editProduct, setEditProduct] = useState(null);
   const [search, setSearch] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [apiError, setApiError] = useState("");
   const isAdmin = currentUser?.role === "admin";
-
-  const reload = useCallback(async () => {
-    try {
-      const [pRes, payRes] = await Promise.all([
-        productsApi.list({ limit: 500 }),
-        paymentsApi.list({ limit: 500 }),
-      ]);
-      setData((d) => ({
-        ...d,
-        products: (pRes?.data || []).map(adaptProduct),
-        payments: (payRes?.data || []).map(adaptPayment),
-      }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load shop data");
-    }
-  }, [setData]);
-  useEffect(() => { reload(); }, [reload]);
 
   const filteredProducts = data.products.filter((p) => p.isActive && p.name.toLowerCase().includes(search.toLowerCase()));
   const cartTotal = cart.reduce((s, item) => s + item.price * item.qty, 0);
@@ -4734,68 +3935,43 @@ const Shop = ({ data, setData, currentUser }) => {
     setCart((c) => c.map((x) => x.productId === productId ? { ...x, qty: Math.max(0, x.qty + delta) } : x).filter((x) => x.qty > 0));
   };
 
-  const completeSale = async () => {
+  const completeSale = () => {
     if (cart.length === 0) return;
-    setBusy(true);
-    setApiError("");
-    try {
-      // Backend has a per-product /sell endpoint that atomically decrements stock
-      // and records a payment. Loop through the cart and call it for each line.
-      for (const item of cart) {
-        await productsApi.sell(item.productId, {
-          quantity: item.qty,
-          paymentMethod: paymentMethodToApi(payMethod),
-        });
-      }
-      await reload();
-      setCart([]);
-    } catch (err) {
-      setApiError(err?.message || "Sale failed");
-    } finally {
-      setBusy(false);
-    }
+    const sale = {
+      id: generateId(),
+      items: cart.map((c) => ({ productId: c.productId, name: c.name, qty: c.qty, price: c.price })),
+      total: cartTotal,
+      method: payMethod,
+      soldBy: currentUser?.name || "Staff",
+      soldAt: new Date().toISOString(),
+      date: today(),
+    };
+    setData((d) => ({
+      ...d,
+      productSales: [...d.productSales, sale],
+      products: d.products.map((p) => {
+        const cartItem = cart.find((c) => c.productId === p.id);
+        return cartItem ? { ...p, stock: Math.max(0, p.stock - cartItem.qty) } : p;
+      }),
+      payments: [...d.payments, {
+        id: generateId(), memberId: null, membershipId: null,
+        amount: cartTotal, method: payMethod, paidAt: new Date().toISOString(),
+        type: "product_sale", discountId: null, discountAmount: 0,
+        note: `Shop: ${cart.map((c) => `${c.name} x${c.qty}`).join(", ")}`,
+      }],
+    }));
+    setCart([]);
   };
 
-  const saveProduct = async () => {
+  const saveProduct = () => {
     if (!productForm.name || !productForm.price) { alert("Name and Price are required."); return; }
-    setBusy(true);
-    setApiError("");
-    try {
-      const payload = {
-        name: productForm.name,
-        category: productForm.category,
-        price: Number(productForm.price),
-        stock: Number(productForm.stock) || 0,
-      };
-      if (productModal === "add") await productsApi.create(payload);
-      else if (editProduct)        await productsApi.update(editProduct.id, payload);
-      await reload();
-      setProductModal(null);
-      setEditProduct(null);
-    } catch (err) {
-      setApiError(err?.message || "Failed to save product");
-    } finally {
-      setBusy(false);
+    if (productModal === "add") {
+      setData((d) => ({ ...d, products: [...d.products, { ...productForm, id: generateId(), price: Number(productForm.price), stock: Number(productForm.stock) || 0, isActive: true }] }));
+    } else if (editProduct) {
+      setData((d) => ({ ...d, products: d.products.map((p) => p.id === editProduct.id ? { ...p, name: productForm.name, category: productForm.category, price: Number(productForm.price), stock: Number(productForm.stock) } : p) }));
     }
-  };
-
-  const toggleProductActive = async (p) => {
-    try {
-      await productsApi.update(p.id, { isActive: !p.isActive });
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to toggle product");
-    }
-  };
-
-  const deleteProduct = async (p) => {
-    if (!confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
-    try {
-      await productsApi.remove(p.id);
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to delete product");
-    }
+    setProductModal(null);
+    setEditProduct(null);
   };
 
   const todaySales = data.productSales.filter((s) => s.date === today());
@@ -4911,8 +4087,12 @@ const Shop = ({ data, setData, currentUser }) => {
                     <td>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button className="btn btn-icon btn-secondary" onClick={() => { setEditProduct(p); setProductForm({ name: p.name, category: p.category, price: String(p.price), stock: String(p.stock) }); setProductModal("edit"); }} title="Edit"><Edit2 size={14} /></button>
-                        <button className="btn btn-icon btn-secondary" onClick={() => toggleProductActive(p)} title={p.isActive ? "Hide from shop" : "Show in shop"}>{p.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
-                        <button className="btn btn-icon btn-danger" onClick={() => deleteProduct(p)} title="Delete permanently"><Trash2 size={14} /></button>
+                        <button className="btn btn-icon btn-secondary" onClick={() => setData((d) => ({ ...d, products: d.products.map((x) => x.id === p.id ? { ...x, isActive: !x.isActive } : x) }))} title={p.isActive ? "Hide from shop" : "Show in shop"}>{p.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
+                        <button className="btn btn-icon btn-danger" onClick={() => {
+                          if (confirm(`Delete "${p.name}"? This cannot be undone.`)) {
+                            setData((d) => ({ ...d, products: d.products.filter((x) => x.id !== p.id) }));
+                          }
+                        }} title="Delete permanently"><Trash2 size={14} /></button>
                       </div>
                     </td>
                   </tr>
@@ -5009,59 +4189,34 @@ const Expenses = ({ data, setData, currentUser }) => {
   const [form, setForm] = useState({ category: "Utilities", description: "", amount: "", date: today(), method: "cash", receipt: "" });
   const [editTarget, setEditTarget] = useState(null);
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [busy, setBusy] = useState(false);
-  const [apiError, setApiError] = useState("");
   const isAdmin = currentUser?.role === "admin";
 
-  const reload = useCallback(async () => {
-    try {
-      const res = await expensesApi.list({ limit: 500 });
-      setData((d) => ({ ...d, expenses: (res?.data || []).map(adaptExpense) }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load expenses");
-    }
-  }, [setData]);
-  useEffect(() => { reload(); }, [reload]);
-
-  const filteredExpenses = data.expenses.filter((e) => (e.date || "").startsWith(filterMonth));
+  const filteredExpenses = data.expenses.filter((e) => e.date.startsWith(filterMonth));
   const totalExpenses = filteredExpenses.reduce((s, e) => s + e.amount, 0);
   const todayExpenses = data.expenses.filter((e) => e.date === today()).reduce((s, e) => s + e.amount, 0);
   const categoryTotals = {};
   filteredExpenses.forEach((e) => { categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount; });
   const topCategory = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0];
 
-  const save = async () => {
+  const save = () => {
     if (!form.description || !form.amount || !form.date) { alert("Please fill in description, amount, and date."); return; }
-    setBusy(true);
-    setApiError("");
-    try {
-      if (modal === "add") {
-        await expensesApi.create({
-          category: form.category,
-          description: form.description,
-          amount: Number(form.amount),
-          spentOn: form.date,
-          paidBy: form.method,
-          receiptUrl: form.receipt || undefined,
-        });
-      }
-      // Edit isn't supported in backend (no PATCH for expenses)
-      await reload();
-      setModal(null); setEditTarget(null);
-    } catch (err) {
-      setApiError(err?.message || "Failed to save expense");
-    } finally {
-      setBusy(false);
+    if (modal === "add") {
+      setData((d) => ({
+        ...d,
+        expenses: [...d.expenses, { ...form, id: generateId(), amount: Number(form.amount), approvedBy: currentUser?.name || "Staff", createdAt: new Date().toISOString() }],
+      }));
+    } else if (editTarget) {
+      setData((d) => ({
+        ...d,
+        expenses: d.expenses.map((e) => e.id === editTarget.id ? { ...editTarget, amount: Number(editTarget.amount) } : e),
+      }));
     }
+    setModal(null); setEditTarget(null);
   };
 
-  const deleteExpense = async (id) => {
-    if (!confirm("Delete this expense record?")) return;
-    try {
-      await expensesApi.remove(id);
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to delete expense");
+  const deleteExpense = (id) => {
+    if (confirm("Delete this expense record?")) {
+      setData((d) => ({ ...d, expenses: d.expenses.filter((e) => e.id !== id) }));
     }
   };
 
@@ -5442,64 +4597,29 @@ const Reconciliation = ({ data, setData }) => {
 // ─── STAFF MANAGEMENT ───────────────────────────────────────
 const StaffMgmt = ({ data, setData, currentUser }) => {
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ name: "", username: "", password: "", role: "receptionist" });
+  const [form, setForm] = useState({ name: "", username: "", password: "", role: "staff" });
   const [resetTarget, setResetTarget] = useState(null);
   const [newPassword, setNewPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [apiError, setApiError] = useState("");
-
-  const reload = useCallback(async () => {
-    try {
-      const res = await usersApi.list({ limit: 200 });
-      setData((d) => ({ ...d, staff: (res?.data || []).map(adaptStaff) }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load staff");
-    }
-  }, [setData]);
-  useEffect(() => { reload(); }, [reload]);
 
   const save = async () => {
     if (!form.name || !form.username || !form.password) return;
-    if (form.password.length < 8) { alert("Password must be at least 8 characters"); return; }
-    setBusy(true);
-    setApiError("");
-    try {
-      // /auth/register is admin-only, returns the new user
-      await authApi.register({
-        username: form.username,
-        password: form.password,
-        fullName: form.name,
-        role: form.role,
-      });
-      await reload();
-      setModal(null);
-    } catch (err) {
-      setApiError(err?.message || "Failed to create staff");
-    } finally {
-      setBusy(false);
-    }
+    if (form.password.length < 6) { alert("Password must be at least 6 characters"); return; }
+    const hashed = await hashPassword(form.password);
+    setData((d) => ({ ...d, staff: [...d.staff, { name: sanitize(form.name), username: sanitize(form.username), passwordHash: hashed, role: form.role, id: generateId(), isActive: true }] }));
+    setModal(null);
   };
 
   const resetPassword = async () => {
-    if (!newPassword || newPassword.length < 8) { alert("Password must be at least 8 characters"); return; }
-    try {
-      await usersApi.update(resetTarget.id, { newPassword });
-      await reload();
-      setResetTarget(null);
-      setNewPassword("");
-    } catch (err) {
-      alert(err?.message || "Failed to reset password");
-    }
+    if (!newPassword || newPassword.length < 6) { alert("Password must be at least 6 characters"); return; }
+    const hashed = await hashPassword(newPassword);
+    setData((d) => ({ ...d, staff: d.staff.map((s) => s.id === resetTarget.id ? { ...s, passwordHash: hashed } : s) }));
+    setResetTarget(null);
+    setNewPassword("");
   };
 
-  const toggleActive = async (s) => {
+  const toggleActive = (s) => {
     if (s.id === currentUser?.id) { alert("You cannot deactivate your own account"); return; }
-    try {
-      await usersApi.update(s.id, { isActive: !s.isActive });
-      await reload();
-    } catch (err) {
-      alert(err?.message || "Failed to update staff");
-    }
+    setData((d) => ({ ...d, staff: d.staff.map((x) => x.id === s.id ? { ...x, isActive: !x.isActive } : x) }));
   };
 
   return (
@@ -5540,7 +4660,7 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="form-group"><label>Username *</label><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="Lowercase, no spaces" /></div>
             <div className="form-group"><label>Password * (min 6 chars)</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
-            <div className="form-group"><label>Role</label><select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="receptionist">Receptionist</option><option value="manager">Manager</option><option value="trainer">Trainer</option><option value="admin">Admin</option></select></div>
+            <div className="form-group"><label>Role</label><select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="staff">Front Desk Staff</option><option value="admin">Admin</option></select></div>
           </div>
           <div style={{ marginTop: 16, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-xs)", fontSize: 12, color: "var(--text-dim)" }}>
             <strong style={{ color: "var(--text)" }}>Security:</strong> Password will be hashed with SHA-256 + salt before storage. Plain text is never stored.
@@ -5562,113 +4682,16 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
 };
 
 // ─── LOCKERS ────────────────────────────────────────────────
-const Lockers = ({ data, setData, currentUser }) => {
-  const [busy, setBusy] = useState(false);
-  const [apiError, setApiError] = useState("");
-  const [modal, setModal] = useState(null); // 'add' | null
-  const [form, setForm] = useState({ number: "", section: "gents", count: 1 });
-  const [editMode, setEditMode] = useState(false);  // when true, click = delete
-  const isAdmin = currentUser?.role === "admin" || currentUser?.role === "manager";
-
-  const reload = useCallback(async () => {
-    try {
-      const res = await lockersApi.list({ limit: 500 });
-      setData((d) => ({ ...d, lockers: (res?.data || []).map(adaptLocker) }));
-    } catch (err) {
-      setApiError(err?.message || "Failed to load lockers");
-    }
-  }, [setData]);
-
-  useEffect(() => { reload(); }, [reload]);
-
-  // Click handler — in edit mode it deletes; otherwise toggle status.
-  const handleLockerClick = async (l) => {
-    if (editMode) {
-      if (l.isOccupied) { alert("Release this locker before deleting it."); return; }
-      if (!confirm(`Delete locker #${l.number} (${l.section})? This cannot be undone.`)) return;
-      setBusy(true);
-      setApiError("");
-      try {
-        await lockersApi.remove(l.id);
-        await reload();
-      } catch (err) {
-        setApiError(err?.message || "Failed to delete locker");
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
-    // Normal mode — toggle status
-    setBusy(true);
-    setApiError("");
-    try {
-      if (l.isOccupied) {
-        await lockersApi.release(l.id);
-      } else {
-        await lockersApi.update(l.id, { status: "maintenance" });
-      }
-      await reload();
-    } catch (err) {
-      setApiError(err?.message || "Failed to update locker");
-    } finally {
-      setBusy(false);
-    }
+const Lockers = ({ data, setData }) => {
+  const toggle = (l) => {
+    setData((d) => ({ ...d, lockers: d.lockers.map((x) => x.id === l.id ? { ...x, isOccupied: !x.isOccupied, memberId: x.isOccupied ? null : x.memberId } : x) }));
   };
 
-  // Find next free number in a given section
-  const nextFreeNumber = (section) => {
-    const used = new Set(data.lockers.filter((l) => l.section === section).map((l) => Number(l.number)));
-    let n = 1;
-    while (used.has(n)) n++;
-    return n;
-  };
-
-  const openAdd = () => {
-    setForm({ number: String(nextFreeNumber("gents")), section: "gents", count: 1 });
-    setApiError("");
-    setModal("add");
-  };
-
-  // When the section changes inside the form, suggest the next free number for it.
-  const onChangeSection = (section) => {
-    setForm((f) => ({ ...f, section, number: String(nextFreeNumber(section)) }));
-  };
-
-  const addLockers = async () => {
-    const startNum = Math.max(1, Number(form.number) || 1);
-    const count = Math.max(1, Math.min(50, Number(form.count) || 1));
-    const used = new Set(data.lockers.filter((l) => l.section === form.section).map((l) => Number(l.number)));
-    const toCreate = [];
-    let n = startNum;
-    while (toCreate.length < count) {
-      if (!used.has(n)) toCreate.push(n);
-      n++;
-      if (n > 9999) break;
-    }
-    if (!toCreate.length) { setApiError("No valid numbers to create"); return; }
-    setBusy(true);
-    setApiError("");
-    try {
-      for (const num of toCreate) {
-        await lockersApi.create({ number: num, section: form.section, status: "available" });
-      }
-      await reload();
-      setModal(null);
-    } catch (err) {
-      const detail = Array.isArray(err?.details) && err.details.length
-        ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
-        : "";
-      setApiError([err?.message, detail].filter(Boolean).join(" – "));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const gentsLockers  = [...data.lockers].filter((l) => l.section === "gents").sort((a, b) => a.number - b.number);
-  const ladiesLockers = [...data.lockers].filter((l) => l.section === "ladies").sort((a, b) => a.number - b.number);
-  const gentsAvail  = gentsLockers.filter((l) => !l.isOccupied).length;
+  const gentsLockers = data.lockers.filter((l) => l.section === "gents");
+  const ladiesLockers = data.lockers.filter((l) => l.section === "ladies");
+  const gentsAvail = gentsLockers.filter((l) => !l.isOccupied).length;
   const ladiesAvail = ladiesLockers.filter((l) => !l.isOccupied).length;
-  const totalAvail  = gentsAvail + ladiesAvail;
+  const totalAvail = gentsAvail + ladiesAvail;
 
   const renderSection = (lockers, section, accentColor, dimColor, borderColor, label, available, total) => (
     <div style={{ flex: 1, minWidth: 280 }}>
@@ -5681,21 +4704,13 @@ const Lockers = ({ data, setData, currentUser }) => {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: 8 }}>
         {lockers.map((l) => (
-          <div key={l.id} onClick={() => handleLockerClick(l)} title={editMode ? "Click to delete" : (l.isOccupied ? "Click to release" : "Click to mark out of service")} style={{
-            position: "relative",
-            background: editMode ? "var(--danger-dim)" : (l.isOccupied ? "var(--danger-dim)" : dimColor),
-            border: `1px solid ${editMode ? "var(--danger)" : (l.isOccupied ? "var(--danger)" : borderColor)}`,
+          <div key={l.id} onClick={() => toggle(l)} style={{
+            background: l.isOccupied ? "var(--danger-dim)" : dimColor,
+            border: `1px solid ${l.isOccupied ? "var(--danger)" : borderColor}`,
             borderRadius: "var(--radius-xs)", padding: 12, textAlign: "center", cursor: "pointer", transition: "var(--transition)",
           }}>
-            {editMode && (
-              <div style={{ position: "absolute", top: 4, right: 4, color: "var(--danger)" }}>
-                <Trash2 size={12} />
-              </div>
-            )}
-            <div style={{ fontSize: 18, fontWeight: 700, color: editMode ? "var(--danger)" : (l.isOccupied ? "var(--danger)" : accentColor) }}>#{l.number}</div>
-            <div style={{ fontSize: 10, marginTop: 2, color: editMode ? "var(--danger)" : (l.isOccupied ? "var(--danger)" : "var(--text-muted)") }}>
-              {editMode ? "Delete" : (l.isOccupied ? "Occupied" : "Free")}
-            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: l.isOccupied ? "var(--danger)" : accentColor }}>#{l.number}</div>
+            <div style={{ fontSize: 10, marginTop: 2, color: l.isOccupied ? "var(--danger)" : "var(--text-muted)" }}>{l.isOccupied ? "Occupied" : "Free"}</div>
           </div>
         ))}
       </div>
@@ -5706,37 +4721,8 @@ const Lockers = ({ data, setData, currentUser }) => {
     <div>
       <div className="page-header">
         <h2>Lockers</h2>
-        <p>{data.lockers.length} lockers — {totalAvail} available ({gentsAvail} gents, {ladiesAvail} ladies)</p>
+        <p>40 lockers — {totalAvail} available ({gentsAvail} gents, {ladiesAvail} ladies)</p>
       </div>
-
-      {isAdmin && (
-        <div className="toolbar">
-          <div>
-            {editMode && (
-              <p style={{ fontSize: 12, color: "var(--danger)", display: "flex", alignItems: "center", gap: 6 }}>
-                <AlertTriangle size={12} /> Edit mode active — clicking a locker will <strong>delete</strong> it.
-              </p>
-            )}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className={`btn ${editMode ? "btn-danger" : "btn-secondary"}`} onClick={() => setEditMode((v) => !v)}>
-              {editMode ? <><X size={16} /> Exit Delete Mode</> : <><Trash2 size={16} /> Delete Lockers</>}
-            </button>
-            <button className="btn btn-primary" onClick={openAdd}><Plus size={16} /> Add Locker</button>
-          </div>
-        </div>
-      )}
-
-      {apiError && (
-        <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
-          <AlertTriangle size={14} /> {apiError}
-        </div>
-      )}
-      {busy && (
-        <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-          <RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Syncing...
-        </div>
-      )}
       <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
         {renderSection(gentsLockers, "gents", "#3b82f6", "rgba(59,130,246,0.08)", "rgba(59,130,246,0.25)", "Gents Lockers", gentsAvail, gentsLockers.length)}
         {renderSection(ladiesLockers, "ladies", "#ec4899", "rgba(236,72,153,0.08)", "rgba(236,72,153,0.25)", "Ladies Lockers", ladiesAvail, ladiesLockers.length)}
@@ -5746,47 +4732,12 @@ const Lockers = ({ data, setData, currentUser }) => {
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "rgba(236,72,153,0.2)", border: "1px solid rgba(236,72,153,0.4)" }} /> Ladies — Free</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 12, height: 12, borderRadius: 3, background: "var(--danger-dim)", border: "1px solid var(--danger)" }} /> Occupied</div>
       </div>
-
-      {modal === "add" && (
-        <Modal
-          title="Add Locker(s)"
-          onClose={() => setModal(null)}
-          footer={
-            <>
-              <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={addLockers} disabled={busy || !form.number}><Check size={14} /> {Number(form.count) > 1 ? `Add ${form.count} Lockers` : "Add Locker"}</button>
-            </>
-          }
-        >
-          <div className="form-grid">
-            <div className="form-group">
-              <label>Section *</label>
-              <select value={form.section} onChange={(e) => onChangeSection(e.target.value)}>
-                <option value="gents">Gents</option>
-                <option value="ladies">Ladies</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Starting Number *</label>
-              <input type="number" min="1" value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} placeholder="e.g. 31" />
-            </div>
-            <div className="form-group">
-              <label>How many lockers to add?</label>
-              <input type="number" min="1" max="50" value={form.count} onChange={(e) => setForm({ ...form, count: e.target.value })} placeholder="1" />
-              <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                Existing numbers in this section will be skipped.
-              </p>
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 };
 
 // ─── SELF CHECK-IN KIOSK ────────────────────────────────────
 const SelfCheckIn = ({ data, setData, onExit }) => {
-  const ACTIVITIES = (data?.activities && data.activities.length) ? data.activities : ACTIVITIES_SEED;
   const [step, setStep] = useState("phone"); // phone | confirm | pin | success | blocked | locked
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
@@ -6109,22 +5060,9 @@ const SESSION_TIMEOUT = 15 * 60 * 1000;
 // Role-Based Access Control definitions
 const ROLE_PERMISSIONS = {
   admin: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "activities", "trainers", "equipment", "lockers", "payments", "shop", "expenses", "discounts", "reconciliation", "reports", "staff", "audit"],
-    actions: ["create_member", "edit_member", "deactivate_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_staff", "manage_equipment", "manage_trainers", "manage_activities", "manage_products", "manage_expenses", "view_reports", "view_payments", "reconcile", "export_data", "view_audit_log", "edit_walkin", "delete_expense"],
+    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "trainers", "equipment", "lockers", "payments", "shop", "expenses", "discounts", "reconciliation", "reports", "staff", "audit"],
+    actions: ["create_member", "edit_member", "deactivate_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_staff", "manage_equipment", "manage_trainers", "manage_products", "manage_expenses", "view_reports", "view_payments", "reconcile", "export_data", "view_audit_log", "edit_walkin", "delete_expense"],
   },
-  manager: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "activities", "trainers", "equipment", "lockers", "payments", "shop", "expenses", "discounts", "reconciliation", "reports"],
-    actions: ["create_member", "edit_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_equipment", "manage_trainers", "manage_products", "manage_expenses", "view_reports", "view_payments", "reconcile", "export_data", "edit_walkin"],
-  },
-  receptionist: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "equipment", "shop", "payments", "expenses", "reports"],
-    actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member", "sell_products", "record_expense", "update_equipment_status"],
-  },
-  trainer: {
-    pages: ["dashboard", "checkin", "members", "attendance", "timetable", "equipment"],
-    actions: ["update_equipment_status"],
-  },
-  // Back-compat for any old in-memory rows that still say "staff"
   staff: {
     pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "equipment", "shop", "payments", "expenses", "reports"],
     actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member", "sell_products", "record_expense", "update_equipment_status"],
@@ -6153,38 +5091,6 @@ const LoginScreen = ({ staff, onLogin }) => {
   const [loading, setLoading] = useState(false);
   const [attempts, setAttempts] = useState(0);
   const [lockedUntil, setLockedUntil] = useState(null);
-  const [backendStatus, setBackendStatus] = useState({ state: "checking", url: window.__rfgApi?.base || "", message: "" });
-
-  // Ping the backend health endpoint on mount so the user can see immediately
-  // whether the React app can reach the API.
-  useEffect(() => {
-    const apiBase = window.__rfgApi?.base || "";
-    let cancelled = false;
-    (async () => {
-      try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 5000);
-        const res = await fetch(`${apiBase}/api/health`, { signal: ctrl.signal });
-        clearTimeout(t);
-        if (cancelled) return;
-        if (res.ok) {
-          const j = await res.json().catch(() => ({}));
-          setBackendStatus({ state: "ok", url: apiBase, message: `db: ${j.db || "?"}` });
-        } else {
-          setBackendStatus({ state: "error", url: apiBase, message: `HTTP ${res.status}` });
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setBackendStatus({
-            state: "error",
-            url: apiBase,
-            message: err.name === "AbortError" ? "Timeout (5s) — backend unreachable" : err.message,
-          });
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
 
   const handleLogin = async () => {
     if (lockedUntil && Date.now() < lockedUntil) {
@@ -6195,26 +5101,29 @@ const LoginScreen = ({ staff, onLogin }) => {
     setLoading(true);
     setError("");
 
-    try {
-      const { user } = await authApi.login(username, password);
-      setLoading(false);
-      setAttempts(0);
-      onLogin(adaptUser(user));
-    } catch (err) {
+    // Simulate network delay for brute-force deterrence
+    await new Promise((r) => setTimeout(r, 500));
+
+    const hashed = await hashPassword(password);
+    const user = staff.find((s) => s.username === username && s.isActive);
+
+    if (!user || user.passwordHash !== hashed) {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
-      // Backend rate-limits after 20 attempts/10min; we still show local feedback
       if (newAttempts >= 5) {
         const lockTime = Date.now() + 60000;
         setLockedUntil(lockTime);
         setError("Too many failed attempts. Locked for 60 seconds.");
         setTimeout(() => { setLockedUntil(null); setAttempts(0); }, 60000);
       } else {
-        const msg = err?.message || "Login failed";
-        setError(`${msg} (${5 - newAttempts} attempts remaining)`);
+        setError(`Invalid credentials (${5 - newAttempts} attempts remaining)`);
       }
       setLoading(false);
+      return;
     }
+
+    setLoading(false);
+    onLogin(user);
   };
 
   return (
@@ -6257,23 +5166,6 @@ const LoginScreen = ({ staff, onLogin }) => {
         <p style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 11, marginTop: 16 }}>
           Naalya Quality Shopping Mall, Kampala • All sessions are logged
         </p>
-
-        {/* Backend status indicator — visible without DevTools */}
-        <div style={{
-          marginTop: 12,
-          padding: "8px 12px",
-          borderRadius: "var(--radius-xs)",
-          fontSize: 11,
-          fontFamily: "monospace",
-          textAlign: "center",
-          background: backendStatus.state === "ok" ? "var(--success-dim)" : backendStatus.state === "error" ? "var(--danger-dim)" : "var(--bg-elevated)",
-          color: backendStatus.state === "ok" ? "var(--success)" : backendStatus.state === "error" ? "var(--danger)" : "var(--text-muted)",
-          border: `1px solid ${backendStatus.state === "ok" ? "rgba(34,197,94,0.3)" : backendStatus.state === "error" ? "rgba(239,68,68,0.3)" : "var(--border)"}`,
-        }}>
-          {backendStatus.state === "checking" && `Checking backend at ${backendStatus.url || "(none)"}...`}
-          {backendStatus.state === "ok" && `✓ Backend OK at ${backendStatus.url} (${backendStatus.message})`}
-          {backendStatus.state === "error" && `✗ Backend ${backendStatus.url}: ${backendStatus.message}`}
-        </div>
       </div>
     </div>
   );
@@ -6341,7 +5233,6 @@ const NAV = [
   ]},
   { section: "Operations", items: [
     { id: "timetable", label: "Timetable", icon: Calendar },
-    { id: "activities", label: "Activities", icon: Star },
     { id: "trainers", label: "Trainers", icon: Activity },
     { id: "equipment", label: "Equipment", icon: Wrench },
     { id: "lockers", label: "Lockers", icon: Hash },
@@ -6372,93 +5263,24 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [lastActivity, setLastActivity] = useState(Date.now());
   const [sessionWarning, setSessionWarning] = useState(false);
-  const [authReady, setAuthReady] = useState(false);
+  const [passwordsHashed, setPasswordsHashed] = useState(false);
 
-  // Restore session on mount: if we have a token, fetch the current user.
+  // Hash default passwords on mount
   useEffect(() => {
-    let cancelled = false;
+    if (passwordsHashed) return;
     (async () => {
-      const token = authStore.getToken();
-      if (!token) { setAuthReady(true); return; }
-      try {
-        const me = await authApi.me();
-        if (!cancelled) {
-          setCurrentUser(adaptUser(me));
-          setLastActivity(Date.now());
-        }
-      } catch {
-        // Token invalid/expired – clear it silently
-        authStore.clear();
-      } finally {
-        if (!cancelled) setAuthReady(true);
-      }
+      const hashedStaff = await Promise.all(
+        data.staff.map(async (s) => {
+          if (s.passwordHash.length < 60) {
+            return { ...s, passwordHash: await hashPassword(s.passwordHash) };
+          }
+          return s;
+        })
+      );
+      setData((d) => ({ ...d, staff: hashedStaff }));
+      setPasswordsHashed(true);
     })();
-    return () => { cancelled = true; };
-  }, []);
-
-  // After the user logs in, hydrate the shared `data` state from the backend
-  // for the resources we've wired up so far. Other tabs continue to use their
-  // own local seed data until they're wired too.
-  useEffect(() => {
-    if (!currentUser) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const [
-          plansRes, msRes, payRes, memRes, trRes,
-          lockRes, prodRes, eqRes, wiRes, attRes, discRes, expRes, usrRes,
-          actRes,
-        ] = await Promise.all([
-          plansApi.list({ limit: 100 }),
-          membershipsApi.list({ limit: 500 }),
-          paymentsApi.list({ limit: 500 }),
-          membersApi.list({ limit: 500 }),
-          trainersApi.list({ limit: 200 }),
-          lockersApi.list({ limit: 200 }),
-          productsApi.list({ limit: 500 }),
-          equipmentApi.list({ limit: 200 }),
-          walkInsApi.list({ limit: 500 }),
-          attendanceApi.list({ limit: 500 }),
-          discountsApi.list({ limit: 200 }),
-          expensesApi.list({ limit: 500 }),
-          // Users API is admin-only — swallow 403 for non-admins
-          (currentUser?.role === "admin" ? usersApi.list({ limit: 200 }) : Promise.resolve({ data: [] })).catch(() => ({ data: [] })),
-          activitiesApi.list({ limit: 100 }),
-        ]);
-        if (cancelled) return;
-        const plans = (plansRes?.data || []);
-        const memberships = (msRes?.data || []).map(adaptMembership);
-        const payments = (payRes?.data || []).map(adaptPayment);
-        const members = (memRes?.data || []).map((m) => ({
-          ...m,
-          emergency: m.emergencyPhone || "",
-          emergency2: m.emergencyPhone2 || "",
-          photo: m.photoUrl || null,
-        }));
-        const trainers   = (trRes?.data   || []).map(adaptTrainer);
-        const lockers    = (lockRes?.data || []).map(adaptLocker);
-        const products   = (prodRes?.data || []).map(adaptProduct);
-        const equipment  = (eqRes?.data   || []).map(adaptEquipment);
-        const walkIns    = (wiRes?.data   || []).map(adaptWalkIn);
-        const attendance = (attRes?.data  || []).map(adaptAttendance);
-        const discounts  = (discRes?.data || []).map(adaptDiscount);
-        const expenses   = (expRes?.data  || []).map(adaptExpense);
-        const staff      = (usrRes?.data  || []).map(adaptStaff);
-        const activities = (actRes?.data  || []).map(adaptActivity);
-        setData((d) => ({
-          ...d,
-          plans, members, memberships, payments, trainers,
-          lockers, products, equipment, walkIns, attendance,
-          discounts, expenses,
-          activities: activities.length ? activities : d.activities,  // fallback to seed if API empty
-          staff: staff.length ? staff : d.staff,
-        }));
-      } catch (err) {
-        console.error("[app] failed to hydrate from API:", err);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [currentUser]);
+  }, [passwordsHashed]);
 
   // Session timeout checker
   useEffect(() => {
@@ -6507,7 +5329,6 @@ export default function App() {
     if (logoutEntry) {
       setData((d) => ({ ...d, auditLog: [...d.auditLog, logoutEntry] }));
     }
-    authApi.logout();
     setCurrentUser(null);
     setPage("dashboard");
     setSessionWarning(false);
@@ -6523,8 +5344,8 @@ export default function App() {
 
   // ── Render ──
 
-  if (!authReady) {
-    return <><style>{CSS}</style><div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}><p style={{ color: "var(--text-dim)" }}>Loading...</p></div></>;
+  if (!passwordsHashed) {
+    return <><style>{CSS}</style><div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}><p style={{ color: "var(--text-dim)" }}>Initialising security...</p></div></>;
   }
 
   if (!currentUser) {
@@ -6559,12 +5380,11 @@ export default function App() {
       case "attendance": return <Attendance data={data} setData={securedSetData} />;
       case "timetable": return <TimetablePage data={data} setData={securedSetData} currentUser={currentUser} />;
       case "trainers": return <Trainers data={data} setData={securedSetData} />;
-      case "activities": return <ActivitiesAdmin data={data} setData={securedSetData} currentUser={currentUser} />;
       case "equipment": return <Equipment data={data} setData={securedSetData} currentUser={currentUser} />;
       case "discounts": return <Discounts data={data} setData={securedSetData} />;
       case "reconciliation": return <Reconciliation data={data} setData={securedSetData} />;
       case "staff": return <StaffMgmt data={data} setData={securedSetData} currentUser={currentUser} />;
-      case "lockers": return <Lockers data={data} setData={securedSetData} currentUser={currentUser} />;
+      case "lockers": return <Lockers data={data} setData={securedSetData} />;
       case "reports": return <Reports data={data} />;
       case "audit": return <AuditLog data={data} />;
       default: return <Dashboard data={data} />;
