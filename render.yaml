@@ -1,0 +1,77 @@
+# Render.com deployment manifest for Rush Fitness GMS.
+# After this file lands on `main`, click "New → Blueprint" in Render's
+# dashboard, point it at this repo, and Render will auto-create:
+#   • the PostgreSQL database
+#   • the Node.js backend (with migrations + seed run on every deploy)
+#   • the React static site
+# The service URLs are predictable from the names below.
+
+databases:
+  - name: rush-fitness-db
+    plan: starter                 # $7/mo — 1 GB storage, daily backups, 7-day PITR
+    databaseName: rush_fitness_gms
+    user: rush_fitness
+    postgresMajorVersion: 16
+
+services:
+  # ── Backend API ────────────────────────────────────────────────
+  - type: web
+    name: rush-fitness-api
+    runtime: node
+    plan: starter                 # $7/mo — always-on, no cold starts
+    region: frankfurt             # closest Render region to Uganda (~150 ms)
+    rootDir: backend
+    buildCommand: npm install
+    # Run migrations + seed before every deploy. Seed is idempotent.
+    preDeployCommand: npm run db:migrate && npm run db:seed
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rush-fitness-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true       # Render generates a 256-bit random value
+      - key: CORS_ORIGIN
+        value: https://rush-fitness-gms.onrender.com
+      - key: BCRYPT_ROUNDS
+        value: "10"
+      - key: CURRENCY
+        value: KES
+
+  # ── Frontend (React static build) ──────────────────────────────
+  - type: web
+    name: rush-fitness-gms
+    runtime: static
+    region: frankfurt
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./build
+    pullRequestPreviewsEnabled: false
+    envVars:
+      # Build-time var — baked into the JS bundle.
+      - key: REACT_APP_API_URL
+        value: https://rush-fitness-api.onrender.com
+      # CRA prefers GENERATE_SOURCEMAP=false in prod to keep the bundle small.
+      - key: GENERATE_SOURCEMAP
+        value: "false"
+      # CRA fails the build on lint warnings unless we set this.
+      - key: CI
+        value: "false"
+    # SPA fallback — every unknown URL serves /index.html so React Router works.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    # Cache static assets aggressively, never cache index.html.
+    headers:
+      - path: /static/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
