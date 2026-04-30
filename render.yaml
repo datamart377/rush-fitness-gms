@@ -45,10 +45,10 @@ services:
         value: KES
 
   # ── Frontend (React static build) ──────────────────────────────
+  # NOTE: static sites are served from Render's global CDN — no `region` allowed.
   - type: web
     name: rush-fitness-gms
     runtime: static
-    region: frankfurt
     buildCommand: npm install && npm run build
     staticPublishPath: ./build
     pullRequestPreviewsEnabled: false
