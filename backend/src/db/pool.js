@@ -13,8 +13,19 @@ const config = process.env.DATABASE_URL
       password: process.env.DB_PASSWORD || '',
     };
 
+// Enable SSL for managed Postgres providers (Render, Heroku, Supabase, etc.)
+// when connecting via a remote URL. Local dev (no DATABASE_URL) skips it.
+// PGSSL=disable lets you opt out for unusual setups.
+const wantSsl =
+  process.env.PGSSL !== 'disable' &&
+  (process.env.PGSSL === 'require' ||
+   process.env.NODE_ENV === 'production' ||
+   /[?&]sslmode=require/i.test(process.env.DATABASE_URL || '') ||
+   (!!process.env.DATABASE_URL && !/(localhost|127\.0\.0\.1)/i.test(process.env.DATABASE_URL || '')));
+
 const pool = new Pool({
   ...config,
+  ...(wantSsl ? { ssl: { rejectUnauthorized: false } } : {}),
   max: 20,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
