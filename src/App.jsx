@@ -2588,6 +2588,38 @@ const Members = ({ data, setData, currentUser }) => {
     }
   };
 
+  // Hard-delete a member. Admins only. Cascades on the backend (memberships
+  // are deleted with the member; payments, attendance and locker assignments
+  // get their member_id set to NULL so historical totals stay intact).
+  const deleteMember = async (m) => {
+    const name = fullName(m) || m.firstName || m.phone;
+    const confirm1 = window.confirm(
+      `Permanently delete member "${name}"?\n\n` +
+      `• Their membership(s) will be deleted.\n` +
+      `• Past payments and attendance records will be kept (but no longer linked to a member).\n` +
+      `• This cannot be undone.`
+    );
+    if (!confirm1) return;
+    // Second confirm for high-risk action — type "DELETE" to proceed.
+    const typed = window.prompt(`Type DELETE to confirm permanent removal of "${name}":`);
+    if (typed !== "DELETE") {
+      alert("Deletion cancelled.");
+      return;
+    }
+    setLoading(true);
+    setApiError("");
+    try {
+      await membersApi.remove(m.id);
+      await reload();
+    } catch (err) {
+      const msg = err?.message || "Failed to delete member";
+      setApiError(msg);
+      alert(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -2635,8 +2667,9 @@ const Members = ({ data, setData, currentUser }) => {
                   <td>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button className="btn btn-icon btn-secondary" onClick={() => openView(m)}><Eye size={14} /></button>
-                      <button className="btn btn-icon btn-secondary" onClick={() => openEdit(m)}><Edit2 size={14} /></button>
-                      {isAdmin && <button className="btn btn-icon btn-danger" onClick={() => toggleActive(m)}>{m.isActive ? <Pause size={14} /> : <Play size={14} />}</button>}
+                      <button className="btn btn-icon btn-secondary" onClick={() => openEdit(m)} title="Edit member"><Edit2 size={14} /></button>
+                      {isAdmin && <button className="btn btn-icon btn-danger" onClick={() => toggleActive(m)} title={m.isActive ? "Deactivate (reversible)" : "Reactivate"}>{m.isActive ? <Pause size={14} /> : <Play size={14} />}</button>}
+                      {isAdmin && <button className="btn btn-icon btn-danger" onClick={() => deleteMember(m)} title="Delete member permanently" style={{ background: "rgba(239,68,68,0.15)" }}><Trash2 size={14} /></button>}
                     </div>
                   </td>
                 </tr>
