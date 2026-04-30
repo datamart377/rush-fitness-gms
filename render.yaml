@@ -19,7 +19,8 @@ services:
     name: rush-fitness-api
     runtime: node
     plan: starter                 # $7/mo — always-on, no cold starts
-    region: frankfurt             # closest Render region to Uganda (~150 ms)
+    # Region omitted so the API lands in the same region as the free Postgres
+    # database (otherwise internal DNS can't resolve across regions).
     rootDir: backend
     buildCommand: npm install
     # Run migrations + seed before every deploy. Seed is idempotent.
