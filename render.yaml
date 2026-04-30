@@ -8,7 +8,7 @@
 
 databases:
   - name: rush-fitness-db
-    plan: basic_256mb             # $6/mo — 256 MB RAM, 1 GB storage, daily backups
+    plan: free                    # Start free; upgrade in the Render dashboard for production
     databaseName: rush_fitness_gms
     user: rush_fitness
     postgresMajorVersion: 16
