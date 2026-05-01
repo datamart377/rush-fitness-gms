@@ -198,6 +198,57 @@ DUP=$(curl -sS --max-time 5 -X POST -o /dev/null -w "%{http_code}" "${AUTH[@]}" 
   [ "$CO_HTTP" = "200" ] && ok "Check-out succeeded" || bad "Check-out returned $CO_HTTP"
 }
 
+hr "13b. Walk-in checked-in also creates an attendance row"
+WI_VISITOR=$(curl -sS --max-time 5 -X POST "${AUTH[@]}" "${JSON[@]}" "$API/api/walk-ins" -d "{
+  \"fullName\":\"E2E Persisted Guest\",\"phone\":\"0700PERSIST\",\"visitDate\":\"$(date +%Y-%m-%d)\",\"amount\":15000,\"paymentStatus\":\"paid\",\"checkedIn\":true
+}")
+WI_VID=$(echo "$WI_VISITOR" | extract id)
+[ -n "$WI_VID" ] && ok "Created already-checked-in walk-in ${WI_VID:0:8}..." || bad "Walk-in create failed"
+# verify backend created attendance row
+WI_ATT_ROWS=$(psql -tA "$DB" -c "SELECT COUNT(*) FROM attendance WHERE walk_in_id='$WI_VID';")
+[ "$WI_ATT_ROWS" = "1" ] && ok "Walk-in produced 1 attendance row (source=walkin)" || bad "Expected 1 attendance row, got $WI_ATT_ROWS"
+WI_ATT_SOURCE=$(psql -tA "$DB" -c "SELECT source FROM attendance WHERE walk_in_id='$WI_VID' LIMIT 1;")
+[ "$WI_ATT_SOURCE" = "walkin" ] && ok "Source = walkin" || bad "Source = '$WI_ATT_SOURCE'"
+# verify it appears in the attendance list endpoint
+WI_IN_LIST=$(curl -sS --max-time 5 "${AUTH[@]}" "$API/api/attendance?limit=200" | python3 -c "
+import sys,json
+data = json.loads(sys.stdin.read()).get('data', [])
+print('yes' if any(a.get('walkInId') == '$WI_VID' for a in data) else 'no')")
+[ "$WI_IN_LIST" = "yes" ] && ok "Walk-in attendance appears in /api/attendance list" || bad "Walk-in not in attendance list"
+
+hr "13c. Sign-out simulation — login again, verify the data is still there"
+# Re-login as if a new browser session
+RELOGIN=$(curl -sS --max-time 5 -X POST "$API/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"$USER_NAME\",\"password\":\"$USER_PASS\"}")
+TOKEN2=$(echo "$RELOGIN" | extract token)
+AUTH2=("-H" "Authorization: Bearer $TOKEN2")
+[ -n "$TOKEN2" ] && ok "Re-logged in (simulating new browser/session)" || bad "Re-login failed"
+
+# Confirm the test member, membership, walk-in, and attendance still exist for this token
+SURVIVED_M=$(curl -sS --max-time 5 "${AUTH2[@]}" "$API/api/members/$MEM_ID" | extract id)
+[ "$SURVIVED_M" = "$MEM_ID" ] && ok "Member survived sign-out → sign-in" || bad "Member missing after re-login"
+
+SURVIVED_W=$(curl -sS --max-time 5 "${AUTH2[@]}" "$API/api/walk-ins/$WI_VID" | extract id)
+[ "$SURVIVED_W" = "$WI_VID" ] && ok "Walk-in survived sign-out → sign-in" || bad "Walk-in missing after re-login"
+
+SURVIVED_A=$(curl -sS --max-time 5 "${AUTH2[@]}" "$API/api/attendance?limit=200" | python3 -c "
+import sys,json
+data = json.loads(sys.stdin.read()).get('data', [])
+print('yes' if any(a.get('walkInId') == '$WI_VID' for a in data) else 'no')")
+[ "$SURVIVED_A" = "yes" ] && ok "Attendance row survived sign-out → sign-in" || bad "Attendance missing after re-login"
+
+hr "13d. Member check-out persists"
+# Find the open attendance row for our test member
+OPEN_ATT=$(psql -tA "$DB" -c "SELECT id FROM attendance WHERE member_id='$MEM_ID' AND check_out_at IS NULL ORDER BY check_in_at DESC LIMIT 1;")
+if [ -n "$OPEN_ATT" ]; then
+  CO_HTTP=$(curl -sS --max-time 5 -X POST -o /dev/null -w "%{http_code}" "${AUTH[@]}" "$API/api/attendance/$OPEN_ATT/check-out")
+  [ "$CO_HTTP" = "200" ] && ok "Check-out endpoint returned 200" || bad "Check-out returned $CO_HTTP"
+  # verify check_out_at was set in DB
+  CO_AT=$(psql -tA "$DB" -c "SELECT check_out_at IS NOT NULL FROM attendance WHERE id='$OPEN_ATT';")
+  [ "$CO_AT" = "t" ] && ok "DB persisted check_out_at" || bad "check_out_at still NULL"
+fi
+
 hr "14. Staff Management — register a new user"
 STAFF_RES=$(curl -sS --max-time 5 -X POST "${AUTH[@]}" "${JSON[@]}" "$API/api/auth/register" -d '{
   "username":"e2e_test_user","password":"Test@12345","fullName":"E2E Test User","role":"receptionist"
@@ -233,6 +284,7 @@ for table_id in \
   "attendance|$ATT_ID" \
   "memberships|$MS_ID" \
   "walk_ins|$WI_ID" \
+  "walk_ins|$WI_VID" \
   "members|$MEM_ID" \
   "trainers|$TR_ID" \
   "products|$PR_ID" \

@@ -4112,11 +4112,20 @@ const Attendance = ({ data, setData }) => {
                   <td style={{ fontSize: 12 }}>{planLabel}</td>
                   <td style={{ fontSize: 12 }}>{activityLabel}</td>
                   <td>{formatTime(a.checkIn)}</td>
-                  <td>{a.checkOut ? formatTime(a.checkOut) : <button className="btn btn-sm btn-secondary" onClick={() => setData((d) => ({
-                    ...d,
-                    attendance: d.attendance.map((x) => x.id === a.id ? { ...x, checkOut: new Date().toISOString() } : x),
-                    lockers: a.lockerId ? d.lockers.map((l) => l.id === a.lockerId ? { ...l, isOccupied: false, memberId: null } : l) : d.lockers,
-                  }))}>Check Out</button>}</td>
+                  <td>{a.checkOut ? formatTime(a.checkOut) : <button className="btn btn-sm btn-secondary" onClick={async () => {
+                    try {
+                      await attendanceApi.checkOut(a.id);
+                      const [attRes, lockRes] = await Promise.all([
+                        attendanceApi.list({ limit: 500 }),
+                        lockersApi.list({ limit: 200 }),
+                      ]);
+                      setData((d) => ({
+                        ...d,
+                        attendance: (attRes?.data || []).map(adaptAttendance),
+                        lockers: (lockRes?.data || []).map(adaptLocker),
+                      }));
+                    } catch (err) { alert(err?.message || "Failed to check out"); }
+                  }}>Check Out</button>}</td>
                   <td><Badge variant={a.source === "walkin" ? "warning" : a.source === "self" ? "info" : "neutral"}>{a.source === "walkin" ? "Walk-In" : a.source === "self" ? "Self" : "Staff"}</Badge></td>
                   <td>
                     {lockerNum
@@ -6296,6 +6305,21 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
 
   const reset = () => { setStep("phone"); setPhone(""); setPin(""); setMember(null); setAttempts(0); };
 
+  // Persist a self check-in via the backend, then refresh the in-memory cache.
+  const persistSelfCheckIn = async (memberId) => {
+    try {
+      await attendanceApi.checkIn({ memberId, source: "self" });
+      const attRes = await attendanceApi.list({ limit: 500 });
+      setData((d) => ({ ...d, attendance: (attRes?.data || []).map(adaptAttendance) }));
+      return true;
+    } catch (err) {
+      // 409 = already checked in today; treat as success for kiosk UX.
+      if (err?.status === 409) return true;
+      console.error("[kiosk] check-in failed:", err);
+      return false;
+    }
+  };
+
   const handlePhoneKey = (k) => {
     if (k === "del") setPhone((p) => p.slice(0, -1));
     else if (k === "go") {
@@ -6308,8 +6332,10 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
         if (ms.status === "frozen") { setStep("blocked"); setTimeout(reset, 5000); return; }
         const alreadyIn = data.attendance.some((a) => a.memberId === found.id && a.date === today());
         if (alreadyIn) { setStep("success"); return; }
-        setData((d) => ({ ...d, attendance: [...d.attendance, { id: generateId(), memberId: found.id, checkIn: new Date().toISOString(), checkOut: null, date: today(), source: "self", locker: null }] }));
-        setStep("success");
+        persistSelfCheckIn(found.id).then((ok) => {
+          if (ok) setStep("success");
+          else { setStep("blocked"); setTimeout(reset, 5000); }
+        });
       }
       else { setStep("blocked"); setTimeout(reset, 5000); }
     }
@@ -6325,8 +6351,10 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
         if (ms.status === "frozen") { setStep("blocked"); setTimeout(reset, 5000); return; }
         const alreadyIn = data.attendance.some((a) => a.memberId === member.id && a.date === today());
         if (alreadyIn) { setStep("success"); return; }
-        setData((d) => ({ ...d, attendance: [...d.attendance, { id: generateId(), memberId: member.id, checkIn: new Date().toISOString(), checkOut: null, date: today(), source: "self", locker: null }] }));
-        setStep("success");
+        persistSelfCheckIn(member.id).then((ok) => {
+          if (ok) setStep("success");
+          else { setStep("blocked"); setTimeout(reset, 5000); }
+        });
       } else {
         const newAttempts = attempts + 1;
         setAttempts(newAttempts);
