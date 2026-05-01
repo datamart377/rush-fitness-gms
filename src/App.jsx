@@ -5856,22 +5856,47 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
   useEffect(() => { reload(); }, [reload]);
 
   const save = async () => {
-    if (!form.name || !form.username || !form.password) return;
-    if (form.password.length < 8) { alert("Password must be at least 8 characters"); return; }
+    // Mirror backend rules so the user gets immediate feedback (button disabled
+    // already prevents most submits, but defend in depth).
+    const name = (form.name || "").trim();
+    const username = (form.username || "").trim();
+    const password = form.password || "";
+    const role = form.role || "receptionist";
+    const validRoles = ["admin", "manager", "receptionist", "trainer"];
+    const errors = [];
+    if (name.length < 2) errors.push("Name must be at least 2 characters");
+    if (username.length < 3 || username.length > 50) errors.push("Username must be 3–50 characters");
+    if (!/^[a-z0-9_]+$/.test(username)) errors.push("Username may only contain lowercase letters, digits, and underscores");
+    if (password.length < 8) errors.push("Password must be at least 8 characters");
+    if (!validRoles.includes(role)) errors.push(`Role must be one of: ${validRoles.join(", ")}`);
+    if (errors.length) { setApiError(errors.join("\n")); return; }
+
     setBusy(true);
     setApiError("");
     try {
-      // /auth/register is admin-only, returns the new user
       await authApi.register({
-        username: form.username,
-        password: form.password,
-        fullName: form.name,
-        role: form.role,
+        username,
+        password,
+        fullName: name,
+        role,
       });
       await reload();
       setModal(null);
     } catch (err) {
-      setApiError(err?.message || "Failed to create staff");
+      // Translate backend errors into friendly text
+      let msg;
+      if (err?.status === 409) {
+        msg = `Username "${username}" is already taken — pick a different one.`;
+      } else if (err?.status === 403) {
+        msg = "Only admins can create staff accounts. You don't have permission.";
+      } else if (err?.status === 401) {
+        msg = "Your session expired. Please log out and log back in.";
+      } else if (Array.isArray(err?.details) && err.details.length) {
+        msg = err.details.map((d) => `• ${d.field || "?"}: ${d.message || JSON.stringify(d)}`).join("\n");
+      } else {
+        msg = err?.message || "Failed to create account.";
+      }
+      setApiError(msg);
     } finally {
       setBusy(false);
     }
@@ -5931,35 +5956,73 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
         </table>
       </div>
 
-      {modal === "add" && (
+      {modal === "add" && (() => {
+        // Inline validation — match what the backend will reject so users see it before clicking
+        const nameOk = form.name.trim().length >= 2;
+        const usernameOk = form.username.length >= 3 && form.username.length <= 50;
+        const usernameTaken = (data.staff || []).some((s) => s.username === form.username && form.username);
+        const passwordOk = form.password.length >= 8;
+        const allOk = nameOk && usernameOk && !usernameTaken && passwordOk && form.role;
+
+        return (
         <Modal title="Add Staff Account" onClose={() => setModal(null)} footer={
           <>
             <button className="btn btn-secondary" onClick={() => setModal(null)} disabled={busy}>Cancel</button>
-            <button className="btn btn-primary" onClick={save} disabled={busy || !form.name || !form.username || form.password.length < 8}>
+            <button className="btn btn-primary" onClick={save} disabled={busy || !allOk}>
               {busy ? <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Check size={14} />}
               {busy ? "Creating..." : "Create Account"}
             </button>
           </>
         }>
           {apiError && (
-            <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
-              <AlertTriangle size={14} /> {apiError}
+            <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span style={{ whiteSpace: "pre-wrap" }}>{apiError}</span>
             </div>
           )}
           <div className="form-grid">
-            <div className="form-group"><label>Name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Jane Doe" /></div>
-            <div className="form-group"><label>Username *</label><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="Lowercase, no spaces" /></div>
-            <div className="form-group full">
-              <label>Password * (min 8 chars)</label>
-              <PasswordInput value={form.password} onChange={(v) => setForm({ ...form, password: v })} placeholder="Strong password" autoComplete="new-password" />
+            <div className="form-group">
+              <label>Name *</label>
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Jane Doe" />
+              {form.name && !nameOk && <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 4 }}>Name must be at least 2 characters</p>}
             </div>
-            <div className="form-group"><label>Role</label><select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="receptionist">Receptionist</option><option value="manager">Manager</option><option value="trainer">Trainer</option><option value="admin">Admin</option></select></div>
+            <div className="form-group">
+              <label>Username * <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(3–50 chars)</span></label>
+              <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="lowercase, letters/digits/underscore" />
+              {form.username && !usernameOk && (
+                <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 4 }}>
+                  {form.username.length < 3 ? `Too short (${form.username.length}/3)` : `Too long (${form.username.length}/50)`}
+                </p>
+              )}
+              {form.username && usernameOk && usernameTaken && (
+                <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 4 }}>⚠ Username "{form.username}" is already taken</p>
+              )}
+              {form.username && usernameOk && !usernameTaken && (
+                <p style={{ fontSize: 11, color: "var(--success)", marginTop: 4 }}>✓ Available</p>
+              )}
+            </div>
+            <div className="form-group full">
+              <label>Password * <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(min 8 chars)</span></label>
+              <PasswordInput value={form.password} onChange={(v) => setForm({ ...form, password: v })} placeholder="Strong password" autoComplete="new-password" />
+              {form.password && !passwordOk && <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 4 }}>Password too short ({form.password.length}/8)</p>}
+              {form.password && passwordOk && <p style={{ fontSize: 11, color: "var(--success)", marginTop: 4 }}>✓ {form.password.length} characters</p>}
+            </div>
+            <div className="form-group">
+              <label>Role *</label>
+              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+                <option value="receptionist">Receptionist</option>
+                <option value="manager">Manager</option>
+                <option value="trainer">Trainer</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
           </div>
           <div style={{ marginTop: 16, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-xs)", fontSize: 12, color: "var(--text-dim)" }}>
-            <strong style={{ color: "var(--text)" }}>Security:</strong> Password is bcrypt-hashed (10 rounds) before being stored in the database. Plain text is never persisted.
+            <strong style={{ color: "var(--text)" }}>Security:</strong> Password is bcrypt-hashed (10 rounds) before being stored. Plain text is never persisted.
           </div>
         </Modal>
-      )}
+        );
+      })()}
 
       {resetTarget && (
         <Modal title={`Reset Password — ${resetTarget.name}`} onClose={() => setResetTarget(null)} footer={
@@ -6343,6 +6406,295 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
 };
 
 // ─── REPORTS ────────────────────────────────────────────────
+// ─── FINANCIAL STATEMENT ────────────────────────────────────
+// Per-person statement showing all payments + check-ins for either a
+// member or a walk-in guest, with a printable summary.
+const FinancialStatement = ({ data }) => {
+  const [type, setType] = useState("member");      // 'member' | 'walkin'
+  const [personId, setPersonId] = useState("");    // member.id or walkin.id
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  // Build picker options
+  const memberOpts = [...(data.members || [])]
+    .filter((m) => m.firstName || m.lastName || m.phone)
+    .sort((a, b) => fullName(a).localeCompare(fullName(b)))
+    .map((m) => ({ id: m.id, label: `${fullName(m)} — ${m.phone}` }));
+
+  const walkinOpts = [...(data.walkIns || [])]
+    .sort((a, b) => (b.visitDate || "").localeCompare(a.visitDate || ""))
+    .map((w) => ({ id: w.id, label: `${w.name || `${w.firstName || ""} ${w.lastName || ""}`.trim() || "Guest"} — ${w.phone || "no phone"} — ${formatDate(w.visitDate)}` }));
+
+  const opts = type === "member" ? memberOpts : walkinOpts;
+  const person = type === "member"
+    ? (data.members || []).find((m) => m.id === personId)
+    : (data.walkIns || []).find((w) => w.id === personId);
+
+  // Date filter helper
+  const inRange = (iso) => {
+    if (!iso) return true;
+    const d = (typeof iso === "string" ? iso : new Date(iso).toISOString()).slice(0, 10);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  };
+
+  // ── Build payment + attendance rows for the chosen person ──
+  let payments = [];
+  let attendance = [];
+  let memberships = [];
+
+  if (person) {
+    if (type === "member") {
+      payments = (data.payments || [])
+        .filter((p) => p.memberId === person.id)
+        .filter((p) => inRange(p.paidAt));
+      attendance = (data.attendance || [])
+        .filter((a) => a.memberId === person.id)
+        .filter((a) => inRange(a.checkIn || a.date));
+      memberships = (data.memberships || [])
+        .filter((ms) => ms.memberId === person.id);
+    } else {
+      // Walk-in: payments referenced by note, attendance by walkInId
+      const guestName = person.name || `${person.firstName || ""} ${person.lastName || ""}`.trim();
+      payments = (data.payments || [])
+        .filter((p) => (p.type === "walk_in" || p.type === "walkin") && (p.notes || p.note || "").includes(guestName))
+        .filter((p) => inRange(p.paidAt));
+      attendance = (data.attendance || [])
+        .filter((a) => a.walkInId === person.id || (a.guestName && a.guestName === guestName))
+        .filter((a) => inRange(a.checkIn || a.date));
+    }
+  }
+
+  payments = [...payments].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt));
+  attendance = [...attendance].sort((a, b) => new Date(b.checkIn) - new Date(a.checkIn));
+
+  const totalPaid = payments.filter((p) => p.status !== "refunded").reduce((s, p) => s + Number(p.amount || 0), 0);
+  const totalRefunded = payments.filter((p) => p.status === "refunded").reduce((s, p) => s + Number(p.amount || 0), 0);
+  const visitCount = attendance.length;
+
+  // Membership balance summary (for members only)
+  const memberBalances = type === "member" ? memberships.map((ms) => ({
+    plan: getPlanName(ms.plan),
+    startDate: ms.startDate,
+    endDate: ms.endDate,
+    status: ms.status,
+    totalDue: Number(ms.totalDue || 0),
+    totalPaid: Number(ms.totalPaid || 0),
+  })) : [];
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  return (
+    <div>
+      {/* Print-only style — hides everything except the statement card during print */}
+      <style>{`
+        @media print {
+          .sidebar, .session-bar, .tabs, .toolbar, .no-print, .page-header { display: none !important; }
+          .app-layout { display: block !important; }
+          .statement-print { box-shadow: none !important; border: none !important; padding: 0 !important; background: white !important; color: black !important; }
+          .statement-print * { color: black !important; background: transparent !important; border-color: #ccc !important; }
+          .statement-print .badge { background: #eee !important; border: 1px solid #ccc !important; }
+          body { background: white !important; }
+        }
+      `}</style>
+
+      {/* Picker — hidden when printing */}
+      <div className="card no-print" style={{ marginBottom: 16, padding: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>Type</label>
+            <select value={type} onChange={(e) => { setType(e.target.value); setPersonId(""); }}>
+              <option value="member">Member</option>
+              <option value="walkin">Walk-In Guest</option>
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>{type === "member" ? "Member" : "Walk-In"}</label>
+            <select value={personId} onChange={(e) => setPersonId(e.target.value)}>
+              <option value="">Select {type === "member" ? "a member" : "a walk-in"}...</option>
+              {opts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>From date</label>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }} />
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>To date</label>
+            <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }} />
+          </div>
+          <button className="btn btn-primary" onClick={handlePrint} disabled={!person}>
+            <Receipt size={14} /> Print / Save PDF
+          </button>
+        </div>
+      </div>
+
+      {!person && (
+        <div className="card" style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
+          <Receipt size={36} style={{ marginBottom: 12, color: "var(--text-muted)" }} />
+          <p>Select a {type === "member" ? "member" : "walk-in guest"} above to generate a financial statement.</p>
+        </div>
+      )}
+
+      {person && (
+        <div className="card statement-print" style={{ padding: 32 }}>
+          {/* Header */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "2px solid var(--accent)", paddingBottom: 16, marginBottom: 20 }}>
+            <div>
+              <h1 style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--accent)", margin: 0 }}>Rush Fitness Centre</h1>
+              <p style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>Naalya Quality Shopping Mall, Kampala</p>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginTop: 14 }}>Financial Statement</h2>
+            </div>
+            <div style={{ textAlign: "right", fontSize: 12 }}>
+              <p style={{ color: "var(--text-muted)" }}>Generated</p>
+              <p style={{ fontWeight: 600 }}>{formatDate(new Date())} {formatTime(new Date())}</p>
+              {(from || to) && (
+                <>
+                  <p style={{ color: "var(--text-muted)", marginTop: 8 }}>Period</p>
+                  <p style={{ fontWeight: 600 }}>{from ? formatDate(from) : "All time"} → {to ? formatDate(to) : "Today"}</p>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Person details */}
+          <div style={{ marginBottom: 24 }}>
+            <h3 style={{ fontFamily: "var(--font-display)", fontSize: 14, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 8 }}>
+              {type === "member" ? "Member" : "Walk-In Guest"}
+            </h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+              <div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)" }}>Name</p>
+                <p style={{ fontSize: 16, fontWeight: 600 }}>{type === "member" ? fullName(person) : (person.name || `${person.firstName || ""} ${person.lastName || ""}`.trim() || "Guest")}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)" }}>Phone</p>
+                <p style={{ fontSize: 14 }}>{person.phone || "—"}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)" }}>{type === "member" ? "ID (NIN/Passport)" : "Visit Date"}</p>
+                <p style={{ fontSize: 14, fontFamily: "monospace" }}>
+                  {type === "member"
+                    ? (person.nationalId || person.passportNumber || "—")
+                    : formatDate(person.visitDate)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Summary stat cards */}
+          <div className="card-grid" style={{ marginBottom: 24 }}>
+            <StatCard icon={DollarSign} label="Total Paid" value={formatUGX(totalPaid)} color="var(--success)" bg="var(--success-dim)" />
+            {totalRefunded > 0 && <StatCard icon={X} label="Refunded" value={formatUGX(totalRefunded)} color="var(--warning)" bg="var(--warning-dim)" />}
+            <StatCard icon={UserCheck} label="Visits / Check-ins" value={visitCount} color="var(--info)" bg="var(--info-dim)" />
+            <StatCard icon={Receipt} label="Transactions" value={payments.length} color="var(--accent)" bg="var(--accent-dim)" />
+          </div>
+
+          {/* Memberships (members only) */}
+          {memberBalances.length > 0 && (
+            <>
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 8 }}>Memberships</h3>
+              <div className="table-wrapper" style={{ marginBottom: 24 }}>
+                <table>
+                  <thead>
+                    <tr><th>Plan</th><th>Start</th><th>End</th><th>Status</th><th>Total Due</th><th>Paid</th><th>Balance</th></tr>
+                  </thead>
+                  <tbody>
+                    {memberBalances.map((ms, i) => (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 500 }}>{ms.plan}</td>
+                        <td>{formatDate(ms.startDate)}</td>
+                        <td>{formatDate(ms.endDate)}</td>
+                        <td><Badge variant={ms.status === "active" ? "success" : ms.status === "frozen" ? "warning" : "neutral"}>{ms.status}</Badge></td>
+                        <td>{formatUGX(ms.totalDue)}</td>
+                        <td style={{ color: "var(--success)" }}>{formatUGX(ms.totalPaid)}</td>
+                        <td style={{ color: ms.totalDue - ms.totalPaid > 0 ? "var(--danger)" : "var(--text-muted)", fontWeight: 700 }}>
+                          {formatUGX(Math.max(0, ms.totalDue - ms.totalPaid))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* Payment ledger */}
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 8 }}>Payment Ledger</h3>
+          <div className="table-wrapper" style={{ marginBottom: 24 }}>
+            <table>
+              <thead>
+                <tr><th>Date</th><th>Type</th><th>Method</th><th>Reference</th><th>Notes</th><th style={{ textAlign: "right" }}>Amount</th></tr>
+              </thead>
+              <tbody>
+                {payments.length === 0 && (
+                  <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: 24 }}>No payment records.</td></tr>
+                )}
+                {payments.map((p) => (
+                  <tr key={p.id} style={p.status === "refunded" ? { opacity: 0.6, textDecoration: "line-through" } : undefined}>
+                    <td>{formatDate(p.paidAt)} {formatTime(p.paidAt)}</td>
+                    <td><Badge variant="neutral">{p.type || "—"}</Badge></td>
+                    <td>{p.method === "mobile_money" ? "M-Money" : (p.method || "—").charAt(0).toUpperCase() + (p.method || "—").slice(1)}</td>
+                    <td style={{ fontFamily: "monospace", fontSize: 11 }}>{p.reference || "—"}</td>
+                    <td style={{ fontSize: 12, color: "var(--text-dim)", maxWidth: 250 }}>{p.notes || p.note || "—"}</td>
+                    <td style={{ textAlign: "right", fontWeight: 600, color: p.status === "refunded" ? "var(--warning)" : "var(--accent)" }}>
+                      {formatUGX(Number(p.amount || 0))}
+                    </td>
+                  </tr>
+                ))}
+                {payments.length > 0 && (
+                  <tr style={{ borderTop: "2px solid var(--border)" }}>
+                    <td colSpan={5} style={{ fontWeight: 700, textAlign: "right", paddingTop: 12 }}>Net Paid</td>
+                    <td style={{ textAlign: "right", fontWeight: 700, fontSize: 16, color: "var(--success)", paddingTop: 12 }}>
+                      {formatUGX(totalPaid - totalRefunded)}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Attendance ledger */}
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 8 }}>Check-In History</h3>
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr><th>Date</th><th>Check-In</th><th>Check-Out</th><th>Source</th><th>Locker</th></tr>
+              </thead>
+              <tbody>
+                {attendance.length === 0 && (
+                  <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: 24 }}>No check-in records.</td></tr>
+                )}
+                {attendance.map((a) => {
+                  const lockerObj = a.lockerId ? data.lockers.find((l) => l.id === a.lockerId) : null;
+                  return (
+                    <tr key={a.id}>
+                      <td>{formatDate(a.date)}</td>
+                      <td>{formatTime(a.checkIn)}</td>
+                      <td>{a.checkOut ? formatTime(a.checkOut) : "—"}</td>
+                      <td><Badge variant={a.source === "walkin" ? "warning" : a.source === "self" ? "info" : "neutral"}>{a.source === "walkin" ? "Walk-In" : a.source === "self" ? "Self" : "Staff"}</Badge></td>
+                      <td>{lockerObj ? `#${lockerObj.number}` : (a.locker ? `#${a.locker}` : "—")}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer */}
+          <div style={{ marginTop: 32, paddingTop: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)" }}>
+            <span>This statement is auto-generated by Rush Fitness GMS.</span>
+            <span>Page 1 of 1</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Reports = ({ data }) => {
   const totalRevenue = data.payments.filter((p) => p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
   const currentMonth = new Date().toISOString().slice(0, 7);
@@ -6382,7 +6734,11 @@ const Reports = ({ data }) => {
       <div className="tabs" style={{ marginBottom: 20 }}>
         <button className={`tab ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Revenue Overview</button>
         <button className={`tab ${tab === "debtors" ? "active" : ""}`} onClick={() => setTab("debtors")}>Debtors Report ({allDebtors.length})</button>
+        <button className={`tab ${tab === "statement" ? "active" : ""}`} onClick={() => setTab("statement")}>Financial Statement</button>
       </div>
+
+      {tab === "statement" && <FinancialStatement data={data} />}
+
 
       {tab === "overview" && (
         <>
