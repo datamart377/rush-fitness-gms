@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, Pause, Play, Hash, Receipt, TrendingUp, ArrowLeft, Camera, RefreshCw, Star, Zap, Award, Upload } from "lucide-react";
+import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, EyeOff, Pause, Play, Hash, Receipt, TrendingUp, ArrowLeft, Camera, RefreshCw, Star, Zap, Award, Upload } from "lucide-react";
 import {
   authApi, membersApi, plansApi, membershipsApi, paymentsApi, trainersApi,
   lockersApi, productsApi, equipmentApi, walkInsApi, attendanceApi,
@@ -8,6 +8,39 @@ import {
 
 // Map backend user shape ({fullName}) to the shape the rest of App.jsx expects ({name})
 const adaptUser = (u) => u ? { ...u, name: u.fullName || u.username } : null;
+
+// ─── Reusable PasswordInput with show/hide toggle ──────────────
+function PasswordInput({ value, onChange, placeholder, autoComplete, onKeyDown, ...rest }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+      <input
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete || "current-password"}
+        onKeyDown={onKeyDown}
+        style={{ paddingRight: 38, width: "100%" }}
+        {...rest}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((v) => !v)}
+        title={visible ? "Hide password" : "Show password"}
+        aria-label={visible ? "Hide password" : "Show password"}
+        style={{
+          position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+          background: "transparent", border: "none", cursor: "pointer",
+          padding: 6, color: visible ? "var(--accent)" : "var(--text-muted)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </div>
+  );
+}
 
 // ── Backend ↔ frontend adapters for memberships & payments ──
 // Frontend uses string `plan` codes (e.g. "gym_monthly"), API uses UUID planId.
@@ -1251,10 +1284,18 @@ const CheckIn = ({ data, setData, currentUser }) => {
     if (isExpired || isFrozen || alreadyCheckedIn || isPendingPayment || insufficientPrepaid) return;
 
     // Call backend first — it atomically creates the attendance row and occupies the locker.
+    // If multiple activities were selected, record the first one's UUID
+    // (the backend's attendance.activity_id is a single FK).
+    let activityUuid;
+    if (addons.length > 0) {
+      const firstAct = ACTIVITIES.find((a) => a.id === addons[0]);
+      activityUuid = firstAct?.uuid || undefined;   // adaptActivity stores DB UUID under .uuid
+    }
     try {
       await attendanceApi.checkIn({
         memberId: selected.id,
         lockerId: selectedLocker ? selectedLocker.id : undefined,
+        activityId: activityUuid,
         source: "staff",
       });
       // Refresh attendance + lockers from backend so all browsers see the change.
@@ -1348,16 +1389,14 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null }); };
 
   // Quick walk-in check-in from the walk-ins panel
-  const checkInWalkInGuest = (w) => {
-    setData((d) => ({
-      ...d,
-      walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, checkedIn: true, checkInTime: new Date().toISOString() } : x),
-      attendance: [...d.attendance, {
-        id: generateId(), memberId: null, guestName: `${w.firstName || ""} ${w.lastName || w.name || ""}`.trim(),
-        checkIn: new Date().toISOString(), checkOut: null,
-        date: today(), source: "walkin", locker: null, lockerId: null, lockerSection: null,
-      }],
-    }));
+  const checkInWalkInGuest = async (w) => {
+    try {
+      await walkInsApi.checkIn(w.id);
+      const wiRes = await walkInsApi.list({ limit: 500 });
+      setData((d) => ({ ...d, walkIns: (wiRes?.data || []).map(adaptWalkIn) }));
+    } catch (err) {
+      alert(err?.message || "Failed to check in walk-in");
+    }
   };
 
   // Walk-in quick register + pay + check-in (all in one)
@@ -1370,7 +1409,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
     });
   };
 
-  const handleQuickWalkIn = () => {
+  const handleQuickWalkIn = async () => {
     if (!walkinForm.firstName || !walkinForm.lastName || !walkinForm.phone) { alert("Please fill in surname, other name(s), and phone."); return; }
     if (!walkinForm.emergency) { alert("Emergency contact is required."); return; }
     if (walkinForm.selectedActivities.length === 0) { alert("Select at least one activity."); return; }
@@ -1378,42 +1417,70 @@ const CheckIn = ({ data, setData, currentUser }) => {
     const prices = walkinForm.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.standalone || 0);
     const total = prices.reduce((s, p) => s + p, 0) - (walkinForm.selectedActivities.length > 1 ? 10000 : 0);
     const actNames = walkinForm.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(" + ");
-    const walkInId = generateId();
     const isPaid = walkinForm.paymentStatus === "paid";
     const isCheckedIn = isPaid; // Check-in only if paid
     const lockerToAssign = (isCheckedIn && walkinForm.locker) ? walkinForm.locker : null;
 
-    setData((d) => ({
-      ...d,
-      walkIns: [...d.walkIns, {
-        id: walkInId, firstName: walkinForm.firstName, lastName: walkinForm.lastName,
-        phone: walkinForm.phone, emergency: walkinForm.emergency, emergency2: "",
-        gender: walkinForm.gender,
-        activities: walkinForm.selectedActivities, amountDue: total, amountPaid: isPaid ? total : 0,
-        paymentMethod: walkinForm.paymentMethod, paymentStatus: walkinForm.paymentStatus,
-        checkedIn: isCheckedIn, checkInTime: isCheckedIn ? new Date().toISOString() : null,
+    // Persist the walk-in to the backend.
+    let savedWalkIn;
+    try {
+      savedWalkIn = await walkInsApi.create({
+        fullName: `${walkinForm.firstName} ${walkinForm.lastName}`.trim(),
+        phone: walkinForm.phone,
         visitDate: today(),
-        locker: lockerToAssign?.number || null, lockerSection: lockerToAssign?.section || null, lockerId: lockerToAssign?.id || null,
-        note: walkinForm.selectedActivities.length > 1 ? `Bundle: ${actNames} (UGX 10,000 discount)` : actNames,
-      }],
-      payments: isPaid ? [...d.payments, {
-        id: generateId(), memberId: null, membershipId: null, amount: total,
-        method: walkinForm.paymentMethod, paidAt: new Date().toISOString(),
-        type: "walkin", discountId: null, discountAmount: 0,
-        note: `Walk-in: ${walkinForm.firstName} ${walkinForm.lastName} — ${actNames}`,
-      }] : d.payments,
-      attendance: isCheckedIn ? [...d.attendance, {
-        id: generateId(), memberId: null, guestName: `${walkinForm.firstName} ${walkinForm.lastName}`,
-        checkIn: new Date().toISOString(), checkOut: null,
-        date: today(), source: "walkin",
-        locker: lockerToAssign?.number || null,
-        lockerId: lockerToAssign?.id || null,
-        lockerSection: lockerToAssign?.section || null,
-      }] : d.attendance,
-      lockers: lockerToAssign ? d.lockers.map((l) => l.id === lockerToAssign.id ? { ...l, isOccupied: true, memberId: null } : l) : d.lockers,
-    }));
+        amount: total,
+        paymentStatus: walkinForm.paymentStatus,
+        checkedIn: isCheckedIn,
+        notes: walkinForm.selectedActivities.length > 1
+          ? `Bundle: ${actNames} (UGX 10,000 discount)`
+          : actNames,
+      });
+    } catch (err) {
+      alert("Failed to save walk-in: " + (err?.message || "unknown error"));
+      return;
+    }
+
+    // Persist the payment if paid.
+    if (isPaid) {
+      try {
+        await paymentsApi.create({
+          amount: total,
+          method: paymentMethodToApi(walkinForm.paymentMethod),
+          type: "walk_in",
+          notes: `Walk-in: ${walkinForm.firstName} ${walkinForm.lastName} — ${actNames}`,
+        });
+      } catch (err) {
+        console.warn("Walk-in saved but payment record failed:", err);
+      }
+    }
+
+    // Refresh the lists from the backend so other browsers see it too.
+    try {
+      const [wiRes, payRes, attRes, lockRes] = await Promise.all([
+        walkInsApi.list({ limit: 500 }),
+        paymentsApi.list({ limit: 500 }),
+        attendanceApi.list({ limit: 500 }),
+        lockersApi.list({ limit: 200 }),
+      ]);
+      setData((d) => ({
+        ...d,
+        walkIns: (wiRes?.data || []).map(adaptWalkIn),
+        payments: (payRes?.data || []).map(adaptPayment),
+        attendance: (attRes?.data || []).map(adaptAttendance),
+        lockers: (lockRes?.data || []).map(adaptLocker),
+      }));
+    } catch (err) {
+      console.warn("Refresh after walk-in failed:", err);
+    }
+
+    // Local UI state (success screen)
     setCheckedIn(true);
-    setSelected({ firstName: walkinForm.firstName, lastName: walkinForm.lastName, phone: walkinForm.phone, gender: walkinForm.gender, _isWalkIn: true, _paymentStatus: walkinForm.paymentStatus });
+    setSelected({
+      id: savedWalkIn?.id,
+      firstName: walkinForm.firstName, lastName: walkinForm.lastName,
+      phone: walkinForm.phone, gender: walkinForm.gender,
+      _isWalkIn: true, _paymentStatus: walkinForm.paymentStatus,
+    });
     setSelectedLocker(lockerToAssign);
   };
 
@@ -1825,26 +1892,38 @@ const CheckIn = ({ data, setData, currentUser }) => {
                       {(w.paymentStatus === "paid" || !w.paymentStatus) ? (
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <Badge variant="success">Paid</Badge>
-                          <button className="btn btn-sm btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} title="Mark as Pending" onClick={() => {
-                            if (!confirm("Mark this walk-in as Pending? This will remove the payment record.")) return;
-                            setData((d) => ({
-                              ...d,
-                              walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, paymentStatus: "pending", amountPaid: 0 } : x),
-                              // Remove the matching payment record (last one for this walk-in)
-                              payments: d.payments.filter((p) => !(p.type === "walkin" && p.note?.includes(`${w.firstName || ""} ${w.lastName || ""}`) && p.amount === (w.amountDue || w.amountPaid))),
-                            }));
+                          <button className="btn btn-sm btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} title="Mark as Pending" onClick={async () => {
+                            if (!confirm("Mark this walk-in as Pending?")) return;
+                            try {
+                              await walkInsApi.update(w.id, { paymentStatus: "pending" });
+                              const wiRes = await walkInsApi.list({ limit: 500 });
+                              setData((d) => ({ ...d, walkIns: (wiRes?.data || []).map(adaptWalkIn) }));
+                            } catch (err) { alert(err?.message || "Failed"); }
                           }}>Revert</button>
                         </div>
                       ) : (
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <Badge variant="warning">Pending</Badge>
-                          <button className="btn btn-sm btn-success" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => {
-                            const total = w.amountDue || w.amountPaid;
-                            setData((d) => ({
-                              ...d,
-                              walkIns: d.walkIns.map((x) => x.id === w.id ? { ...x, paymentStatus: "paid", amountPaid: total } : x),
-                              payments: [...d.payments, { id: generateId(), memberId: null, membershipId: null, amount: total, method: w.paymentMethod || "cash", paidAt: new Date().toISOString(), type: "walkin", discountId: null, discountAmount: 0, note: `Walk-in payment: ${w.firstName || ""} ${w.lastName || ""}` }],
-                            }));
+                          <button className="btn btn-sm btn-success" style={{ padding: "3px 8px", fontSize: 11 }} onClick={async () => {
+                            const total = w.amountDue || w.amount || 0;
+                            try {
+                              await walkInsApi.update(w.id, { paymentStatus: "paid" });
+                              await paymentsApi.create({
+                                amount: total,
+                                method: paymentMethodToApi(w.paymentMethod || "cash"),
+                                type: "walk_in",
+                                notes: `Walk-in payment: ${w.firstName || w.name || ""} ${w.lastName || ""}`.trim(),
+                              });
+                              const [wiRes, payRes] = await Promise.all([
+                                walkInsApi.list({ limit: 500 }),
+                                paymentsApi.list({ limit: 500 }),
+                              ]);
+                              setData((d) => ({
+                                ...d,
+                                walkIns: (wiRes?.data || []).map(adaptWalkIn),
+                                payments: (payRes?.data || []).map(adaptPayment),
+                              }));
+                            } catch (err) { alert(err?.message || "Failed"); }
                           }}>Mark Paid</button>
                         </div>
                       )}
@@ -2472,9 +2551,12 @@ const adaptMember = (m) => m ? ({
   emergency: m.emergencyPhone || "",
   emergency2: m.emergencyPhone2 || "",
   photo: m.photoUrl || null,
+  passportNumber: m.passportNumber || "",
 }) : null;
 
-// Inverse: take frontend form → API body
+// Inverse: take frontend form → API body.
+// We send empty strings (not undefined) for nationalId/passportNumber so the
+// backend can clear them on PATCH if the user explicitly removed one.
 const memberFormToApi = (f) => ({
   firstName: f.firstName?.trim(),
   lastName: f.lastName?.trim(),
@@ -2482,7 +2564,8 @@ const memberFormToApi = (f) => ({
   email: f.email || undefined,
   gender: f.gender,
   dob: f.dob || undefined,
-  nationalId: f.nationalId || undefined,
+  nationalId: (f.nationalId || "").trim(),
+  passportNumber: (f.passportNumber || "").trim(),
   emergencyPhone: f.emergency || undefined,
   emergencyPhone2: f.emergency2 || undefined,
   photoUrl: f.photo || undefined,
@@ -2494,7 +2577,7 @@ const Members = ({ data, setData, currentUser }) => {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'view' | 'terms' | null
   const [current, setCurrent] = useState(null);
-  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", pin: "", photo: null });
+  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", passportNumber: "", pin: "", photo: null });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsScrolled, setTermsScrolled] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -2519,9 +2602,17 @@ const Members = ({ data, setData, currentUser }) => {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const filtered = data.members.filter((m) => fullName(m).toLowerCase().includes(search.toLowerCase()) || (m.phone || "").includes(search));
+  const filtered = data.members.filter((m) => {
+    const q = search.toLowerCase();
+    return (
+      fullName(m).toLowerCase().includes(q) ||
+      (m.phone || "").includes(search) ||
+      (m.nationalId || "").toLowerCase().includes(q) ||
+      (m.passportNumber || "").toLowerCase().includes(q)
+    );
+  });
 
-  const openAdd = () => { setForm({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", pin: Math.floor(1000 + Math.random() * 9000).toString(), photo: null }); setTermsAccepted(false); setTermsScrolled(false); setApiError(""); setModal("add"); };
+  const openAdd = () => { setForm({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", passportNumber: "", pin: Math.floor(1000 + Math.random() * 9000).toString(), photo: null }); setTermsAccepted(false); setTermsScrolled(false); setApiError(""); setModal("add"); };
   const openEdit = (m) => { setCurrent(m); setForm({ ...m, emergency: m.emergency || "", emergency2: m.emergency2 || "" }); setApiError(""); setModal("edit"); };
   const openView = (m) => { setCurrent(m); setModal("view"); };
 
@@ -2539,8 +2630,19 @@ const Members = ({ data, setData, currentUser }) => {
       alert("Please fill in Surname, Other Name(s), and Phone number.");
       return;
     }
-    if (!form.nationalId || form.nationalId.length !== 14) {
-      alert("National ID (NIN) is required and must be exactly 14 characters." + (form.nationalId ? " Currently: " + form.nationalId.length + " characters." : ""));
+    // Either NIN or passport is mandatory — not both, not neither.
+    const ninLen = (form.nationalId || "").trim().length;
+    const passportLen = (form.passportNumber || "").trim().length;
+    if (ninLen === 0 && passportLen === 0) {
+      alert("Either National ID (NIN) or Passport Number is required.");
+      return;
+    }
+    if (ninLen > 0 && ninLen !== 14) {
+      alert(`National ID (NIN) must be exactly 14 characters. Currently: ${ninLen} characters.\n\nIf the member has no NIN, leave it blank and use the Passport Number field instead.`);
+      return;
+    }
+    if (passportLen > 0 && (passportLen < 5 || passportLen > 20)) {
+      alert(`Passport Number must be 5–20 characters. Currently: ${passportLen} characters.`);
       return;
     }
     if (!form.dob) {
@@ -2645,7 +2747,7 @@ const Members = ({ data, setData, currentUser }) => {
 
       <div className="table-wrapper">
         <table>
-          <thead><tr><th></th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>National ID</th><th>Gender</th><th>Membership</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th></th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>ID (NIN / Passport)</th><th>Gender</th><th>Membership</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((m) => {
               const ms = data.memberships.find((ms) => ms.memberId === m.id && ms.isActive);
@@ -2660,7 +2762,13 @@ const Members = ({ data, setData, currentUser }) => {
                   <td style={{ color: "var(--text)", fontWeight: 500 }}>{m.lastName}</td>
                   <td style={{ color: "var(--text)" }}>{m.firstName}</td>
                   <td>{m.phone}</td>
-                  <td style={{ fontFamily: "monospace", fontSize: 12 }}>{m.nationalId || "—"}</td>
+                  <td style={{ fontFamily: "monospace", fontSize: 12 }}>
+                    {m.nationalId
+                      ? <><span style={{ color: "var(--text-muted)", fontSize: 10 }}>NIN </span>{m.nationalId}</>
+                      : m.passportNumber
+                        ? <><span style={{ color: "var(--accent)", fontSize: 10 }}>PASS </span>{m.passportNumber}</>
+                        : "—"}
+                  </td>
                   <td>{m.gender}</td>
                   <td>{ms ? <Badge variant={exp ? "danger" : ms.status === "frozen" ? "warning" : "success"}>{getPlanName(ms.plan)}</Badge> : <Badge variant="neutral">None</Badge>}</td>
                   <td>{m.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Inactive</Badge>}</td>
@@ -2689,7 +2797,7 @@ const Members = ({ data, setData, currentUser }) => {
             <p style={{ color: "var(--text-dim)" }}>{current.phone}</p>
           </div>
           <div className="form-grid">
-            {[["First Name", current.firstName || "—"], ["Last Name", current.lastName || "—"], ["National ID", current.nationalId || "—"], ["Email", current.email || "—"], ["Gender", current.gender], ["DOB", current.dob ? formatDate(current.dob) : "—"], ["Emergency 1", current.emergency || "—"], ["Emergency 2", current.emergency2 || "—"], ["PIN", current.pin], ["Joined", formatDate(current.createdAt)]].map(([l, v]) => (
+            {[["First Name", current.firstName || "—"], ["Last Name", current.lastName || "—"], ["National ID", current.nationalId || "—"], ["Passport No.", current.passportNumber || "—"], ["Email", current.email || "—"], ["Gender", current.gender], ["DOB", current.dob ? formatDate(current.dob) : "—"], ["Emergency 1", current.emergency || "—"], ["Emergency 2", current.emergency2 || "—"], ["PIN", current.pin], ["Joined", formatDate(current.createdAt)]].map(([l, v]) => (
               <div key={l} className="form-group"><label>{l}</label><p style={{ fontSize: 14, color: "var(--text)" }}>{v}</p></div>
             ))}
           </div>
@@ -2709,17 +2817,51 @@ const Members = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Other Name(s) *</label><input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="e.g. Sarah" /></div>
             <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 0771234567" /></div>
             <div className="form-group"><label>Gender *</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option>Male</option><option>Female</option></select></div>
+            {/* ID — National ID (NIN) OR Passport Number. Exactly one is required. */}
             <div className="form-group full">
-              <label>National ID (NIN) * <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— exactly 14 characters</span></label>
-              <input value={form.nationalId} onChange={(e) => setForm({ ...form, nationalId: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 14) })} placeholder="e.g. CM95015003ABCD" maxLength={14} style={{ fontFamily: "monospace", letterSpacing: "0.1em", fontSize: 16 }} />
-              {form.nationalId && (
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-                  <span style={{ fontSize: 11, color: form.nationalId.length === 14 ? "var(--success)" : form.nationalId.length > 0 ? "var(--warning)" : "var(--text-muted)" }}>
-                    {form.nationalId.length === 14 ? "✓ Valid length" : `${form.nationalId.length}/14 characters`}
-                  </span>
-                  {form.nationalId.length === 14 && <span style={{ fontSize: 11, color: "var(--success)", fontWeight: 600 }}>Ready</span>}
+              <label style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span>Identification * <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— provide one</span></span>
+                {(form.nationalId || form.passportNumber) && (
+                  <span style={{ fontSize: 11, color: "var(--success)", fontWeight: 600 }}>✓ {form.nationalId ? "NIN provided" : "Passport provided"}</span>
+                )}
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 6 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "var(--text-muted)" }}>National ID (NIN) — 14 chars</label>
+                  <input
+                    value={form.nationalId}
+                    onChange={(e) => setForm({ ...form, nationalId: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 14) })}
+                    placeholder={form.passportNumber ? "(using passport)" : "e.g. CM95015003ABCD"}
+                    maxLength={14}
+                    disabled={!!form.passportNumber}
+                    style={{ fontFamily: "monospace", letterSpacing: "0.08em", fontSize: 14, opacity: form.passportNumber ? 0.4 : 1 }}
+                  />
+                  {form.nationalId && (
+                    <div style={{ fontSize: 11, marginTop: 2, color: form.nationalId.length === 14 ? "var(--success)" : "var(--warning)" }}>
+                      {form.nationalId.length === 14 ? "✓ Valid length" : `${form.nationalId.length}/14`}
+                    </div>
+                  )}
                 </div>
-              )}
+                <div>
+                  <label style={{ fontSize: 11, color: "var(--text-muted)" }}>Passport Number — 5–20 chars</label>
+                  <input
+                    value={form.passportNumber}
+                    onChange={(e) => setForm({ ...form, passportNumber: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20) })}
+                    placeholder={form.nationalId ? "(using NIN)" : "e.g. A12345678"}
+                    maxLength={20}
+                    disabled={!!form.nationalId}
+                    style={{ fontFamily: "monospace", letterSpacing: "0.08em", fontSize: 14, opacity: form.nationalId ? 0.4 : 1 }}
+                  />
+                  {form.passportNumber && (
+                    <div style={{ fontSize: 11, marginTop: 2, color: (form.passportNumber.length >= 5 && form.passportNumber.length <= 20) ? "var(--success)" : "var(--warning)" }}>
+                      {form.passportNumber.length} char{form.passportNumber.length === 1 ? "" : "s"}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <p style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
+                Fill <strong>either</strong> the National ID or the Passport — whichever the member has. The other field will lock automatically.
+              </p>
             </div>
             <div className="form-group"><label>Date of Birth *</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
             <div className="form-group"><label>Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Optional" /></div>
@@ -3747,19 +3889,224 @@ const WalkIns = ({ data, setData, currentUser }) => {
 
 // ─── ATTENDANCE ─────────────────────────────────────────────
 const Attendance = ({ data, setData }) => {
+  const ACTIVITIES = (data?.activities && data.activities.length) ? data.activities : ACTIVITIES_SEED;
+
+  // ── Filters ──
+  const [from, setFrom]         = useState("");      // ISO date string YYYY-MM-DD
+  const [to, setTo]             = useState("");
+  const [nameQuery, setNameQuery] = useState("");
+  const [gender, setGender]     = useState("all");   // all | Male | Female | Other
+  const [activityId, setActivityId] = useState("all"); // all | <activity id>
+  const [planCode, setPlanCode] = useState("all");   // all | <plan code>
+  const [source, setSource]     = useState("all");   // all | staff | self | walkin
+
+  const resetFilters = () => {
+    setFrom(""); setTo(""); setNameQuery("");
+    setGender("all"); setActivityId("all"); setPlanCode("all"); setSource("all");
+  };
+
+  // Helpers — look up the member's currently-active membership to know their plan/code.
+  const memberActivePlan = (memberId) => {
+    if (!memberId) return null;
+    const ms = (data.memberships || []).find(
+      (m) => m.memberId === memberId && (m.isActive || m.status === "active" || m.status === "frozen")
+    );
+    return ms ? (ms.plan || ms.planCode) : null;
+  };
+
+  const filtered = [...(data.attendance || [])]
+    .filter((a) => {
+      const date = a.date || (a.checkIn ? a.checkIn.slice(0, 10) : "");
+      if (from && date < from) return false;
+      if (to   && date > to)   return false;
+      if (source !== "all" && (a.source || "staff") !== source) return false;
+      if (activityId !== "all" && a.activityId !== activityId) return false;
+
+      const member = a.memberId ? data.members.find((m) => m.id === a.memberId) : null;
+
+      // Name filter — matches member full name, guest name, or phone
+      if (nameQuery) {
+        const q = nameQuery.toLowerCase();
+        const memberName = member ? fullName(member).toLowerCase() : "";
+        const guest = (a.guestName || "").toLowerCase();
+        const phone = (member?.phone || "").toLowerCase();
+        if (!memberName.includes(q) && !guest.includes(q) && !phone.includes(q)) return false;
+      }
+
+      if (gender !== "all") {
+        if (!member || (member.gender || "") !== gender) return false;
+      }
+
+      if (planCode !== "all") {
+        const plan = memberActivePlan(a.memberId);
+        if (plan !== planCode) return false;
+      }
+
+      return true;
+    })
+    .sort((a, b) => new Date(b.checkIn) - new Date(a.checkIn));
+
+  // Build the plan dropdown from whatever's loaded (backend plans → fallback to PLANS const)
+  const planOptions = (data.plans && data.plans.length)
+    ? data.plans.map((p) => ({ value: p.code, label: `${p.name} (${formatUGX(Number(p.price))})` }))
+    : Object.entries(PLANS).map(([k, v]) => ({ value: k, label: v.name }));
+
   return (
     <div>
-      <div className="page-header"><h2>Attendance Log</h2><p>Full attendance history</p></div>
+      <div className="page-header">
+        <h2>Attendance Log</h2>
+        <p>{filtered.length} of {(data.attendance || []).length} records</p>
+      </div>
+
+      {/* ── Filter bar ── */}
+      <div className="card" style={{ marginBottom: 16, padding: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, alignItems: "end" }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>From date</label>
+            <div style={{ position: "relative" }}>
+              <Calendar size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--accent)", pointerEvents: "none" }} />
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }}
+                style={{ paddingLeft: 30, cursor: "pointer" }}
+                title="Click to open calendar"
+              />
+            </div>
+            {from && (
+              <button onClick={() => setFrom("")} style={{ fontSize: 10, color: "var(--text-muted)", background: "none", border: "none", padding: 0, marginTop: 2, cursor: "pointer" }}>
+                ✕ clear
+              </button>
+            )}
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>To date</label>
+            <div style={{ position: "relative" }}>
+              <Calendar size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--accent)", pointerEvents: "none" }} />
+              <input
+                type="date"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => setTo(e.target.value)}
+                onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }}
+                style={{ paddingLeft: 30, cursor: "pointer" }}
+                title="Click to open calendar"
+              />
+            </div>
+            {to && (
+              <button onClick={() => setTo("")} style={{ fontSize: 10, color: "var(--text-muted)", background: "none", border: "none", padding: 0, marginTop: 2, cursor: "pointer" }}>
+                ✕ clear
+              </button>
+            )}
+          </div>
+
+          {/* Quick date presets */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>Quick range</label>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
+                onClick={() => { const t = today(); setFrom(t); setTo(t); }}>Today</button>
+              <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
+                onClick={() => {
+                  const d = new Date();
+                  const day = d.getDay(); // 0 = Sun
+                  const monday = new Date(d); monday.setDate(d.getDate() - ((day + 6) % 7));
+                  setFrom(monday.toISOString().slice(0, 10));
+                  setTo(today());
+                }}>This week</button>
+              <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
+                onClick={() => {
+                  const d = new Date();
+                  const first = new Date(d.getFullYear(), d.getMonth(), 1);
+                  setFrom(first.toISOString().slice(0, 10));
+                  setTo(today());
+                }}>This month</button>
+            </div>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>Name / phone</label>
+            <input value={nameQuery} onChange={(e) => setNameQuery(e.target.value)} placeholder="search..." />
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>Gender</label>
+            <select value={gender} onChange={(e) => setGender(e.target.value)}>
+              <option value="all">All</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>Activity</label>
+            <select value={activityId} onChange={(e) => setActivityId(e.target.value)}>
+              <option value="all">All activities</option>
+              {ACTIVITIES.map((a) => <option key={a.id || a.code} value={a.id || a.code}>{a.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>Membership plan</label>
+            <select value={planCode} onChange={(e) => setPlanCode(e.target.value)}>
+              <option value="all">All plans</option>
+              {planOptions.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: 11 }}>Source</label>
+            <select value={source} onChange={(e) => setSource(e.target.value)}>
+              <option value="all">All sources</option>
+              <option value="staff">Staff check-in</option>
+              <option value="self">Self check-in</option>
+              <option value="walkin">Walk-In</option>
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-secondary" onClick={resetFilters} style={{ flex: 1 }}>
+              <RefreshCw size={14} /> Reset
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="table-wrapper">
         <table>
-          <thead><tr><th>Date</th><th>Member</th><th>Check-In</th><th>Check-Out</th><th>Source</th><th>Locker</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Member</th>
+              <th>Gender</th>
+              <th>Plan</th>
+              <th>Activity</th>
+              <th>Check-In</th>
+              <th>Check-Out</th>
+              <th>Source</th>
+              <th>Locker</th>
+            </tr>
+          </thead>
           <tbody>
-            {[...data.attendance].sort((a, b) => new Date(b.checkIn) - new Date(a.checkIn)).map((a) => {
-              const member = data.members.find((m) => m.id === a.memberId);
+            {filtered.map((a) => {
+              const member = a.memberId ? data.members.find((m) => m.id === a.memberId) : null;
+              const planCode = memberActivePlan(a.memberId);
+              const planLabel = planCode ? getPlanName(planCode) : "—";
+
+              // Activity — backend stores UUID, our adapter exposes both .uuid and .id (code).
+              const act = a.activityId
+                ? ACTIVITIES.find((x) => x.uuid === a.activityId || x.id === a.activityId || x.code === a.activityId)
+                : null;
+              const activityLabel = act ? act.name : (a.activityId ? "Unknown" : "—");
+
+              // Locker — look up by ID from data.lockers to get the number + section.
+              const lockerObj = a.lockerId ? data.lockers.find((l) => l.id === a.lockerId) : null;
+              const lockerNum = lockerObj?.number ?? a.locker;
+              const lockerSection = lockerObj?.section ?? a.lockerSection;
+
               return (
                 <tr key={a.id}>
                   <td>{formatDate(a.date)}</td>
                   <td style={{ color: "var(--text)", fontWeight: 500 }}>{member ? fullName(member) : a.guestName || "Guest"}</td>
+                  <td>{member?.gender || "—"}</td>
+                  <td style={{ fontSize: 12 }}>{planLabel}</td>
+                  <td style={{ fontSize: 12 }}>{activityLabel}</td>
                   <td>{formatTime(a.checkIn)}</td>
                   <td>{a.checkOut ? formatTime(a.checkOut) : <button className="btn btn-sm btn-secondary" onClick={() => setData((d) => ({
                     ...d,
@@ -3767,10 +4114,23 @@ const Attendance = ({ data, setData }) => {
                     lockers: a.lockerId ? d.lockers.map((l) => l.id === a.lockerId ? { ...l, isOccupied: false, memberId: null } : l) : d.lockers,
                   }))}>Check Out</button>}</td>
                   <td><Badge variant={a.source === "walkin" ? "warning" : a.source === "self" ? "info" : "neutral"}>{a.source === "walkin" ? "Walk-In" : a.source === "self" ? "Self" : "Staff"}</Badge></td>
-                  <td>{a.locker ? <span style={{ color: a.lockerSection === "ladies" ? "#ec4899" : "#3b82f6", fontWeight: 600 }}>#{a.locker} {a.lockerSection === "ladies" ? "♀" : "♂"}</span> : "—"}</td>
+                  <td>
+                    {lockerNum
+                      ? <span style={{ color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6", fontWeight: 600 }}>
+                          #{lockerNum} {lockerSection === "ladies" ? "♀" : "♂"}
+                        </span>
+                      : "—"}
+                  </td>
                 </tr>
               );
             })}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={9} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
+                  No attendance records match your filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -5568,24 +5928,47 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
       </div>
 
       {modal === "add" && (
-        <Modal title="Add Staff Account" onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save}>Create Account</button></>}>
+        <Modal title="Add Staff Account" onClose={() => setModal(null)} footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setModal(null)} disabled={busy}>Cancel</button>
+            <button className="btn btn-primary" onClick={save} disabled={busy || !form.name || !form.username || form.password.length < 8}>
+              {busy ? <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Check size={14} />}
+              {busy ? "Creating..." : "Create Account"}
+            </button>
+          </>
+        }>
+          {apiError && (
+            <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
+              <AlertTriangle size={14} /> {apiError}
+            </div>
+          )}
           <div className="form-grid">
-            <div className="form-group"><label>Name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div className="form-group"><label>Name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Jane Doe" /></div>
             <div className="form-group"><label>Username *</label><input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="Lowercase, no spaces" /></div>
-            <div className="form-group"><label>Password * (min 6 chars)</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
+            <div className="form-group full">
+              <label>Password * (min 8 chars)</label>
+              <PasswordInput value={form.password} onChange={(v) => setForm({ ...form, password: v })} placeholder="Strong password" autoComplete="new-password" />
+            </div>
             <div className="form-group"><label>Role</label><select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="receptionist">Receptionist</option><option value="manager">Manager</option><option value="trainer">Trainer</option><option value="admin">Admin</option></select></div>
           </div>
           <div style={{ marginTop: 16, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-xs)", fontSize: 12, color: "var(--text-dim)" }}>
-            <strong style={{ color: "var(--text)" }}>Security:</strong> Password will be hashed with SHA-256 + salt before storage. Plain text is never stored.
+            <strong style={{ color: "var(--text)" }}>Security:</strong> Password is bcrypt-hashed (10 rounds) before being stored in the database. Plain text is never persisted.
           </div>
         </Modal>
       )}
 
       {resetTarget && (
-        <Modal title={`Reset Password — ${resetTarget.name}`} onClose={() => setResetTarget(null)} footer={<><button className="btn btn-secondary" onClick={() => setResetTarget(null)}>Cancel</button><button className="btn btn-primary" onClick={resetPassword}>Reset Password</button></>}>
+        <Modal title={`Reset Password — ${resetTarget.name}`} onClose={() => setResetTarget(null)} footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setResetTarget(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={resetPassword} disabled={newPassword.length < 8}>
+              <Check size={14} /> Reset Password
+            </button>
+          </>
+        }>
           <div className="form-group">
-            <label>New Password (min 6 characters)</label>
-            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" />
+            <label>New Password (min 8 characters)</label>
+            <PasswordInput value={newPassword} onChange={setNewPassword} placeholder="Enter new password" autoComplete="new-password" />
           </div>
           <p style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)" }}>This action is logged in the audit trail.</p>
         </Modal>
@@ -6279,7 +6662,7 @@ const LoginScreen = ({ staff, onLogin }) => {
           </div>
           <div className="form-group" style={{ marginBottom: 24 }}>
             <label>Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" autoComplete="current-password" onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
+            <PasswordInput value={password} onChange={setPassword} placeholder="Enter password" autoComplete="current-password" onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
           </div>
           <button className="btn btn-primary" style={{ width: "100%", padding: "12px 24px", fontSize: 15, justifyContent: "center" }} onClick={handleLogin} disabled={loading}>
             {loading ? <RefreshCw size={16} style={{ animation: "spin 1s linear infinite" }} /> : <LogIn size={16} />}

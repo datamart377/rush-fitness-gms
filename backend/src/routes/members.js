@@ -16,9 +16,44 @@ const TABLE = 'members';
 // Columns that staff are allowed to set/update.
 const FIELDS = [
   'first_name', 'last_name', 'phone', 'email', 'gender', 'dob',
-  'national_id', 'emergency_name', 'emergency_phone', 'emergency_phone_2',
-  'photo_url', 'notes', 'is_active', 'member_code', 'joined_on',
+  'national_id', 'passport_number', 'emergency_name', 'emergency_phone',
+  'emergency_phone_2', 'photo_url', 'notes', 'is_active', 'member_code', 'joined_on',
 ];
+
+// Either a NIN or a passport number is required (not both, not neither).
+// For POST: just check the incoming body.
+const requireNinOrPassport = (req, _res, next) => {
+  const nin = (req.body.nationalId || '').trim();
+  const passport = (req.body.passportNumber || '').trim();
+  if (!nin && !passport) {
+    return next(new ApiError(400, 'Either National ID (NIN) or Passport Number is required'));
+  }
+  next();
+};
+
+// For PATCH: only fail if applying the patch would leave the row with NEITHER.
+// Looks up the existing values for any field the user didn't touch.
+const requireNinOrPassportOnPatch = async (req, _res, next) => {
+  try {
+    const ninExplicit = Object.prototype.hasOwnProperty.call(req.body, 'nationalId');
+    const passportExplicit = Object.prototype.hasOwnProperty.call(req.body, 'passportNumber');
+    if (!ninExplicit && !passportExplicit) return next(); // not touching either ID — fine
+
+    const r = await query(
+      'SELECT national_id, passport_number FROM members WHERE id = $1',
+      [req.params.id]
+    );
+    if (!r.rowCount) return next(new ApiError(404, 'Member not found'));
+
+    const finalNin = (ninExplicit ? (req.body.nationalId || '').trim() : (r.rows[0].national_id || '')).trim();
+    const finalPassport = (passportExplicit ? (req.body.passportNumber || '').trim() : (r.rows[0].passport_number || '')).trim();
+
+    if (!finalNin && !finalPassport) {
+      return next(new ApiError(400, 'Either National ID (NIN) or Passport Number must remain set'));
+    }
+    next();
+  } catch (err) { next(err); }
+};
 
 router.use(requireAuth);
 
@@ -45,8 +80,9 @@ router.get(
 
     const rowsR = await query(
       `SELECT id, member_code, first_name, last_name, phone, email, gender, dob,
-              national_id, emergency_name, emergency_phone, emergency_phone_2,
-              photo_url, notes, is_active, joined_on, created_at, updated_at
+              national_id, passport_number, emergency_name, emergency_phone,
+              emergency_phone_2, photo_url, notes, is_active, joined_on,
+              created_at, updated_at
          FROM ${TABLE} ${where}
          ORDER BY created_at DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -82,8 +118,11 @@ router.post(
     body('email').optional({ checkFalsy: true }).isEmail(),
     body('gender').optional({ checkFalsy: true }).isIn(['Male', 'Female', 'Other']),
     body('dob').optional({ checkFalsy: true }).isISO8601(),
+    body('nationalId').optional({ checkFalsy: true }).isString().trim(),
+    body('passportNumber').optional({ checkFalsy: true }).isString().trim(),
     body('pin').optional({ checkFalsy: true }).isString().isLength({ min: 4, max: 12 }),
   ]),
+  requireNinOrPassport,
   asyncHandler(async (req, res) => {
     const body = { ...req.body };
     let pinHash = null;
@@ -124,8 +163,11 @@ router.patch(
     body('email').optional({ checkFalsy: true }).isEmail(),
     body('gender').optional({ checkFalsy: true }).isIn(['Male', 'Female', 'Other']),
     body('dob').optional({ checkFalsy: true }).isISO8601(),
+    body('nationalId').optional({ checkFalsy: false }).isString().trim(),
+    body('passportNumber').optional({ checkFalsy: false }).isString().trim(),
     body('pin').optional({ checkFalsy: true }).isString().isLength({ min: 4, max: 12 }),
   ]),
+  requireNinOrPassportOnPatch,
   asyncHandler(async (req, res) => {
     const body = { ...req.body };
     let pinHash = null;
