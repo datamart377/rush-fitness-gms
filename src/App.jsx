@@ -5938,7 +5938,7 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
       <div className="page-header"><h2>Staff Management</h2><p>Manage user accounts, roles, and credentials (FR-65 to FR-69)</p></div>
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ name: "", username: "", password: "", role: "staff" }); setModal("add"); }}><Plus size={16} /> Add Staff</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ name: "", username: "", password: "", role: "receptionist" }); setApiError(""); setModal("add"); }}><Plus size={16} /> Add Staff</button>
       </div>
       <div className="table-wrapper">
         <table>
