@@ -94,11 +94,15 @@ const adaptWalkIn = (w) => w ? ({
 }) : null;
 
 // ── Attendance adapter — backend uses checkInAt, frontend uses checkIn ──
+//   Also resolves guest name for walk-in attendance rows (no member_id).
 const adaptAttendance = (a) => a ? ({
   ...a,
   checkIn: a.checkInAt || a.checkIn,
   checkOut: a.checkOutAt || a.checkOut,
   date: a.visitDate || a.date,
+  // For walk-ins: prefer the joined walk_ins.full_name, fall back to attendance.guest_name.
+  guestName: a.walkInName || a.guestName || null,
+  source: a.walkInId && !a.source ? "walkin" : (a.source || "staff"),
 }) : null;
 
 // ── Discount adapter — backend uses type:percent|flat, frontend used percentage|fixed ──

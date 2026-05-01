@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, param, query: q } = require('express-validator');
 
-const { pool } = require('../db/pool');
+const { pool, withTx } = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const asyncHandler = require('../utils/asyncHandler');
@@ -51,12 +51,29 @@ router.post(
     body('amount').optional().isFloat({ min: 0 }),
     body('phone').optional({ checkFalsy: true }).isString(),
     body('paymentStatus').optional().isIn(['pending', 'paid', 'refunded']),
+    body('checkedIn').optional().isBoolean(),
   ]),
   asyncHandler(async (req, res) => {
-    const body = { ...req.body, recordedBy: req.user.id };
-    const row = await insert(pool, TABLE, body, FIELDS);
-    await audit(req, 'walk_in.create', TABLE, row.id);
-    res.status(201).json(row);
+    const out = await withTx(async (client) => {
+      const body = { ...req.body, recordedBy: req.user.id };
+      // If client said "checkedIn: true", also stamp checked_in_at server-side
+      if (body.checkedIn) body.checkedInAt = new Date().toISOString();
+
+      const row = await insert(client, TABLE, body, FIELDS);
+
+      // If created already-checked-in, also log an attendance row.
+      if (row.checkedIn) {
+        await client.query(
+          `INSERT INTO attendance
+              (member_id, walk_in_id, guest_name, source, recorded_by, visit_date, check_in_at, activity_id)
+           VALUES (NULL, $1, $2, 'walkin', $3, $4, NOW(), $5)`,
+          [row.id, row.fullName || 'Walk-In Guest', req.user.id, row.visitDate || row.visit_date, row.activityId || null]
+        );
+      }
+      return row;
+    });
+    await audit(req, 'walk_in.create', TABLE, out.id);
+    res.status(201).json(out);
   })
 );
 
@@ -76,14 +93,30 @@ router.post(
   requireRole('admin', 'manager', 'receptionist'),
   validate([param('id').isUUID()]),
   asyncHandler(async (req, res) => {
-    const r = await pool.query(
-      `UPDATE ${TABLE} SET checked_in = TRUE, checked_in_at = NOW()
-       WHERE id = $1 AND checked_in = FALSE RETURNING *`,
-      [req.params.id]
-    );
-    if (!r.rowCount) throw new ApiError(409, 'Walk-in already checked in or not found');
+    const out = await withTx(async (client) => {
+      // Mark the walk-in as checked-in
+      const r = await client.query(
+        `UPDATE ${TABLE} SET checked_in = TRUE, checked_in_at = NOW()
+           WHERE id = $1 AND checked_in = FALSE RETURNING *`,
+        [req.params.id]
+      );
+      if (!r.rowCount) throw new ApiError(409, 'Walk-in already checked in or not found');
+      const wi = r.rows[0];
+
+      // Also create a corresponding row in `attendance` so this guest shows up
+      // in the Attendance Log alongside members. member_id stays NULL,
+      // walk_in_id + guest_name carry the identity.
+      await client.query(
+        `INSERT INTO attendance
+            (member_id, walk_in_id, guest_name, source, recorded_by, visit_date, check_in_at, activity_id)
+         VALUES (NULL, $1, $2, 'staff', $3, $4, NOW(), $5)`,
+        [wi.id, wi.full_name || 'Walk-In Guest', req.user.id, wi.visit_date, wi.activity_id || null]
+      );
+
+      return wi;
+    });
     await audit(req, 'walk_in.check_in', TABLE, req.params.id);
-    res.json(camelize(r.rows[0]));
+    res.json(camelize(out));
   })
 );
 

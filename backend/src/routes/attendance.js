@@ -32,9 +32,12 @@ router.get(
     const r = await pool.query(
       `SELECT a.*,
               m.first_name AS member_first_name,
-              m.last_name  AS member_last_name
+              m.last_name  AS member_last_name,
+              w.full_name  AS walk_in_name,
+              w.phone      AS walk_in_phone
          FROM ${TABLE} a
-         JOIN members m ON m.id = a.member_id
+         LEFT JOIN members m  ON m.id = a.member_id
+         LEFT JOIN walk_ins w ON w.id = a.walk_in_id
          ${where}
          ORDER BY a.check_in_at DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
