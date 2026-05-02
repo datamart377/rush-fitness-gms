@@ -5983,9 +5983,10 @@ const Reconciliation = ({ data, setData }) => {
 // ─── STAFF MANAGEMENT ───────────────────────────────────────
 const StaffMgmt = ({ data, setData, currentUser }) => {
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ name: "", username: "", password: "", role: "receptionist" });
+  const [form, setForm] = useState({ name: "", username: "", password: "", confirmPassword: "", role: "receptionist" });
   const [resetTarget, setResetTarget] = useState(null);
   const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
 
@@ -6012,6 +6013,7 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
     if (username.length < 3 || username.length > 50) errors.push("Username must be 3–50 characters");
     if (!/^[a-z0-9_]+$/.test(username)) errors.push("Username may only contain lowercase letters, digits, and underscores");
     if (password.length < 8) errors.push("Password must be at least 8 characters");
+    if (form.password !== form.confirmPassword) errors.push("Password and Confirm Password don't match");
     if (!validRoles.includes(role)) errors.push(`Role must be one of: ${validRoles.join(", ")}`);
     if (errors.length) { setApiError(errors.join("\n")); return; }
 
@@ -6048,11 +6050,13 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
 
   const resetPassword = async () => {
     if (!newPassword || newPassword.length < 8) { alert("Password must be at least 8 characters"); return; }
+    if (newPassword !== confirmNewPassword) { alert("Password and Confirm Password don't match"); return; }
     try {
       await usersApi.update(resetTarget.id, { newPassword });
       await reload();
       setResetTarget(null);
       setNewPassword("");
+      setConfirmNewPassword("");
     } catch (err) {
       alert(err?.message || "Failed to reset password");
     }
@@ -6073,7 +6077,7 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
       <div className="page-header"><h2>Staff Management</h2><p>Manage user accounts, roles, and credentials (FR-65 to FR-69)</p></div>
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ name: "", username: "", password: "", role: "receptionist" }); setApiError(""); setModal("add"); }}><Plus size={16} /> Add Staff</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ name: "", username: "", password: "", confirmPassword: "", role: "receptionist" }); setApiError(""); setModal("add"); }}><Plus size={16} /> Add Staff</button>
       </div>
       <div className="table-wrapper">
         <table>
@@ -6090,7 +6094,7 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
                 <td>{s.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Inactive</Badge>}</td>
                 <td>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button className="btn btn-sm btn-secondary" onClick={() => { setResetTarget(s); setNewPassword(""); }}>Reset Password</button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => { setResetTarget(s); setNewPassword(""); setConfirmNewPassword(""); }}>Reset Password</button>
                     <button className="btn btn-icon btn-danger" onClick={() => toggleActive(s)}>{s.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
                   </div>
                 </td>
@@ -6106,7 +6110,8 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
         const usernameOk = form.username.length >= 3 && form.username.length <= 50;
         const usernameTaken = (data.staff || []).some((s) => s.username === form.username && form.username);
         const passwordOk = form.password.length >= 8;
-        const allOk = nameOk && usernameOk && !usernameTaken && passwordOk && form.role;
+        const passwordsMatch = form.password === form.confirmPassword;
+        const allOk = nameOk && usernameOk && !usernameTaken && passwordOk && passwordsMatch && form.role;
 
         return (
         <Modal title="Add Staff Account" onClose={() => setModal(null)} footer={
@@ -6145,11 +6150,17 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
                 <p style={{ fontSize: 11, color: "var(--success)", marginTop: 4 }}>✓ Available</p>
               )}
             </div>
-            <div className="form-group full">
+            <div className="form-group">
               <label>Password * <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(min 8 chars)</span></label>
               <PasswordInput value={form.password} onChange={(v) => setForm({ ...form, password: v })} placeholder="Strong password" autoComplete="new-password" />
               {form.password && !passwordOk && <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 4 }}>Password too short ({form.password.length}/8)</p>}
               {form.password && passwordOk && <p style={{ fontSize: 11, color: "var(--success)", marginTop: 4 }}>✓ {form.password.length} characters</p>}
+            </div>
+            <div className="form-group">
+              <label>Confirm Password *</label>
+              <PasswordInput value={form.confirmPassword} onChange={(v) => setForm({ ...form, confirmPassword: v })} placeholder="Re-type the password" autoComplete="new-password" />
+              {form.confirmPassword && !passwordsMatch && <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 4 }}>⚠ Passwords don't match</p>}
+              {form.confirmPassword && passwordsMatch && passwordOk && <p style={{ fontSize: 11, color: "var(--success)", marginTop: 4 }}>✓ Passwords match</p>}
             </div>
             <div className="form-group">
               <label>Role *</label>
@@ -6168,22 +6179,37 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
         );
       })()}
 
-      {resetTarget && (
-        <Modal title={`Reset Password — ${resetTarget.name}`} onClose={() => setResetTarget(null)} footer={
+      {resetTarget && (() => {
+        const newPwOk = newPassword.length >= 8;
+        const newPwMatch = newPassword === confirmNewPassword;
+        return (
+        <Modal title={`Reset Password — ${resetTarget.name}`} onClose={() => { setResetTarget(null); setNewPassword(""); setConfirmNewPassword(""); }} footer={
           <>
-            <button className="btn btn-secondary" onClick={() => setResetTarget(null)}>Cancel</button>
-            <button className="btn btn-primary" onClick={resetPassword} disabled={newPassword.length < 8}>
+            <button className="btn btn-secondary" onClick={() => { setResetTarget(null); setNewPassword(""); setConfirmNewPassword(""); }}>Cancel</button>
+            <button className="btn btn-primary" onClick={resetPassword} disabled={!newPwOk || !newPwMatch}>
               <Check size={14} /> Reset Password
             </button>
           </>
         }>
           <div className="form-group">
-            <label>New Password (min 8 characters)</label>
+            <label>New Password <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(min 8 chars)</span></label>
             <PasswordInput value={newPassword} onChange={setNewPassword} placeholder="Enter new password" autoComplete="new-password" />
+            {newPassword && !newPwOk && <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 4 }}>Too short ({newPassword.length}/8)</p>}
+            {newPassword && newPwOk && <p style={{ fontSize: 11, color: "var(--success)", marginTop: 4 }}>✓ {newPassword.length} characters</p>}
           </div>
-          <p style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)" }}>This action is logged in the audit trail.</p>
+          <div className="form-group" style={{ marginTop: 12 }}>
+            <label>Confirm New Password</label>
+            <PasswordInput value={confirmNewPassword} onChange={setConfirmNewPassword} placeholder="Re-type the new password" autoComplete="new-password" />
+            {confirmNewPassword && !newPwMatch && <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 4 }}>⚠ Passwords don't match</p>}
+            {confirmNewPassword && newPwMatch && newPwOk && <p style={{ fontSize: 11, color: "var(--success)", marginTop: 4 }}>✓ Passwords match</p>}
+          </div>
+          <p style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)" }}>
+            <Shield size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} />
+            This action is logged in the audit trail.
+          </p>
         </Modal>
-      )}
+        );
+      })()}
     </div>
   );
 };
