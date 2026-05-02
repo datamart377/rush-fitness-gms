@@ -1378,6 +1378,108 @@ const Dashboard = ({ data }) => {
 };
 
 // ─── CHECK-IN ───────────────────────────────────────────────
+// ─── Returning-guest lookup — used inside Quick Walk-In ──────────
+// Lets staff find a previous walk-in by name or phone and pre-fill the form
+// for a fresh visit (new payment + new attendance, but same person details).
+function ReturningGuestSearch({ walkIns, onPick }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+
+  // Deduplicate by phone+name so the same guest who's visited 5 times only
+  // shows up once. Keep the most recent entry for the latest contact info.
+  const matches = useMemo(() => {
+    const norm = (s) => (s || "").toString().toLowerCase().trim();
+    const query = norm(q);
+    if (!query) return [];
+    const sorted = [...(walkIns || [])].sort(
+      (a, b) => (b.visitDate || "").localeCompare(a.visitDate || "")
+    );
+    const seen = new Set();
+    const out = [];
+    for (const w of sorted) {
+      const fn = (w.firstName || "").toLowerCase();
+      const ln = (w.lastName || w.name || "").toLowerCase();
+      const ph = (w.phone || "").toLowerCase();
+      const hay = `${fn} ${ln} ${ph}`;
+      if (!hay.includes(query)) continue;
+      const key = `${ph}|${fn}|${ln}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(w);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }, [q, walkIns]);
+
+  return (
+    <div style={{ marginBottom: 16, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", border: "1px dashed var(--border)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: open ? 10 : 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <UserCheck size={14} style={{ color: "var(--accent)" }} />
+          <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 500 }}>Returning guest?</span>
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Search by name or phone to skip retyping their details.</span>
+        </div>
+        <button type="button" className="btn btn-sm btn-secondary" onClick={() => setOpen((v) => !v)} style={{ padding: "4px 10px", fontSize: 11 }}>
+          {open ? "Hide" : "Search"}
+        </button>
+      </div>
+      {open && (
+        <>
+          <div className="search-bar" style={{ marginTop: 6 }}>
+            <Search />
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Type a name or phone number..."
+            />
+          </div>
+          {q && matches.length === 0 && (
+            <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+              No previous walk-in matches "{q}". Just fill the form below — they'll be added as a new guest.
+            </p>
+          )}
+          {matches.length > 0 && (
+            <div style={{ marginTop: 8, maxHeight: 240, overflowY: "auto" }}>
+              {matches.map((w) => {
+                const visits = (walkIns || []).filter(
+                  (x) => x.phone === w.phone && (x.firstName || "") === (w.firstName || "") && (x.lastName || x.name || "") === (w.lastName || w.name || "")
+                ).length;
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => { onPick(w); setOpen(false); setQ(""); }}
+                    style={{
+                      width: "100%", textAlign: "left", padding: "10px 12px",
+                      background: "var(--bg-card)", border: "1px solid var(--border)",
+                      borderRadius: "var(--radius-xs)", marginBottom: 6, cursor: "pointer",
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      transition: "var(--transition)", color: "var(--text)",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 500, color: "var(--text)" }}>
+                        {w.lastName || w.name || "—"}{w.firstName ? `, ${w.firstName}` : ""}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                        {w.phone || "no phone"} • last visit: {formatDate(w.visitDate)} • {visits} visit{visits === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600 }}>
+                      Use details →
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 const CheckIn = ({ data, setData, currentUser }) => {
   // Use live activities list from backend; fall back to seed before login.
   const ACTIVITIES = (data?.activities && data.activities.length) ? data.activities : ACTIVITIES_SEED;
@@ -1391,6 +1493,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
 
   // Walk-in quick form
   const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null });
+  const [walkinSearch, setWalkinSearch] = useState("");
   const [editWalkin, setEditWalkin] = useState(null);
 
   const results = search.length >= 2 ? data.members.filter((m) => {
@@ -1728,7 +1831,26 @@ const CheckIn = ({ data, setData, currentUser }) => {
       {/* WALK-IN QUICK FORM */}
       {!selected && !checkedIn && mode === "walkin" && (
         <div className="card" style={{ maxWidth: 700 }}>
-          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Quick Walk-In — Register, Pay & Check In</h3>
+          {/* RETURNING-GUEST LOOKUP — search past walk-ins by name or phone */}
+          <ReturningGuestSearch
+            walkIns={data.walkIns}
+            onPick={(w) => setWalkinForm((f) => ({
+              ...f,
+              firstName: w.firstName || "",
+              lastName:  w.lastName  || "",
+              phone:     w.phone     || "",
+              gender:    w.gender    || f.gender,
+              emergency: w.emergency || f.emergency || "",
+              // Don't carry over activities or payment from the previous visit —
+              // those are visit-specific
+              selectedActivities: [],
+              paymentMethod: "cash",
+              paymentStatus: "paid",
+              locker: null,
+            }))}
+          />
+
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16, marginTop: 8 }}>Quick Walk-In — Register, Pay & Check In</h3>
           <div className="form-grid">
             <div className="form-group"><label>Surname *</label><input value={walkinForm.lastName} onChange={(e) => setWalkinForm({ ...walkinForm, lastName: e.target.value })} placeholder="e.g. Kamya" /></div>
             <div className="form-group"><label>Other Name(s) *</label><input value={walkinForm.firstName} onChange={(e) => setWalkinForm({ ...walkinForm, firstName: e.target.value })} placeholder="e.g. John" /></div>
@@ -2029,16 +2151,105 @@ const CheckIn = ({ data, setData, currentUser }) => {
       )}
 
       {/* WALK-IN HISTORY TAB */}
-      {!selected && !checkedIn && mode === "history" && (
+      {!selected && !checkedIn && mode === "history" && (() => {
+        const q = walkinSearch.trim().toLowerCase();
+        const filteredWalkIns = q
+          ? data.walkIns.filter((w) => {
+              const fn = (w.firstName || "").toLowerCase();
+              const ln = (w.lastName || "").toLowerCase();
+              const nm = (w.name || "").toLowerCase();
+              const ph = (w.phone || "").toLowerCase();
+              return fn.includes(q) || ln.includes(q) || nm.includes(q) || ph.includes(q);
+            })
+          : data.walkIns;
+
+        // For returning-visitor detection: dedupe by phone, keeping the most recent.
+        const uniqueByPhone = {};
+        [...filteredWalkIns].sort((a, b) => new Date(b.visitDate || 0) - new Date(a.visitDate || 0))
+          .forEach((w) => { if (w.phone && !uniqueByPhone[w.phone]) uniqueByPhone[w.phone] = w; });
+        const returningCount = q ? Object.keys(uniqueByPhone).length : 0;
+
+        // Open the walk-in form pre-populated with a returning guest's details
+        const reuseGuest = (w) => {
+          setWalkinForm({
+            firstName: w.firstName || "",
+            lastName:  w.lastName  || "",
+            phone:     w.phone     || "",
+            emergency: w.emergency || "",
+            selectedActivities: [],   // they pick fresh activities for this visit
+            paymentMethod: "cash",
+            paymentStatus: "paid",
+            gender: w.gender || "Male",
+            locker: null,
+          });
+          setMode("walkin");
+          setWalkinSearch("");
+        };
+
+        return (
         <div>
           <div className="toolbar">
-            <div><p style={{ fontSize: 13, color: "var(--text-dim)" }}>All walk-in guest records</p></div>
+            <div className="search-bar" style={{ flex: 1, maxWidth: 420 }}>
+              <Search />
+              <input
+                placeholder="Search by name or phone — find returning visitors..."
+                value={walkinSearch}
+                onChange={(e) => setWalkinSearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <p style={{ fontSize: 12, color: "var(--text-dim)" }}>
+              {q
+                ? <>Showing {filteredWalkIns.length} of {data.walkIns.length} records · {returningCount} unique visitor{returningCount === 1 ? "" : "s"}</>
+                : <>All walk-in guest records ({data.walkIns.length})</>}
+            </p>
           </div>
+
+          {/* RETURNING-VISITOR SHORTCUT: when search matches existing visitors, show
+              quick "Register Again" action(s) at the top so staff can re-register
+              with details already filled in. */}
+          {q && returningCount > 0 && (
+            <div className="card" style={{ marginBottom: 16, borderLeft: "3px solid var(--accent)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <h4 style={{ fontSize: 13, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  <UserCheck size={14} style={{ display: "inline", verticalAlign: "middle", marginRight: 6 }} />
+                  Matching Visitor{returningCount === 1 ? "" : "s"} ({returningCount})
+                </h4>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Click to re-register for today's visit</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+                {Object.values(uniqueByPhone).slice(0, 6).map((w) => {
+                  const visitCount = data.walkIns.filter((x) => x.phone === w.phone).length;
+                  return (
+                    <div key={w.id} onClick={() => reuseGuest(w)} style={{
+                      padding: 12, background: "var(--bg-elevated)", border: "1px solid var(--border)",
+                      borderRadius: "var(--radius-sm)", cursor: "pointer", transition: "var(--transition)",
+                    }}>
+                      <div style={{ fontWeight: 600, color: "var(--text)" }}>
+                        {`${w.firstName || ""} ${w.lastName || ""}`.trim() || w.name || "Unnamed Guest"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>{w.phone || "no phone"}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, display: "flex", justifyContent: "space-between" }}>
+                        <span>Last visit: {formatDate(w.visitDate)}</span>
+                        <span>{visitCount} visit{visitCount === 1 ? "" : "s"}</span>
+                      </div>
+                      <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+                        <span className="btn btn-sm btn-primary" style={{ flex: 1, padding: "6px 10px", fontSize: 11, justifyContent: "center" }}>
+                          <UserPlus size={12} /> Register Again
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="table-wrapper">
             <table>
               <thead><tr><th>Date</th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>Activity</th><th>Amount</th><th>Payment</th><th>Check-In</th><th>Edit</th></tr></thead>
               <tbody>
-                {[...data.walkIns].reverse().map((w) => (
+                {[...filteredWalkIns].reverse().map((w) => (
                   <tr key={w.id}>
                     <td>{formatDate(w.visitDate)}</td>
                     <td style={{ color: "var(--text)", fontWeight: 500 }}>{w.lastName || w.name}</td>
@@ -2094,12 +2305,17 @@ const CheckIn = ({ data, setData, currentUser }) => {
                     <td><button className="btn btn-icon btn-secondary" onClick={() => setEditWalkin({ ...w, _originalAmount: w.amountDue || w.amountPaid, _originalStatus: w.paymentStatus || "paid", _originalLockerId: w.lockerAssigned || null })} title="Edit walk-in"><Edit2 size={14} /></button></td>
                   </tr>
                 ))}
-                {data.walkIns.length === 0 && <tr><td colSpan={9} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No walk-in records yet</td></tr>}
+                {filteredWalkIns.length === 0 && (
+                  <tr><td colSpan={9} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
+                    {q ? "No walk-ins match your search." : "No walk-in records yet"}
+                  </td></tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* EDIT WALK-IN MODAL — staff can edit payment/activity, admin has full access */}
       {editWalkin && (
