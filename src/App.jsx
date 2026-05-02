@@ -2186,6 +2186,59 @@ const CheckIn = ({ data, setData, currentUser }) => {
           setWalkinSearch("");
         };
 
+        // One-click re-check-in for a returning visitor — creates a new walk-in
+        // record + attendance row using sensible defaults (Daily Gym Access, Cash, Paid).
+        const quickReCheckIn = async (w) => {
+          const name = `${w.firstName || ""} ${w.lastName || ""}`.trim() || w.name || "Walk-In Guest";
+          const dailyAct = ACTIVITIES.find((a) => (a.id || a.code) === "gym_daily_activity") || ACTIVITIES[0];
+          const amount = dailyAct?.standalone || 20000;
+          if (!confirm(
+            `Quick re-check-in for ${name}?\n\n` +
+            `• Activity: ${dailyAct?.name || "Daily Gym Access"}\n` +
+            `• Amount: ${formatUGX(amount)}\n` +
+            `• Payment: Cash, Paid\n\n` +
+            `If they paid differently or want a different activity, click "Register Again" instead.`
+          )) return;
+          try {
+            const wi = await walkInsApi.create({
+              firstName: w.firstName?.trim() || undefined,
+              lastName:  w.lastName?.trim()  || undefined,
+              fullName: `${w.firstName || ""} ${w.lastName || ""}`.trim() || w.name,
+              phone: w.phone || undefined,
+              visitDate: today(),
+              amount,
+              paymentStatus: "paid",
+              checkedIn: true,
+              notes: `Re-check-in (returning visitor): ${dailyAct?.name || "Daily Gym Access"}`,
+            });
+            // Persist the payment record
+            try {
+              await paymentsApi.create({
+                amount,
+                method: "cash",
+                type: "walk_in",
+                notes: `Walk-in: ${name} — ${dailyAct?.name || "Daily Gym Access"} (re-check-in)`,
+              });
+            } catch (e) { console.warn("Re-check-in payment record failed:", e); }
+            // Refresh
+            const [wiRes, payRes, attRes] = await Promise.all([
+              walkInsApi.list({ limit: 500 }),
+              paymentsApi.list({ limit: 500 }),
+              attendanceApi.list({ limit: 500 }),
+            ]);
+            setData((d) => ({
+              ...d,
+              walkIns: (wiRes?.data || []).map(adaptWalkIn),
+              payments: (payRes?.data || []).map(adaptPayment),
+              attendance: (attRes?.data || []).map(adaptAttendance),
+            }));
+            setWalkinSearch("");
+            alert(`✓ ${name} checked in. Receipt: ${formatUGX(amount)} ${dailyAct?.name || "Daily Gym Access"}.`);
+          } catch (err) {
+            alert(err?.message || "Quick check-in failed");
+          }
+        };
+
         return (
         <div>
           <div className="toolbar">
@@ -2220,10 +2273,11 @@ const CheckIn = ({ data, setData, currentUser }) => {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
                 {Object.values(uniqueByPhone).slice(0, 6).map((w) => {
                   const visitCount = data.walkIns.filter((x) => x.phone === w.phone).length;
+                  const checkedInToday = data.walkIns.some((x) => x.phone === w.phone && x.visitDate === today() && x.checkedIn);
                   return (
-                    <div key={w.id} onClick={() => reuseGuest(w)} style={{
+                    <div key={w.id} style={{
                       padding: 12, background: "var(--bg-elevated)", border: "1px solid var(--border)",
-                      borderRadius: "var(--radius-sm)", cursor: "pointer", transition: "var(--transition)",
+                      borderRadius: "var(--radius-sm)", transition: "var(--transition)",
                     }}>
                       <div style={{ fontWeight: 600, color: "var(--text)" }}>
                         {`${w.firstName || ""} ${w.lastName || ""}`.trim() || w.name || "Unnamed Guest"}
@@ -2233,11 +2287,20 @@ const CheckIn = ({ data, setData, currentUser }) => {
                         <span>Last visit: {formatDate(w.visitDate)}</span>
                         <span>{visitCount} visit{visitCount === 1 ? "" : "s"}</span>
                       </div>
-                      <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
-                        <span className="btn btn-sm btn-primary" style={{ flex: 1, padding: "6px 10px", fontSize: 11, justifyContent: "center" }}>
-                          <UserPlus size={12} /> Register Again
-                        </span>
-                      </div>
+                      {checkedInToday ? (
+                        <div style={{ marginTop: 8, padding: "6px 10px", background: "var(--success-dim)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "var(--radius-xs)", textAlign: "center", fontSize: 11, color: "var(--success)", fontWeight: 600 }}>
+                          ✓ Already checked in today
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+                          <button className="btn btn-sm btn-success" onClick={() => quickReCheckIn(w)} style={{ flex: 1, padding: "6px 8px", fontSize: 11, justifyContent: "center" }} title="Re-check-in with default settings (Daily Gym, Cash, Paid)">
+                            <LogIn size={12} /> Quick Check-In
+                          </button>
+                          <button className="btn btn-sm btn-secondary" onClick={() => reuseGuest(w)} style={{ flex: 1, padding: "6px 8px", fontSize: 11, justifyContent: "center" }} title="Open the walk-in form pre-filled with their details">
+                            <UserPlus size={12} /> Register Again
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -3000,31 +3063,21 @@ const Members = ({ data, setData, currentUser }) => {
   };
 
   const validateAndShowTerms = () => {
+    // Required: surname + other names + phone. Everything else is optional
+    // to support record migration of legacy / paper-based members.
     if (!form.firstName || !form.lastName || !form.phone) {
       alert("Please fill in Surname, Other Name(s), and Phone number.");
       return;
     }
-    // Either NIN or passport is mandatory — not both, not neither.
+    // If supplied, NIN/passport must be the right length (still validated to catch typos)
     const ninLen = (form.nationalId || "").trim().length;
     const passportLen = (form.passportNumber || "").trim().length;
-    if (ninLen === 0 && passportLen === 0) {
-      alert("Either National ID (NIN) or Passport Number is required.");
-      return;
-    }
     if (ninLen > 0 && ninLen !== 14) {
-      alert(`National ID (NIN) must be exactly 14 characters. Currently: ${ninLen} characters.\n\nIf the member has no NIN, leave it blank and use the Passport Number field instead.`);
+      alert(`National ID (NIN), if provided, must be exactly 14 characters. Currently: ${ninLen} characters.\n\nLeave it blank if you don't have it.`);
       return;
     }
     if (passportLen > 0 && (passportLen < 5 || passportLen > 20)) {
-      alert(`Passport Number must be 5–20 characters. Currently: ${passportLen} characters.`);
-      return;
-    }
-    if (!form.dob) {
-      alert("Date of Birth is required.");
-      return;
-    }
-    if (!form.emergency) {
-      alert("Emergency Contact 1 is required.");
+      alert(`Passport Number, if provided, must be 5–20 characters. Currently: ${passportLen} characters.`);
       return;
     }
     // Validation passed — show T&C
@@ -3194,7 +3247,7 @@ const Members = ({ data, setData, currentUser }) => {
             {/* ID — National ID (NIN) OR Passport Number. Exactly one is required. */}
             <div className="form-group full">
               <label style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <span>Identification * <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— provide one</span></span>
+                <span>Identification <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— optional, provide either</span></span>
                 {(form.nationalId || form.passportNumber) && (
                   <span style={{ fontSize: 11, color: "var(--success)", fontWeight: 600 }}>✓ {form.nationalId ? "NIN provided" : "Passport provided"}</span>
                 )}
@@ -3237,9 +3290,9 @@ const Members = ({ data, setData, currentUser }) => {
                 Fill <strong>either</strong> the National ID or the Passport — whichever the member has. The other field will lock automatically.
               </p>
             </div>
-            <div className="form-group"><label>Date of Birth *</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
+            <div className="form-group"><label>Date of Birth</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
             <div className="form-group"><label>Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Optional" /></div>
-            <div className="form-group"><label>Emergency Contact 1 *</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
+            <div className="form-group"><label>Emergency Contact 1</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
             <div className="form-group"><label>Emergency Contact 2</label><input value={form.emergency2 || ""} onChange={(e) => setForm({ ...form, emergency2: e.target.value })} placeholder="Optional" /></div>
             <div className="form-group"><label>Check-in PIN</label><input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} maxLength={4} placeholder="4 digits" /></div>
           </div>
@@ -4077,7 +4130,6 @@ const WalkIns = ({ data, setData, currentUser }) => {
 
   const save = async () => {
     if (!form.firstName || !form.lastName || !form.phone) { alert("Please fill in Surname, Other Name(s), and Phone."); return; }
-    if (!form.emergency) { alert("Emergency Contact 1 is required."); return; }
     if (form.selectedActivities.length === 0) { alert("Please select at least one activity."); return; }
     if (!form.paymentMethod) { alert("Please select a payment method."); return; }
 
@@ -4233,7 +4285,7 @@ const WalkIns = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Surname *</label><input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="e.g. Kamya" /></div>
             <div className="form-group"><label>Other Name(s) *</label><input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="e.g. John" /></div>
             <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 0771234567" /></div>
-            <div className="form-group"><label>Emergency Contact 1 *</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
+            <div className="form-group"><label>Emergency Contact 1</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
             <div className="form-group"><label>Emergency Contact 2</label><input value={form.emergency2} onChange={(e) => setForm({ ...form, emergency2: e.target.value })} placeholder="Optional" /></div>
             <div className="form-group"><label>Payment Method *</label>
               <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
@@ -4844,11 +4896,17 @@ const Trainers = ({ data, setData }) => {
   };
 
   const validateAndShowTerms = () => {
-    if (!form.firstName || !form.lastName || !form.phone) { alert("Please fill in Surname, Other Name(s), and Phone."); return; }
-    if (!form.nationalId || form.nationalId.length !== 14) { alert("National ID (NIN) is required and must be exactly 14 characters." + (form.nationalId ? " Currently: " + form.nationalId.length + " characters." : "")); return; }
-    if (!form.dob) { alert("Date of Birth is required."); return; }
-    if (!form.emergency) { alert("Emergency Contact 1 is required."); return; }
+    // Required: Surname, Other Names, Phone, Specialisation. Everything else
+    // optional to support migration of legacy trainer records.
+    if (!form.firstName || !form.lastName || !form.phone) {
+      alert("Please fill in Surname, Other Name(s), and Phone.");
+      return;
+    }
     if (!form.specialisation) { alert("Specialisation is required."); return; }
+    if (form.nationalId && form.nationalId.length !== 14) {
+      alert(`National ID (NIN), if provided, must be exactly 14 characters. Currently: ${form.nationalId.length} characters.\n\nLeave it blank if you don't have it.`);
+      return;
+    }
     setTermsAccepted1(false); setTermsAccepted2(false); setTermsScrolled(false);
     setModal("terms");
   };
@@ -4973,7 +5031,7 @@ const Trainers = ({ data, setData }) => {
             <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 0781112233" /></div>
             <div className="form-group"><label>Gender *</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option>Male</option><option>Female</option></select></div>
             <div className="form-group full">
-              <label>National ID (NIN) * <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— exactly 14 characters</span></label>
+              <label>National ID (NIN) <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— optional, exactly 14 characters when provided</span></label>
               <input value={form.nationalId || ""} onChange={(e) => setForm({ ...form, nationalId: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 14) })} placeholder="e.g. CM88041200QRST" maxLength={14} style={{ fontFamily: "monospace", letterSpacing: "0.1em", fontSize: 16 }} />
               {form.nationalId && (
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
@@ -4981,9 +5039,9 @@ const Trainers = ({ data, setData }) => {
                 </div>
               )}
             </div>
-            <div className="form-group"><label>Date of Birth *</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
+            <div className="form-group"><label>Date of Birth</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
             <div className="form-group"><label>Email</label><input value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Optional" /></div>
-            <div className="form-group"><label>Emergency Contact 1 *</label><input value={form.emergency || ""} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0781110000" /></div>
+            <div className="form-group"><label>Emergency Contact 1</label><input value={form.emergency || ""} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0781110000" /></div>
             <div className="form-group"><label>Emergency Contact 2</label><input value={form.emergency2 || ""} onChange={(e) => setForm({ ...form, emergency2: e.target.value })} placeholder="Optional" /></div>
             <div className="form-group full"><label>Specialisation *</label><input value={form.specialisation} onChange={(e) => setForm({ ...form, specialisation: e.target.value })} placeholder="e.g. Spinning, Boxing" /></div>
           </div>

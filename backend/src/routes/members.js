@@ -122,7 +122,8 @@ router.post(
     body('passportNumber').optional({ checkFalsy: true }).isString().trim(),
     body('pin').optional({ checkFalsy: true }).isString().isLength({ min: 4, max: 12 }),
   ]),
-  requireNinOrPassport,
+  // NIN or Passport no longer required at the API layer — supports record migration
+  // for legacy paper-based members. The frontend still encourages staff to provide one.
   asyncHandler(async (req, res) => {
     const body = { ...req.body };
     let pinHash = null;
@@ -167,7 +168,6 @@ router.patch(
     body('passportNumber').optional({ checkFalsy: false }).isString().trim(),
     body('pin').optional({ checkFalsy: true }).isString().isLength({ min: 4, max: 12 }),
   ]),
-  requireNinOrPassportOnPatch,
   asyncHandler(async (req, res) => {
     const body = { ...req.body };
     let pinHash = null;
