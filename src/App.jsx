@@ -3087,7 +3087,7 @@ const getMembershipBalance = (ms, payments) => {
 const Memberships = ({ data, setData, currentUser }) => {
   const isAdmin = currentUser?.role === "admin";
   const [modal, setModal] = useState(null); // 'assign' | 'pay' | null
-  const [form, setForm] = useState({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "" });
+  const [form, setForm] = useState({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" });
   const [payTarget, setPayTarget] = useState(null); // membership for additional payment
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
@@ -3184,13 +3184,22 @@ const Memberships = ({ data, setData, currentUser }) => {
 
     setBusy(true);
     try {
-      // 1. Create the membership
+      // 1. Create the membership.
+      // Admins may supply a custom startDate (for record migration / backdating);
+      // the backend derives endDate from plan.duration_days when only startDate is given.
+      const customStart = isAdmin && form.startDate ? form.startDate : undefined;
       const ms = await membershipsApi.create({
         memberId: form.memberId,
         planId,
         totalDue,
+        startDate: customStart,
       });
-      // 2. Record the payment (backend auto-bumps membership.total_paid)
+      // 2. Record the payment (backend auto-bumps membership.total_paid).
+      // Use the custom start date as the paid_at timestamp too, so the financial
+      // statement and revenue reports show the payment in the right period.
+      const paidAt = customStart
+        ? new Date(`${customStart}T12:00:00Z`).toISOString()
+        : undefined;
       await paymentsApi.create({
         memberId: form.memberId,
         membershipId: ms.id,
@@ -3198,7 +3207,10 @@ const Memberships = ({ data, setData, currentUser }) => {
         method: paymentMethodToApi(form.method),
         type: "membership",
         discountAmount: discountAmt || undefined,
-        notes: isPaidFull ? "Full payment" : `Partial payment (${Math.round(payAmount / totalDue * 100)}%)`,
+        paidAt,
+        notes: isPaidFull
+          ? (customStart ? `Full payment (backdated to ${customStart})` : "Full payment")
+          : `Partial payment (${Math.round(payAmount / totalDue * 100)}%)${customStart ? ` — backdated to ${customStart}` : ""}`,
       });
       // 3. Refresh local cache from backend so all browsers see the change
       await reloadMemberships();
@@ -3323,7 +3335,7 @@ const Memberships = ({ data, setData, currentUser }) => {
 
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "" }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
       </div>
 
       {apiError && (
@@ -3439,6 +3451,38 @@ const Memberships = ({ data, setData, currentUser }) => {
                 {data.discounts.filter((d) => d.isActive).map((d) => <option key={d.id} value={d.id}>{d.name} ({d.type === "percentage" ? `${d.value}%` : formatUGX(d.value)})</option>)}
               </select>
             </div>
+
+            {/* ADMIN-ONLY: backdate the membership for record migration. */}
+            {isAdmin && (
+              <div className="form-group full">
+                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Shield size={12} style={{ color: "var(--accent)" }} />
+                  Start Date <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— admin only, leave blank for today</span>
+                </label>
+                <div style={{ position: "relative" }}>
+                  <Calendar size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--accent)", pointerEvents: "none" }} />
+                  <input
+                    type="date"
+                    value={form.startDate}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                    onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }}
+                    style={{ paddingLeft: 30, cursor: "pointer" }}
+                  />
+                </div>
+                {form.startDate && (() => {
+                  const planInfo = PLANS[form.plan];
+                  const days = planInfo?.days || 0;
+                  const end = days ? new Date(new Date(form.startDate).getTime() + days * 86400000).toISOString().split("T")[0] : null;
+                  return (
+                    <p style={{ fontSize: 11, color: "var(--accent)", marginTop: 4 }}>
+                      ↳ Backdating to <strong>{formatDate(form.startDate)}</strong>{end && <> — expires <strong>{formatDate(end)}</strong></>}
+                      <button type="button" onClick={() => setForm({ ...form, startDate: "" })} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", padding: 0 }}>✕ clear</button>
+                    </p>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* PAYMENT TYPE TOGGLE — hidden for prepaid (always deposit) */}
             {form.plan !== "prepaid" && (
