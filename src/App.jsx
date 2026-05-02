@@ -1098,16 +1098,151 @@ select { cursor: pointer; }
   letter-spacing: 0.05em;
 }
 
-/* RESPONSIVE */
-@media (max-width: 900px) {
-  .sidebar { width: 60px; }
-  .sidebar .nav-item span, .sidebar-brand p, .sidebar-footer, .nav-section-label { display: none; }
-  .sidebar-brand h1 { font-size: 16px; }
-  .sidebar-brand { padding: 16px 12px; text-align: center; }
-  .nav-item { justify-content: center; padding: 10px; }
-  .main-content { margin-left: 60px; padding: 20px 16px; }
-  .form-grid { grid-template-columns: 1fr; }
-  .card-grid { grid-template-columns: 1fr 1fr; }
+/* ─────────── RESPONSIVE: TABLET (≤ 1024px) ─────────── */
+@media (max-width: 1024px) {
+  .sidebar { width: 220px; }
+  .main-content { margin-left: 220px; padding: 24px; }
+  .card-grid { grid-template-columns: repeat(2, 1fr); }
+  .page-header h2 { font-size: 24px; }
+}
+
+/* ─────────── RESPONSIVE: MOBILE (≤ 768px) ─────────── */
+@media (max-width: 768px) {
+  /* Sidebar becomes a slide-out drawer; toggled by setting body class .nav-open */
+  .sidebar {
+    width: 280px;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.4);
+    /* iOS safe-area inset for notched phones */
+    padding-top: env(safe-area-inset-top, 0);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  body.nav-open .sidebar { transform: translateX(0); }
+  /* Backdrop — interactive (real div) so it closes the drawer on tap */
+  .nav-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 49;
+  }
+  body.nav-open .nav-backdrop { display: block; }
+
+  .main-content {
+    margin-left: 0;
+    padding: 16px 14px calc(20px + env(safe-area-inset-bottom, 0));
+  }
+
+  /* Mobile top bar with hamburger — needs the .mobile-bar element from JSX */
+  .mobile-bar {
+    display: flex !important;
+    position: sticky; top: 0; z-index: 30;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+    align-items: center; gap: 12px;
+    margin: -16px -14px 16px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0));
+  }
+  .mobile-bar .hamburger {
+    background: none; border: none; color: var(--text);
+    padding: 8px; cursor: pointer; display: flex;
+    width: 40px; height: 40px; align-items: center; justify-content: center;
+    border-radius: var(--radius-xs);
+  }
+  .mobile-bar .hamburger:hover { background: var(--bg-elevated); }
+  .mobile-bar .brand { font-family: var(--font-display); font-size: 18px; color: var(--accent); font-weight: 700; }
+  .mobile-bar .spacer { flex: 1; }
+
+  /* Layout: stack everything */
+  .form-grid { grid-template-columns: 1fr !important; gap: 12px !important; }
+  .card-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card { padding: 14px; border-radius: var(--radius-sm); }
+
+  .page-header { margin-bottom: 18px; }
+  .page-header h2 { font-size: 22px; }
+  .page-header p { font-size: 13px; }
+
+  /* Tables — let them scroll horizontally with momentum on iOS */
+  .table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -14px;   /* full-bleed */
+    padding: 0 14px;
+    border-radius: 0;
+  }
+  .table-wrapper table { font-size: 12px; }
+  .table-wrapper th, .table-wrapper td { padding: 8px 10px !important; white-space: nowrap; }
+
+  /* Modals: full-screen on phone */
+  .modal-overlay { padding: 0; }
+  .modal {
+    max-width: 100% !important;
+    width: 100% !important;
+    height: 100dvh; max-height: 100dvh;
+    border-radius: 0;
+    display: flex; flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .modal-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .modal-footer { flex-wrap: wrap; gap: 8px; padding: 12px 16px env(safe-area-inset-bottom, 12px); }
+  .modal-footer .btn { flex: 1; min-width: 120px; justify-content: center; }
+
+  /* Toolbars stack */
+  .toolbar { flex-direction: column !important; align-items: stretch !important; gap: 10px !important; }
+  .toolbar > * { width: 100%; }
+  .search-bar { width: 100% !important; max-width: none !important; }
+
+  /* Tabs scroll horizontally rather than wrap */
+  .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap !important;
+    margin: 0 -14px 16px;
+    padding: 0 14px;
+  }
+  .tabs .tab { flex-shrink: 0; }
+
+  /* Touch targets — Apple HIG recommends min 44×44 */
+  .btn { min-height: 44px; padding: 10px 14px; }
+  .btn-sm { min-height: 36px; }
+  .btn-icon { min-width: 40px; min-height: 40px; }
+
+  /* Inputs: 16px+ font prevents iOS Safari from zooming on focus */
+  input, select, textarea {
+    font-size: 16px !important;
+    min-height: 44px;
+  }
+  /* Date pickers especially need this */
+  input[type="date"], input[type="time"], input[type="datetime-local"] {
+    min-height: 44px;
+  }
+
+  /* Stat-card numbers smaller so 2-up still fits */
+  .stat-card .stat-value { font-size: 18px; }
+  .stat-card .stat-label { font-size: 10px; }
+
+  /* Hide chrome that doesn't fit */
+  .session-bar { font-size: 11px; padding: 6px 12px; flex-wrap: wrap; gap: 6px; }
+  .session-bar > div { gap: 6px !important; }
+}
+
+/* ─────────── RESPONSIVE: SMALL PHONE (≤ 480px) ─────────── */
+@media (max-width: 480px) {
+  .card-grid { grid-template-columns: 1fr; }
+  .page-header h2 { font-size: 20px; }
+  .table-wrapper table { font-size: 11px; }
+}
+
+/* ─────────── DESKTOP: hide mobile bar + backdrop ─────────── */
+@media (min-width: 769px) {
+  .mobile-bar { display: none !important; }
+  .nav-backdrop { display: none !important; }
+}
+
+/* ─────────── iOS-specific: prevent rubber-band on body, allow on scrolls ─── */
+@supports (-webkit-touch-callout: none) {
+  body { overscroll-behavior-y: contain; }
 }
 `;
 
@@ -7396,6 +7531,8 @@ export default function App() {
                     <div key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => {
                       if (item.id === "kiosk") { setKioskMode(true); addAuditEntry("kiosk_enter", "Entered self check-in kiosk mode"); }
                       else setPage(item.id);
+                      // Close mobile drawer after a nav choice
+                      if (typeof document !== "undefined") document.body.classList.remove("nav-open");
                     }}>
                       <item.icon />
                       <span>{item.label}</span>
@@ -7415,6 +7552,32 @@ export default function App() {
             </div>
           </aside>
           <main className="main-content" style={{ marginTop: 0 }}>
+            {/* Mobile top bar — hidden on desktop via @media (min-width: 769px) */}
+            <div className="mobile-bar" style={{ display: "none" }}>
+              <button
+                className="hamburger"
+                aria-label="Open navigation menu"
+                onClick={() => document.body.classList.toggle("nav-open")}
+              >
+                <Layers size={22} />
+              </button>
+              <div className="brand">Rush Fitness</div>
+              <div className="spacer" />
+              <button
+                className="hamburger"
+                aria-label="Sign out"
+                onClick={() => handleLogout("manual")}
+                title="Sign out"
+              >
+                <LogIn size={20} style={{ transform: "scaleX(-1)" }} />
+              </button>
+            </div>
+            {/* Backdrop that closes the mobile drawer when tapped (only visible when nav-open) */}
+            <div
+              className="nav-backdrop"
+              onClick={() => document.body.classList.remove("nav-open")}
+              aria-hidden="true"
+            />
             {renderPage()}
           </main>
         </div>

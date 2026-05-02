@@ -3,7 +3,21 @@
   <head>
     <title>Rush Fitness GMS</title>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Mobile viewport: no zoom on input focus, supports notched iPhones -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+
+    <!-- iOS Safari home-screen / PWA hints -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Rush Fitness" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- Match the dark theme so iOS Safari URL bar tints correctly -->
+    <meta name="theme-color" content="#0a0d14" />
+
+    <!-- Tell iOS not to autoformat phone-looking digits in tables -->
+    <meta name="format-detection" content="telephone=no" />
   </head>
   <body>
     <div id="root"></div>
