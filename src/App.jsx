@@ -84,14 +84,31 @@ const adaptEquipment = (e) => e ? ({
 }) : null;
 const equipmentStatusToApi = (s) => s === "good" ? "operational" : s;
 
-// ── Walk-in adapter — backend uses fullName, frontend has firstName/lastName/name ──
-const adaptWalkIn = (w) => w ? ({
-  ...w,
-  name: w.fullName || w.name || "",
-  visitDate: w.visitDate,
-  paymentStatus: w.paymentStatus || "pending",
-  checkedIn: !!w.checkedIn,
-}) : null;
+// ── Walk-in adapter — backend stores firstName + lastName + fullName.
+//     Fall back to splitting fullName for legacy rows where the new columns are NULL.
+const adaptWalkIn = (w) => {
+  if (!w) return null;
+  let firstName = w.firstName || "";
+  let lastName  = w.lastName  || "";
+  if (!firstName && !lastName && w.fullName) {
+    const parts = w.fullName.trim().split(/\s+/);
+    if (parts.length === 1) {
+      lastName = parts[0];
+    } else {
+      lastName = parts.pop();
+      firstName = parts.join(" ");
+    }
+  }
+  return {
+    ...w,
+    firstName,
+    lastName,
+    name: w.fullName || `${firstName} ${lastName}`.trim() || w.name || "",
+    visitDate: w.visitDate,
+    paymentStatus: w.paymentStatus || "pending",
+    checkedIn: !!w.checkedIn,
+  };
+};
 
 // ── Attendance adapter — backend uses checkInAt, frontend uses checkIn ──
 //   Also resolves guest name for walk-in attendance rows (no member_id).
@@ -1564,7 +1581,9 @@ const CheckIn = ({ data, setData, currentUser }) => {
     let savedWalkIn;
     try {
       savedWalkIn = await walkInsApi.create({
-        fullName: `${walkinForm.firstName} ${walkinForm.lastName}`.trim(),
+        firstName: walkinForm.firstName?.trim() || undefined,
+        lastName: walkinForm.lastName?.trim() || undefined,
+        fullName: `${walkinForm.firstName || ""} ${walkinForm.lastName || ""}`.trim(),
         phone: walkinForm.phone,
         visitDate: today(),
         amount: total,
@@ -3853,7 +3872,9 @@ const WalkIns = ({ data, setData, currentUser }) => {
     setApiError("");
     try {
       const wi = await walkInsApi.create({
-        fullName: `${form.firstName} ${form.lastName}`.trim(),
+        firstName: form.firstName?.trim() || undefined,
+        lastName: form.lastName?.trim() || undefined,
+        fullName: `${form.firstName || ""} ${form.lastName || ""}`.trim(),
         phone: form.phone,
         visitDate: today(),
         amount: total,
@@ -3888,7 +3909,9 @@ const WalkIns = ({ data, setData, currentUser }) => {
     if (!editTarget) return;
     try {
       await walkInsApi.update(editTarget.id, {
-        fullName: editTarget.name || `${editTarget.firstName || ""} ${editTarget.lastName || ""}`.trim(),
+        firstName: editTarget.firstName || undefined,
+        lastName: editTarget.lastName || undefined,
+        fullName: `${editTarget.firstName || ""} ${editTarget.lastName || ""}`.trim() || editTarget.name,
         phone: editTarget.phone,
         amount: editTarget.amountDue,
         paymentStatus: editTarget.paymentStatus,

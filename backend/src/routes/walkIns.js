@@ -12,7 +12,7 @@ const { insert, updateById, getById, deleteById, parsePagination, camelize } = r
 const router = express.Router();
 const TABLE = 'walk_ins';
 const FIELDS = [
-  'full_name', 'phone', 'visit_date', 'activity_id', 'amount',
+  'full_name', 'first_name', 'last_name', 'phone', 'visit_date', 'activity_id', 'amount',
   'payment_status', 'checked_in', 'checked_in_at', 'recorded_by', 'notes',
 ];
 
@@ -47,7 +47,9 @@ router.post(
   '/',
   requireRole('admin', 'manager', 'receptionist'),
   validate([
-    body('fullName').isString().trim().notEmpty(),
+    body('fullName').optional({ checkFalsy: true }).isString().trim(),
+    body('firstName').optional({ checkFalsy: true }).isString().trim(),
+    body('lastName').optional({ checkFalsy: true }).isString().trim(),
     body('amount').optional().isFloat({ min: 0 }),
     body('phone').optional({ checkFalsy: true }).isString(),
     body('paymentStatus').optional().isIn(['pending', 'paid', 'refunded']),
@@ -56,6 +58,15 @@ router.post(
   asyncHandler(async (req, res) => {
     const out = await withTx(async (client) => {
       const body = { ...req.body, recordedBy: req.user.id };
+      // Derive fullName if caller only supplied first/last (and vice versa).
+      const first = (body.firstName || '').trim();
+      const last  = (body.lastName  || '').trim();
+      if (!body.fullName && (first || last)) {
+        body.fullName = `${first} ${last}`.trim();
+      }
+      if (!body.fullName) {
+        throw new ApiError(400, 'fullName (or firstName + lastName) is required');
+      }
       // If client said "checkedIn: true", also stamp checked_in_at server-side
       if (body.checkedIn) body.checkedInAt = new Date().toISOString();
 
