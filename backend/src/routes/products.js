@@ -152,9 +152,12 @@ router.post(
       );
       const sale = saleR.rows[0];
 
+      // Include the product name + qty in notes so Reconciliation, Financial
+      // Statement, and Payments tabs can display "Whey Protein x 2" for shop sales.
+      const noteText = `Shop: ${product.name} × ${req.body.quantity}`;
       const payR = await client.query(
-        `INSERT INTO payments (member_id, product_sale_id, amount, currency, method, reference, type, created_by, status)
-         VALUES ($1,$2,$3,$4,$5,$6,'product',$7,'completed') RETURNING *`,
+        `INSERT INTO payments (member_id, product_sale_id, amount, currency, method, reference, type, notes, created_by, status)
+         VALUES ($1,$2,$3,$4,$5,$6,'product',$7,$8,'completed') RETURNING *`,
         [
           req.body.memberId || null,
           sale.id,
@@ -162,6 +165,7 @@ router.post(
           process.env.CURRENCY || 'KES',
           req.body.paymentMethod,
           req.body.reference || null,
+          noteText,
           req.user.id,
         ]
       );

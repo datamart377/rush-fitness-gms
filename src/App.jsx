@@ -4158,13 +4158,91 @@ const Memberships = ({ data, setData, currentUser }) => {
 };
 
 // ─── PAYMENTS ───────────────────────────────────────────────
+// Build a human-readable description for a payment row.
+// Looks up linked records (membership → plan, walk-in → guest, product sale → items, etc.)
+const describePayment = (p, data) => {
+  const ACTIVITIES = (data?.activities && data.activities.length) ? data.activities : ACTIVITIES_SEED;
+  const safeFmt = (n) => formatUGX(Number(n || 0));
+
+  // Shop sale
+  if (p.type === "product_sale" || p.productSaleId) {
+    const sale = (data.productSales || []).find((s) => s.id === p.productSaleId);
+    if (sale && sale.items?.length) {
+      const items = sale.items.map((it) => `${it.name} × ${it.qty}`).join(", ");
+      return { kind: "Shop", primary: items, secondary: sale.soldBy ? `Sold by ${sale.soldBy}` : null };
+    }
+    return { kind: "Shop", primary: p.note || "Shop sale", secondary: null };
+  }
+
+  // Membership-related (full or partial payment, or top-up)
+  if (p.membershipId) {
+    const ms = (data.memberships || []).find((m) => m.id === p.membershipId);
+    const planLabel = ms ? getPlanName(ms.plan) : "Membership";
+    return { kind: "Membership", primary: planLabel, secondary: p.note || null };
+  }
+
+  // Add-on activity payment
+  if (p.type === "addon") {
+    if (p.activityId) {
+      const ids = String(p.activityId).split("+").filter(Boolean);
+      const names = ids.map((id) => ACTIVITIES.find((a) => (a.uuid === id) || (a.id === id) || (a.code === id))?.name || id).join(" + ");
+      return { kind: "Add-on", primary: names, secondary: p.note || null };
+    }
+    return { kind: "Add-on", primary: p.note || "Activity add-on", secondary: null };
+  }
+
+  // Walk-in payment
+  if (p.type === "walkin" || p.type === "walk_in") {
+    return { kind: "Walk-In", primary: p.note || "Walk-in visit", secondary: p.payerPhone || null };
+  }
+
+  // Refunded
+  if (p.status === "refunded") {
+    return { kind: "Refund", primary: p.note || "Refunded payment", secondary: null };
+  }
+
+  // Other / fallback
+  return { kind: "Other", primary: p.note || "—", secondary: p.discountAmount > 0 ? `Discount: -${safeFmt(p.discountAmount)}` : null };
+};
+
+const PAYMENT_TYPE_BADGE = {
+  Membership: "success",
+  "Add-on":   "info",
+  "Walk-In":  "warning",
+  Shop:       "accent",
+  Refund:     "danger",
+  Other:      "neutral",
+};
+
 const Payments = ({ data }) => {
   const [tab, setTab] = useState("all");
-  const payments = tab === "all" ? data.payments : data.payments.filter((p) => p.method === tab);
+  const [search, setSearch] = useState("");
+  const filtered = data.payments.filter((p) => {
+    if (tab !== "all" && p.method !== tab) return false;
+    if (!search) return true;
+    const q = search.toLowerCase();
+    const member = p.memberId ? data.members.find((m) => m.id === p.memberId) : null;
+    const memberName = member ? fullName(member).toLowerCase() : "";
+    const desc = describePayment(p, data);
+    return memberName.includes(q) ||
+      (desc.primary || "").toLowerCase().includes(q) ||
+      (p.note || "").toLowerCase().includes(q) ||
+      (p.reference || "").toLowerCase().includes(q);
+  });
+  const totalShown = filtered.filter((p) => p.status !== "refunded").reduce((s, p) => s + Number(p.amount || 0), 0);
 
   return (
     <div>
-      <div className="page-header"><h2>Payments</h2><p>Track all payment transactions</p></div>
+      <div className="page-header">
+        <h2>Payments</h2>
+        <p>Track all payment transactions — {filtered.length} record{filtered.length === 1 ? "" : "s"} · {formatUGX(totalShown)} total</p>
+      </div>
+      <div className="toolbar">
+        <div className="search-bar" style={{ flex: 1, maxWidth: 360 }}>
+          <Search />
+          <input placeholder="Search by name, item, reference, note..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+      </div>
       <div className="tabs">
         {["all", "cash", "mobile_money", "card"].map((t) => (
           <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
@@ -4174,23 +4252,36 @@ const Payments = ({ data }) => {
       </div>
       <div className="table-wrapper">
         <table>
-          <thead><tr><th>Date</th><th>Member</th><th>Type</th><th>Method</th><th>Amount</th><th>Note</th></tr></thead>
+          <thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Details</th><th>Method</th><th>Reference</th><th>Amount</th></tr></thead>
           <tbody>
-            {[...payments].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)).map((p) => {
-              const member = data.members.find((m) => m.id === p.memberId);
+            {[...filtered].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)).map((p) => {
+              const member = p.memberId ? data.members.find((m) => m.id === p.memberId) : null;
+              const desc = describePayment(p, data);
+              const badge = PAYMENT_TYPE_BADGE[desc.kind] || "neutral";
+              const isRefund = p.status === "refunded";
+              const customerLabel = member
+                ? fullName(member)
+                : (desc.kind === "Walk-In" ? (p.payerPhone || "Walk-in guest") : "—");
               return (
-                <tr key={p.id}>
+                <tr key={p.id} style={isRefund ? { opacity: 0.55 } : undefined}>
                   <td>{formatDate(p.paidAt)} {formatTime(p.paidAt)}</td>
-                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{member ? fullName(member) : "—"}</td>
-                  <td>{p.type === "addon" ? <Badge variant="info">Add-on</Badge> : <Badge variant="success">Membership</Badge>}</td>
-                  <td><Badge variant="neutral">{p.method === "mobile_money" ? "Mobile Money" : p.method?.charAt(0).toUpperCase() + p.method?.slice(1)}</Badge></td>
-                  <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(p.amount)}</td>
-                  <td style={{ fontSize: 12, color: "var(--text-dim)", maxWidth: 200 }}>
-                    {p.note || (p.discountAmount > 0 ? <span style={{ color: "var(--success)" }}>Discount: -{formatUGX(p.discountAmount)}</span> : "—")}
+                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{customerLabel}</td>
+                  <td><Badge variant={badge}>{desc.kind}</Badge></td>
+                  <td style={{ fontSize: 12, maxWidth: 280 }}>
+                    <div style={{ color: "var(--text)", fontWeight: 500 }}>{desc.primary || "—"}</div>
+                    {desc.secondary && <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>{desc.secondary}</div>}
+                    {p.discountAmount > 0 && <div style={{ color: "var(--success)", fontSize: 11, marginTop: 2 }}>Discount: -{formatUGX(p.discountAmount)}</div>}
+                  </td>
+                  <td><Badge variant="neutral">{p.method === "mobile_money" ? "Mobile Money" : (p.method || "—").charAt(0).toUpperCase() + (p.method || "—").slice(1)}</Badge></td>
+                  <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-muted)" }}>{p.reference || "—"}</td>
+                  <td style={{ fontWeight: 600, color: isRefund ? "var(--warning)" : "var(--accent)", textAlign: "right" }}>
+                    {isRefund && <span style={{ fontSize: 10, marginRight: 4 }}>(refunded)</span>}
+                    {formatUGX(p.amount)}
                   </td>
                 </tr>
               );
             })}
+            {filtered.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No payments match your filter</td></tr>}
           </tbody>
         </table>
       </div>
@@ -6393,19 +6484,26 @@ const Reconciliation = ({ data, setData }) => {
       <div className="card" style={{ marginBottom: 20 }}>
         <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Today's Transactions ({todayPayments.length})</h3>
         {todayPayments.length > 0 ? (
-          <div style={{ maxHeight: 250, overflowY: "auto" }}>
+          <div style={{ maxHeight: 320, overflowY: "auto" }}>
             {[...todayPayments].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)).map((p) => {
               const member = p.memberId ? data.members.find((m) => m.id === p.memberId) : null;
-              const typeLabel = p.type === "product_sale" ? "Shop" : p.type === "walkin" ? "Walk-In" : p.type === "addon" ? "Add-on" : "Membership";
-              const typeColor = p.type === "product_sale" ? "var(--accent)" : p.type === "walkin" ? "var(--warning)" : p.type === "addon" ? "var(--info)" : "var(--success)";
+              const desc = describePayment(p, data);
+              const badge = PAYMENT_TYPE_BADGE[desc.kind] || "neutral";
+              const customer = member ? fullName(member) : (desc.kind === "Walk-In" ? "Walk-in guest" : "—");
               return (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <Badge variant={p.type === "product_sale" ? "warning" : p.type === "walkin" ? "warning" : p.type === "addon" ? "info" : "success"}>{typeLabel}</Badge>
-                    <span style={{ color: "var(--text)" }}>{member ? fullName(member) : p.note?.slice(0, 40) || "—"}</span>
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "10px 0", borderBottom: "1px solid var(--border)", fontSize: 12, gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: 1, minWidth: 0 }}>
+                    <Badge variant={badge}>{desc.kind}</Badge>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ color: "var(--text)", fontWeight: 500 }}>{customer}</div>
+                      <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {desc.primary}
+                      </div>
+                      {desc.secondary && <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 1 }}>{desc.secondary}</div>}
+                    </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <Badge variant="neutral">{p.method === "mobile_money" ? "M-Money" : p.method?.charAt(0).toUpperCase() + p.method?.slice(1)}</Badge>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                    <Badge variant="neutral">{p.method === "mobile_money" ? "M-Money" : (p.method || "—").charAt(0).toUpperCase() + (p.method || "—").slice(1)}</Badge>
                     <span style={{ fontWeight: 600, color: "var(--accent)", minWidth: 80, textAlign: "right" }}>{formatUGX(p.amount)}</span>
                   </div>
                 </div>
@@ -7878,7 +7976,7 @@ export default function App() {
         const [
           plansRes, msRes, payRes, memRes, trRes,
           lockRes, prodRes, eqRes, wiRes, attRes, discRes, expRes, usrRes,
-          actRes,
+          actRes, salesRes,
         ] = await Promise.all([
           plansApi.list({ limit: 100 }),
           membershipsApi.list({ limit: 500 }),
@@ -7895,6 +7993,7 @@ export default function App() {
           // Users API is admin-only — swallow 403 for non-admins
           (currentUser?.role === "admin" ? usersApi.list({ limit: 200 }) : Promise.resolve({ data: [] })).catch(() => ({ data: [] })),
           activitiesApi.list({ limit: 100 }),
+          productsApi.sales({ limit: 500 }).catch(() => ({ data: [] })),
         ]);
         if (cancelled) return;
         const plans = (plansRes?.data || []);
@@ -7916,11 +8015,32 @@ export default function App() {
         const expenses   = (expRes?.data  || []).map(adaptExpense);
         const staff      = (usrRes?.data  || []).map(adaptStaff);
         const activities = (actRes?.data  || []).map(adaptActivity);
+        // Adapt sales rows for the legacy productSales shape (used by Shop + Reports)
+        // — same logic that the Shop component uses on its local reload.
+        const productSales = (salesRes?.data || []).map((s) => {
+          const ts = s.soldAt || s.createdAt || new Date().toISOString();
+          return {
+            id: s.id,
+            items: [{
+              productId: s.productId,
+              name: s.productName || "Unknown product",
+              qty: Number(s.quantity || 0),
+              price: Number(s.unitPrice || 0),
+            }],
+            total: Number(s.total || 0),
+            method: s.paymentMethod === "mpesa" ? "mobile_money" : (s.paymentMethod || "cash"),
+            soldBy: s.soldByName || s.soldByUsername || "Staff",
+            soldAt: ts,
+            date: ts.slice(0, 10),
+            memberId: s.memberId || null,
+            memberName: s.memberFirstName ? `${s.memberFirstName} ${s.memberLastName || ""}`.trim() : null,
+          };
+        });
         setData((d) => ({
           ...d,
           plans, members, memberships, payments, trainers,
           lockers, products, equipment, walkIns, attendance,
-          discounts, expenses,
+          discounts, expenses, productSales,
           activities: activities.length ? activities : d.activities,  // fallback to seed if API empty
           staff: staff.length ? staff : d.staff,
         }));
