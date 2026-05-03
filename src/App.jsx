@@ -99,6 +99,8 @@ const adaptWalkIn = (w) => {
       firstName = parts.join(" ");
     }
   }
+  // Backend stores `amount`; legacy frontend expects amountDue / amountPaid.
+  const amt = Number(w.amount ?? w.amountDue ?? w.amountPaid ?? 0) || 0;
   return {
     ...w,
     firstName,
@@ -107,6 +109,9 @@ const adaptWalkIn = (w) => {
     visitDate: w.visitDate,
     paymentStatus: w.paymentStatus || "pending",
     checkedIn: !!w.checkedIn,
+    amount: amt,
+    amountDue: amt,
+    amountPaid: w.paymentStatus === "paid" ? amt : 0,
   };
 };
 
@@ -1494,6 +1499,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
   // Walk-in quick form
   const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null });
   const [walkinSearch, setWalkinSearch] = useState("");
+  // Walk-in records filters (date range, payment status, check-in status)
+  const [walkinFilter, setWalkinFilter] = useState({ from: "", to: "", paymentStatus: "all", checkedIn: "all" });
   const [editWalkin, setEditWalkin] = useState(null);
 
   const results = search.length >= 2 ? data.members.filter((m) => {
@@ -2153,15 +2160,29 @@ const CheckIn = ({ data, setData, currentUser }) => {
       {/* WALK-IN HISTORY TAB */}
       {!selected && !checkedIn && mode === "history" && (() => {
         const q = walkinSearch.trim().toLowerCase();
-        const filteredWalkIns = q
-          ? data.walkIns.filter((w) => {
-              const fn = (w.firstName || "").toLowerCase();
-              const ln = (w.lastName || "").toLowerCase();
-              const nm = (w.name || "").toLowerCase();
-              const ph = (w.phone || "").toLowerCase();
-              return fn.includes(q) || ln.includes(q) || nm.includes(q) || ph.includes(q);
-            })
-          : data.walkIns;
+        // Combined filter — search text + date range + payment status + check-in status
+        const filteredWalkIns = data.walkIns.filter((w) => {
+          // Text search
+          if (q) {
+            const fn = (w.firstName || "").toLowerCase();
+            const ln = (w.lastName || "").toLowerCase();
+            const nm = (w.name || "").toLowerCase();
+            const ph = (w.phone || "").toLowerCase();
+            if (!fn.includes(q) && !ln.includes(q) && !nm.includes(q) && !ph.includes(q)) return false;
+          }
+          // Date range
+          const visitDay = (w.visitDate || "").slice(0, 10);
+          if (walkinFilter.from && visitDay < walkinFilter.from) return false;
+          if (walkinFilter.to   && visitDay > walkinFilter.to)   return false;
+          // Payment status
+          if (walkinFilter.paymentStatus !== "all" && (w.paymentStatus || "pending") !== walkinFilter.paymentStatus) return false;
+          // Check-in status
+          if (walkinFilter.checkedIn === "yes" && !w.checkedIn) return false;
+          if (walkinFilter.checkedIn === "no"  &&  w.checkedIn) return false;
+          return true;
+        });
+        const filtersActive = !!(walkinFilter.from || walkinFilter.to || walkinFilter.paymentStatus !== "all" || walkinFilter.checkedIn !== "all");
+        const resetFilters = () => setWalkinFilter({ from: "", to: "", paymentStatus: "all", checkedIn: "all" });
 
         // For returning-visitor detection: dedupe by phone, keeping the most recent.
         const uniqueByPhone = {};
@@ -2252,10 +2273,63 @@ const CheckIn = ({ data, setData, currentUser }) => {
               />
             </div>
             <p style={{ fontSize: 12, color: "var(--text-dim)" }}>
-              {q
-                ? <>Showing {filteredWalkIns.length} of {data.walkIns.length} records · {returningCount} unique visitor{returningCount === 1 ? "" : "s"}</>
+              {q || filtersActive
+                ? <>Showing {filteredWalkIns.length} of {data.walkIns.length} records{q && <> · {returningCount} unique visitor{returningCount === 1 ? "" : "s"}</>}</>
                 : <>All walk-in guest records ({data.walkIns.length})</>}
             </p>
+          </div>
+
+          {/* FILTER BAR */}
+          <div className="card" style={{ marginBottom: 16, padding: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, alignItems: "end" }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>From date</label>
+                <div style={{ position: "relative" }}>
+                  <Calendar size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--accent)", pointerEvents: "none" }} />
+                  <input type="date" value={walkinFilter.from} onChange={(e) => setWalkinFilter({ ...walkinFilter, from: e.target.value })} onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }} style={{ paddingLeft: 28 }} />
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>To date</label>
+                <div style={{ position: "relative" }}>
+                  <Calendar size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--accent)", pointerEvents: "none" }} />
+                  <input type="date" value={walkinFilter.to} min={walkinFilter.from || undefined} onChange={(e) => setWalkinFilter({ ...walkinFilter, to: e.target.value })} onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }} style={{ paddingLeft: 28 }} />
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Quick range</label>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
+                    onClick={() => { const t = today(); setWalkinFilter({ ...walkinFilter, from: t, to: t }); }}>Today</button>
+                  <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
+                    onClick={() => { const d = new Date(); const day = d.getDay(); const monday = new Date(d); monday.setDate(d.getDate() - ((day + 6) % 7)); setWalkinFilter({ ...walkinFilter, from: monday.toISOString().slice(0, 10), to: today() }); }}>This week</button>
+                  <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
+                    onClick={() => { const d = new Date(); const first = new Date(d.getFullYear(), d.getMonth(), 1); setWalkinFilter({ ...walkinFilter, from: first.toISOString().slice(0, 10), to: today() }); }}>This month</button>
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Payment</label>
+                <select value={walkinFilter.paymentStatus} onChange={(e) => setWalkinFilter({ ...walkinFilter, paymentStatus: e.target.value })}>
+                  <option value="all">All</option>
+                  <option value="paid">Paid</option>
+                  <option value="pending">Pending</option>
+                  <option value="refunded">Refunded</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Check-in</label>
+                <select value={walkinFilter.checkedIn} onChange={(e) => setWalkinFilter({ ...walkinFilter, checkedIn: e.target.value })}>
+                  <option value="all">All</option>
+                  <option value="yes">Checked in</option>
+                  <option value="no">Not checked in</option>
+                </select>
+              </div>
+              {filtersActive && (
+                <button className="btn btn-secondary" onClick={resetFilters}>
+                  <RefreshCw size={14} /> Clear filters
+                </button>
+              )}
+            </div>
           </div>
 
           {/* RETURNING-VISITOR SHORTCUT: when search matches existing visitors, show
@@ -2319,7 +2393,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                     <td>{w.firstName || ""}</td>
                     <td>{w.phone}</td>
                     <td style={{ fontSize: 12 }}>{w.activities ? w.activities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name || id).join(", ") : ACTIVITIES.find((a) => a.id === w.activityId)?.name || w.activityId}</td>
-                    <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(w.amountDue || w.amountPaid)}</td>
+                    <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(Number(w.amountDue || w.amount || w.amountPaid || 0))}</td>
                     <td>
                       {(w.paymentStatus === "paid" || !w.paymentStatus) ? (
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
