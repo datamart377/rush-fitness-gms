@@ -6183,8 +6183,54 @@ const Reconciliation = ({ data, setData }) => {
   const [modal, setModal] = useState(false);
   const [declaredCash, setDeclaredCash] = useState("");
 
+  // Load fresh shop sales so we can resolve product names for shop-payment rows
+  // that pre-date the backend notes-injection fix.
+  useEffect(() => {
+    productsApi.sales({ limit: 500 }).then((res) => {
+      const productSales = (res?.data || []).map((s) => {
+        const ts = s.soldAt || s.createdAt || new Date().toISOString();
+        return {
+          id: s.id,
+          productId: s.productId,
+          productName: s.productName,
+          quantity: Number(s.quantity || 0),
+          total: Number(s.total || 0),
+          method: s.paymentMethod === "mpesa" ? "mobile_money" : (s.paymentMethod || "cash"),
+          soldBy: s.soldByName || s.soldByUsername || "Staff",
+          soldAt: ts,
+          date: ts.slice(0, 10),
+          memberId: s.memberId || null,
+          // Legacy 'items' shape consumers expect
+          items: [{ productId: s.productId, name: s.productName, qty: Number(s.quantity || 0), price: Number(s.unitPrice || 0) }],
+        };
+      });
+      setData((d) => ({ ...d, productSales }));
+    }).catch(() => { /* non-blocking */ });
+  }, [setData]);
+
   // SINGLE SOURCE OF TRUTH: all revenue flows through data.payments
   const todayPayments = data.payments.filter((p) => p.paidAt.startsWith(today()) && p.type !== "prepaid_visit");
+
+  // Resolve a friendly description for a payment — used in the transactions list.
+  const describePayment = (p) => {
+    // 1. If notes were stored (new sales), use them as-is.
+    if (p.note && p.note.trim()) return p.note;
+    // 2. Member name if linked
+    if (p.memberId) {
+      const m = data.members.find((x) => x.id === p.memberId);
+      if (m) return fullName(m);
+    }
+    // 3. Shop sale fallback — look up product_sale → product
+    if (p.productSaleId || p.type === "product_sale") {
+      const sale = (data.productSales || []).find((s) => s.id === p.productSaleId);
+      if (sale) {
+        const item = sale.items?.[0];
+        if (item) return `${item.name} × ${item.qty}`;
+        if (sale.productName) return `${sale.productName} × ${sale.quantity || 1}`;
+      }
+    }
+    return "—";
+  };
 
   // Breakdown by payment method
   const systemCash = todayPayments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
