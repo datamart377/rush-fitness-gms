@@ -1855,12 +1855,12 @@ const CheckIn = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Surname *</label><input value={walkinForm.lastName} onChange={(e) => setWalkinForm({ ...walkinForm, lastName: e.target.value })} placeholder="e.g. Kamya" /></div>
             <div className="form-group"><label>Other Name(s) *</label><input value={walkinForm.firstName} onChange={(e) => setWalkinForm({ ...walkinForm, firstName: e.target.value })} placeholder="e.g. John" /></div>
             <div className="form-group"><label>Phone *</label><input value={walkinForm.phone} onChange={(e) => setWalkinForm({ ...walkinForm, phone: e.target.value })} placeholder="e.g. 0771234567" /></div>
-            <div className="form-group"><label>Gender *</label>
+            <div className="form-group"><label>Gender</label>
               <select value={walkinForm.gender} onChange={(e) => setWalkinForm({ ...walkinForm, gender: e.target.value, locker: null })}>
                 <option>Male</option><option>Female</option>
               </select>
             </div>
-            <div className="form-group"><label>Emergency Contact *</label><input value={walkinForm.emergency} onChange={(e) => setWalkinForm({ ...walkinForm, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
+            <div className="form-group"><label>Emergency Contact</label><input value={walkinForm.emergency} onChange={(e) => setWalkinForm({ ...walkinForm, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
             <div className="form-group"><label>Payment Method *</label>
               <select value={walkinForm.paymentMethod} onChange={(e) => setWalkinForm({ ...walkinForm, paymentMethod: e.target.value })}>
                 <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
@@ -3243,7 +3243,7 @@ const Members = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Surname *</label><input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="e.g. Nakamya" /></div>
             <div className="form-group"><label>Other Name(s) *</label><input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="e.g. Sarah" /></div>
             <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 0771234567" /></div>
-            <div className="form-group"><label>Gender *</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option>Male</option><option>Female</option></select></div>
+            <div className="form-group"><label>Gender</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option>Male</option><option>Female</option></select></div>
             {/* ID — National ID (NIN) OR Passport Number. Exactly one is required. */}
             <div className="form-group full">
               <label style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -5029,7 +5029,7 @@ const Trainers = ({ data, setData }) => {
             <div className="form-group"><label>Surname *</label><input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="e.g. Ssemakula" /></div>
             <div className="form-group"><label>Other Name(s) *</label><input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="e.g. Mike" /></div>
             <div className="form-group"><label>Phone *</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 0781112233" /></div>
-            <div className="form-group"><label>Gender *</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option>Male</option><option>Female</option></select></div>
+            <div className="form-group"><label>Gender</label><select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option>Male</option><option>Female</option></select></div>
             <div className="form-group full">
               <label>National ID (NIN) <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— optional, exactly 14 characters when provided</span></label>
               <input value={form.nationalId || ""} onChange={(e) => setForm({ ...form, nationalId: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 14) })} placeholder="e.g. CM88041200QRST" maxLength={14} style={{ fontFamily: "monospace", letterSpacing: "0.1em", fontSize: 16 }} />
