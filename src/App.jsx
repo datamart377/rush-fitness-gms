@@ -51,13 +51,28 @@ const adaptMembership = (ms) => ms ? ({
   isActive: ms.status === "active" || ms.status === "frozen",
 }) : null;
 
-const adaptPayment = (p) => p ? ({
-  ...p,
-  paidAt: p.paidAt || p.createdAt,
-  // Map backend "mpesa" → frontend "mobile_money" so existing UI badges keep working.
-  method: p.method === "mpesa" ? "mobile_money" : p.method,
-  note: p.notes || p.note || "",
-}) : null;
+// Map backend type values to the legacy frontend ones used by reports/filters.
+const adaptPaymentType = (t) => {
+  if (t === "walk_in") return "walkin";
+  if (t === "product") return "product_sale";
+  return t || "membership";
+};
+
+const adaptPayment = (p) => {
+  if (!p) return null;
+  return {
+    ...p,
+    paidAt: p.paidAt || p.createdAt || new Date().toISOString(),
+    // Postgres NUMERIC comes back as a string in node-postgres — coerce to Number
+    // so revenue reductions and reconciliations actually compute totals correctly.
+    amount: Number(p.amount || 0),
+    discountAmount: Number(p.discountAmount || 0),
+    // Map backend "mpesa" → frontend "mobile_money" so existing UI badges keep working.
+    method: p.method === "mpesa" ? "mobile_money" : p.method,
+    type: adaptPaymentType(p.type),
+    note: p.notes || p.note || "",
+  };
+};
 
 // Frontend → API: the form uses "mobile_money", API expects "mpesa".
 const paymentMethodToApi = (m) => m === "mobile_money" ? "mpesa" : m;
@@ -138,13 +153,20 @@ const adaptDiscount = (d) => d ? ({
 const discountTypeToApi = (t) => t === "percentage" ? "percent" : t === "fixed" ? "flat" : t;
 
 // ── Expense adapter — backend uses spentOn, frontend uses date ──
-const adaptExpense = (e) => e ? ({
-  ...e,
-  date: e.spentOn || e.date,
-  amount: Number(e.amount),
-  approvedBy: e.recordedBy ? "Staff" : (e.approvedBy || "Staff"),
-  method: e.paidBy || e.method || "cash",
-}) : null;
+const adaptExpense = (e) => {
+  if (!e) return null;
+  // Normalize date to YYYY-MM-DD (backend may return a Date object or ISO string)
+  let date = e.spentOn || e.date || "";
+  if (date instanceof Date) date = date.toISOString().slice(0, 10);
+  if (typeof date === "string" && date.length > 10) date = date.slice(0, 10);
+  return {
+    ...e,
+    date,
+    amount: Number(e.amount || 0),
+    approvedBy: e.recordedBy ? "Staff" : (e.approvedBy || "Staff"),
+    method: e.paidBy || e.method || "cash",
+  };
+};
 
 // ── Staff/User adapter ──
 const adaptStaff = (u) => u ? ({
