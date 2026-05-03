@@ -5656,14 +5656,37 @@ const Shop = ({ data, setData, currentUser }) => {
 
   const reload = useCallback(async () => {
     try {
-      const [pRes, payRes] = await Promise.all([
+      const [pRes, payRes, salesRes] = await Promise.all([
         productsApi.list({ limit: 500 }),
         paymentsApi.list({ limit: 500 }),
+        productsApi.sales({ limit: 500 }).catch(() => ({ data: [] })),
       ]);
+      // Adapt sales rows to match the legacy productSales shape used by the UI:
+      // { id, items: [{ productId, name, qty, price }], total, method, soldBy, soldAt, date }
+      const productSales = (salesRes?.data || []).map((s) => {
+        const ts = s.soldAt || s.createdAt || new Date().toISOString();
+        return {
+          id: s.id,
+          items: [{
+            productId: s.productId,
+            name: s.productName || "Unknown product",
+            qty: Number(s.quantity || 0),
+            price: Number(s.unitPrice || 0),
+          }],
+          total: Number(s.total || 0),
+          method: s.paymentMethod === "mpesa" ? "mobile_money" : (s.paymentMethod || "cash"),
+          soldBy: s.soldByName || s.soldByUsername || "Staff",
+          soldAt: ts,
+          date: ts.slice(0, 10),
+          memberId: s.memberId || null,
+          memberName: s.memberFirstName ? `${s.memberFirstName} ${s.memberLastName || ""}`.trim() : null,
+        };
+      });
       setData((d) => ({
         ...d,
         products: (pRes?.data || []).map(adaptProduct),
         payments: (payRes?.data || []).map(adaptPayment),
+        productSales,
       }));
     } catch (err) {
       setApiError(err?.message || "Failed to load shop data");

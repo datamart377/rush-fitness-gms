@@ -131,7 +131,8 @@ export const lockersApi     = { ...resource('/lockers'),
   release: (id)           => api.post(`/lockers/${id}/release`),
 };
 export const productsApi    = { ...resource('/products'),
-  sell: (id, payload) => api.post(`/products/${id}/sell`, payload),
+  sell:  (id, payload) => api.post(`/products/${id}/sell`, payload),
+  sales: (params)      => api.get(`/products/sales${qs(params)}`),
 };
 export const activitiesApi  = resource('/activities');
 export const timetableApi   = resource('/timetable');

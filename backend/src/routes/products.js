@@ -34,6 +34,53 @@ router.get(
   res.json({ data: r.rows.map(camelize), pagination: { total: c.rows[0].n, limit, offset } });
 }));
 
+// ── GET /api/products/sales  — MUST be defined BEFORE /:id so Express doesn't
+// treat "sales" as a UUID parameter. Returns past sales joined with product +
+// member + seller, newest first. Used by the Shop's "Sales History" tab.
+router.get(
+  '/sales',
+  validate([
+    q('from').optional().isISO8601(),
+    q('to').optional().isISO8601(),
+  ]),
+  asyncHandler(async (req, res) => {
+    const { limit, offset } = parsePagination(req);
+    const params = [];
+    const conds = [];
+    if (req.query.from) { params.push(req.query.from); conds.push(`ps.sold_at >= $${params.length}`); }
+    if (req.query.to)   { params.push(req.query.to);   conds.push(`ps.sold_at <= $${params.length}`); }
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+
+    const r = await pool.query(
+      `SELECT ps.*,
+              p.name AS product_name,
+              p.sku  AS product_sku,
+              m.first_name AS member_first_name,
+              m.last_name  AS member_last_name,
+              u.full_name  AS sold_by_name,
+              u.username   AS sold_by_username,
+              pay.method   AS payment_method
+         FROM product_sales ps
+         JOIN products p   ON p.id = ps.product_id
+         LEFT JOIN members m ON m.id = ps.member_id
+         LEFT JOIN users u   ON u.id = ps.recorded_by
+         LEFT JOIN payments pay ON pay.product_sale_id = ps.id
+         ${where}
+         ORDER BY ps.sold_at DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    );
+    const c = await pool.query(`SELECT COUNT(*)::int AS n FROM product_sales ps ${where}`, params);
+    const sumR = await pool.query(`SELECT COALESCE(SUM(total),0)::numeric AS s FROM product_sales ps ${where}`, params);
+
+    res.json({
+      data: r.rows.map(camelize),
+      pagination: { total: c.rows[0].n, limit, offset },
+      summary: { totalAmount: Number(sumR.rows[0].s) },
+    });
+  })
+);
+
 router.get('/:id', validate([param('id').isUUID()]), asyncHandler(async (req, res) => {
   res.json(await getById(pool, TABLE, req.params.id));
 }));
