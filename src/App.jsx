@@ -3471,7 +3471,7 @@ const getMembershipBalance = (ms, payments) => {
 const Memberships = ({ data, setData, currentUser }) => {
   const isAdmin = currentUser?.role === "admin";
   const [modal, setModal] = useState(null); // 'assign' | 'pay' | null
-  const [form, setForm] = useState({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" });
+  const [form, setForm] = useState({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" });
   const [payTarget, setPayTarget] = useState(null); // membership for additional payment
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
@@ -3542,9 +3542,59 @@ const Memberships = ({ data, setData, currentUser }) => {
       return;
     }
 
-    // Group plans aren't in the backend plans table yet either — warn and skip persistence
+    // ── GROUP PLAN — assign to N members at once ──
+    // Creates one membership + one payment per member, each at the per-person rate,
+    // using the underlying `gym_monthly` plan for duration. A group note ties them together.
     if (form.plan.startsWith("group_")) {
-      alert("Group plans are not yet persisted to the backend. Use individual plans for now.");
+      const groupInfo = GROUP_PLANS[form.plan];
+      if (!groupInfo) { setApiError(`Unknown group plan: ${form.plan}`); return; }
+      const required = groupInfo.size;
+      const ids = (form.groupMemberIds || []).filter(Boolean);
+      if (ids.length !== required) {
+        setApiError(`${groupInfo.name} requires exactly ${required} members. You selected ${ids.length}.`);
+        return;
+      }
+      // Use gym_monthly as the underlying durable plan since the backend doesn't
+      // model "group" plans natively. Each member gets the per-person price.
+      const underlyingPlanId = resolvePlanId("gym_monthly");
+      if (!underlyingPlanId) { setApiError(`The "Monthly (Gym)" plan is missing — required for group plans.`); return; }
+      const perPerson = groupInfo.perPerson || Math.floor(groupInfo.price / required);
+      const groupTag = `Group of ${required} (UGX ${groupInfo.price.toLocaleString()} total — UGX ${perPerson.toLocaleString()}/person)`;
+      const customStart = isAdmin && form.startDate ? form.startDate : undefined;
+      const paidAt = customStart ? new Date(`${customStart}T12:00:00Z`).toISOString() : undefined;
+
+      setBusy(true);
+      setApiError("");
+      try {
+        // Sequential to keep order in the audit log
+        for (const memberId of ids) {
+          const ms = await membershipsApi.create({
+            memberId,
+            planId: underlyingPlanId,
+            totalDue: perPerson,
+            startDate: customStart,
+          });
+          await paymentsApi.create({
+            memberId,
+            membershipId: ms.id,
+            amount: perPerson,
+            method: paymentMethodToApi(form.method),
+            type: "membership",
+            paidAt,
+            notes: `${groupTag} — share for member ${ids.indexOf(memberId) + 1} of ${required}`,
+          });
+        }
+        await reloadMemberships();
+        setModal(null);
+        alert(`✓ Group plan assigned to ${required} members. Total collected: ${formatUGX(groupInfo.price)} (${formatUGX(perPerson)} per member).`);
+      } catch (err) {
+        const detail = Array.isArray(err?.details) && err.details.length
+          ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
+          : "";
+        setApiError([err?.message, detail].filter(Boolean).join(" – ") || "Failed to assign group plan");
+      } finally {
+        setBusy(false);
+      }
       return;
     }
 
@@ -3719,7 +3769,7 @@ const Memberships = ({ data, setData, currentUser }) => {
 
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
       </div>
 
       {apiError && (
@@ -3795,14 +3845,90 @@ const Memberships = ({ data, setData, currentUser }) => {
       {/* ASSIGN PLAN MODAL */}
       {modal === "assign" && (
         <Modal title="Assign Membership Plan" onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={assign}><Check size={14} /> Assign & Record Payment</button></>}>
+          {(() => {
+            const isGroup = form.plan?.startsWith("group_");
+            const groupSize = isGroup ? (GROUP_PLANS[form.plan]?.size || 0) : 0;
+            const activeMembers = data.members.filter((m) => m.isActive);
+            const memberSearch = (form._memberSearch || "").toLowerCase();
+            const filteredMembers = memberSearch
+              ? activeMembers.filter((m) => fullName(m).toLowerCase().includes(memberSearch) || (m.phone || "").includes(memberSearch))
+              : activeMembers;
+            const toggleGroupMember = (id) => {
+              const cur = form.groupMemberIds || [];
+              if (cur.includes(id)) {
+                setForm({ ...form, groupMemberIds: cur.filter((x) => x !== id) });
+              } else if (cur.length < groupSize) {
+                setForm({ ...form, groupMemberIds: [...cur, id] });
+              }
+            };
+            return (
+          <>
           <div className="form-grid">
-            <div className="form-group full">
-              <label>Member</label>
-              <select value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })}>
-                <option value="">Select member...</option>
-                {data.members.filter((m) => m.isActive).map((m) => <option key={m.id} value={m.id}>{fullName(m)} ({m.phone})</option>)}
-              </select>
-            </div>
+            {/* Single-member picker (default) */}
+            {!isGroup && (
+              <div className="form-group full">
+                <label>Member</label>
+                <select value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })}>
+                  <option value="">Select member...</option>
+                  {activeMembers.map((m) => <option key={m.id} value={m.id}>{fullName(m)} ({m.phone})</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Group multi-select — exactly N members */}
+            {isGroup && (
+              <div className="form-group full">
+                <label style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span>Select {groupSize} Members <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— exactly {groupSize}</span></span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: form.groupMemberIds?.length === groupSize ? "var(--success)" : form.groupMemberIds?.length > groupSize ? "var(--danger)" : "var(--warning)" }}>
+                    {(form.groupMemberIds || []).length} / {groupSize} selected
+                  </span>
+                </label>
+                <div className="search-bar" style={{ marginTop: 6 }}>
+                  <Search />
+                  <input placeholder="Search by name or phone..." value={form._memberSearch || ""} onChange={(e) => setForm({ ...form, _memberSearch: e.target.value })} />
+                </div>
+                <div style={{ marginTop: 8, maxHeight: 240, overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", padding: 4 }}>
+                  {filteredMembers.length === 0 && (
+                    <div style={{ padding: 12, textAlign: "center", color: "var(--text-muted)", fontSize: 12 }}>No active members match.</div>
+                  )}
+                  {filteredMembers.map((m) => {
+                    const checked = (form.groupMemberIds || []).includes(m.id);
+                    const atCapacity = !checked && (form.groupMemberIds || []).length >= groupSize;
+                    return (
+                      <label key={m.id} style={{
+                        display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
+                        borderRadius: "var(--radius-xs)",
+                        cursor: atCapacity ? "not-allowed" : "pointer",
+                        background: checked ? "var(--accent-dim)" : "transparent",
+                        opacity: atCapacity ? 0.4 : 1,
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={atCapacity}
+                          onChange={() => toggleGroupMember(m.id)}
+                          style={{ width: 16, height: 16, accentColor: "var(--accent)" }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 500 }}>{fullName(m)}</div>
+                          <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{m.phone}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                {(form.groupMemberIds || []).length > 0 && (
+                  <p style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>
+                    Selected:{" "}
+                    {(form.groupMemberIds || []).map((id) => {
+                      const m = data.members.find((x) => x.id === id);
+                      return m ? fullName(m) : id;
+                    }).join(", ")}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="form-group">
               <label>Plan</label>
               <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value, paymentType: e.target.value === "prepaid" ? "full" : form.paymentType })}>
@@ -3997,6 +4123,9 @@ const Memberships = ({ data, setData, currentUser }) => {
               );
             })()
           )}
+          </>
+          );
+            })()}
         </Modal>
       )}
 
