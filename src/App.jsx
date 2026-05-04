@@ -130,13 +130,29 @@ const adaptWalkIn = (w) => {
   };
 };
 
+// ── Timezone-safe YYYY-MM-DD formatter ──
+//   PostgreSQL DATE values come back as JS Date objects at LOCAL midnight.
+//   Calling .toISOString() converts to UTC and shifts the date by ±1 day in
+//   non-UTC zones — fatal in Uganda (UTC+3) where every "today" became
+//   "yesterday" once stringified. This helper reads the local components so
+//   the wall-clock date is preserved.
+const dateToYMD = (d) => {
+  if (!d) return "";
+  const date = d instanceof Date ? d : new Date(d);
+  if (isNaN(date.getTime())) return typeof d === "string" ? d.slice(0, 10) : "";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
 // ── Attendance adapter — backend uses checkInAt, frontend uses checkIn ──
 //   Also resolves guest name for walk-in attendance rows (no member_id).
 const adaptAttendance = (a) => a ? ({
   ...a,
   checkIn: a.checkInAt || a.checkIn,
   checkOut: a.checkOutAt || a.checkOut,
-  date: a.visitDate || a.date,
+  date: dateToYMD(a.visitDate || a.date),
   // For walk-ins: prefer the joined walk_ins.full_name, fall back to attendance.guest_name.
   guestName: a.walkInName || a.guestName || null,
   source: a.walkInId && !a.source ? "walkin" : (a.source || "staff"),
@@ -155,10 +171,8 @@ const discountTypeToApi = (t) => t === "percentage" ? "percent" : t === "fixed" 
 // ── Expense adapter — backend uses spentOn, frontend uses date ──
 const adaptExpense = (e) => {
   if (!e) return null;
-  // Normalize date to YYYY-MM-DD (backend may return a Date object or ISO string)
-  let date = e.spentOn || e.date || "";
-  if (date instanceof Date) date = date.toISOString().slice(0, 10);
-  if (typeof date === "string" && date.length > 10) date = date.slice(0, 10);
+  // Use tz-safe local-time formatter to avoid the UTC date-shift bug.
+  const date = dateToYMD(e.spentOn || e.date);
   return {
     ...e,
     date,
@@ -210,7 +224,10 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 const formatUGX = (n) => `UGX ${Number(n).toLocaleString()}`;
 const formatDate = (d) => new Date(d).toLocaleDateString("en-UG", { year: "numeric", month: "short", day: "numeric" });
 const formatTime = (d) => new Date(d).toLocaleTimeString("en-UG", { hour: "2-digit", minute: "2-digit" });
-const today = () => new Date().toISOString().split("T")[0];
+// today() must use LOCAL date components — using toISOString() would shift to
+// UTC and silently bump the date back/forward across midnight in non-UTC
+// timezones, breaking every "filter by today" control in the app.
+const today = () => dateToYMD(new Date());
 
 const PLANS = {
   gym_daily: { name: "Daily (Gym)", price: 20000, days: 1, category: "gym" },
@@ -2324,9 +2341,9 @@ const CheckIn = ({ data, setData, currentUser }) => {
                   <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
                     onClick={() => { const t = today(); setWalkinFilter({ ...walkinFilter, from: t, to: t }); }}>Today</button>
                   <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
-                    onClick={() => { const d = new Date(); const day = d.getDay(); const monday = new Date(d); monday.setDate(d.getDate() - ((day + 6) % 7)); setWalkinFilter({ ...walkinFilter, from: monday.toISOString().slice(0, 10), to: today() }); }}>This week</button>
+                    onClick={() => { const d = new Date(); const day = d.getDay(); const monday = new Date(d); monday.setDate(d.getDate() - ((day + 6) % 7)); setWalkinFilter({ ...walkinFilter, from: dateToYMD(monday), to: today() }); }}>This week</button>
                   <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
-                    onClick={() => { const d = new Date(); const first = new Date(d.getFullYear(), d.getMonth(), 1); setWalkinFilter({ ...walkinFilter, from: first.toISOString().slice(0, 10), to: today() }); }}>This month</button>
+                    onClick={() => { const d = new Date(); const first = new Date(d.getFullYear(), d.getMonth(), 1); setWalkinFilter({ ...walkinFilter, from: dateToYMD(first), to: today() }); }}>This month</button>
                 </div>
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -3522,7 +3539,7 @@ const Memberships = ({ data, setData, currentUser }) => {
       const end = new Date(start.getTime() + PLANS.prepaid.days * 86400000);
       const newMs = {
         id: generateId(), memberId: form.memberId, plan: "prepaid",
-        startDate: start.toISOString().split("T")[0], endDate: end.toISOString().split("T")[0],
+        startDate: dateToYMD(start), endDate: dateToYMD(end),
         isActive: true, frozenDays: 0, status: "active",
         totalDue: deposit, prepaidBalance: deposit,
         prepaidDeposits: [{ amount: deposit, date: new Date().toISOString(), method: form.method }],
@@ -3974,7 +3991,7 @@ const Memberships = ({ data, setData, currentUser }) => {
                   <input
                     type="date"
                     value={form.startDate}
-                    max={new Date().toISOString().slice(0, 10)}
+                    max={today()}
                     onChange={(e) => setForm({ ...form, startDate: e.target.value })}
                     onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }}
                     style={{ paddingLeft: 30, cursor: "pointer" }}
@@ -3983,7 +4000,7 @@ const Memberships = ({ data, setData, currentUser }) => {
                 {form.startDate && (() => {
                   const planInfo = PLANS[form.plan];
                   const days = planInfo?.days || 0;
-                  const end = days ? new Date(new Date(form.startDate).getTime() + days * 86400000).toISOString().split("T")[0] : null;
+                  const end = days ? dateToYMD(new Date(new Date(form.startDate).getTime() + days * 86400000)) : null;
                   return (
                     <p style={{ fontSize: 11, color: "var(--accent)", marginTop: 4 }}>
                       ↳ Backdating to <strong>{formatDate(form.startDate)}</strong>{end && <> — expires <strong>{formatDate(end)}</strong></>}
@@ -4802,14 +4819,14 @@ const Attendance = ({ data, setData }) => {
                   const d = new Date();
                   const day = d.getDay(); // 0 = Sun
                   const monday = new Date(d); monday.setDate(d.getDate() - ((day + 6) % 7));
-                  setFrom(monday.toISOString().slice(0, 10));
+                  setFrom(dateToYMD(monday));
                   setTo(today());
                 }}>This week</button>
               <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
                 onClick={() => {
                   const d = new Date();
                   const first = new Date(d.getFullYear(), d.getMonth(), 1);
-                  setFrom(first.toISOString().slice(0, 10));
+                  setFrom(dateToYMD(first));
                   setTo(today());
                 }}>This month</button>
             </div>
