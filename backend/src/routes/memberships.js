@@ -137,14 +137,96 @@ router.post(
   })
 );
 
+// EDIT — admin-only, intended for fixing migrated/legacy rows.
+//
+// Whitelisted fields: planId, startDate, endDate, totalDue, totalPaid.
+// Status / member / created_by are intentionally not editable here — use the
+// freeze/unfreeze/cancel endpoints for status, and never reassign a row to a
+// different member (create a new one instead).
+//
+// If dates change, we re-run the overlap guard against OTHER memberships for
+// the same member (m.id <> :id) so admins can't accidentally re-introduce the
+// duplicate-membership pattern when shuffling dates around.
 router.patch(
   '/:id',
-  requireRole('admin', 'manager'),
-  validate([param('id').isUUID()]),
+  requireRole('admin'),
+  validate([
+    param('id').isUUID(),
+    body('planId').optional().isUUID(),
+    body('startDate').optional().isISO8601(),
+    body('endDate').optional().isISO8601(),
+    body('totalDue').optional().isFloat({ min: 0 }),
+    body('totalPaid').optional().isFloat({ min: 0 }),
+  ]),
   asyncHandler(async (req, res) => {
-    const row = await updateById(pool, TABLE, req.params.id, req.body, FIELDS);
-    await audit(req, 'membership.update', TABLE, row.id);
-    res.json(row);
+    const out = await withTx(async (client) => {
+      // Lock the existing row so concurrent edits/overlap-checks see a consistent view.
+      const curR = await client.query(
+        `SELECT * FROM memberships WHERE id = $1 FOR UPDATE`,
+        [req.params.id]
+      );
+      if (!curR.rowCount) throw new ApiError(404, 'Membership not found');
+      const cur = curR.rows[0];
+
+      // If planId is being changed, make sure the new plan exists and is active.
+      if (req.body.planId && req.body.planId !== cur.plan_id) {
+        const planR = await client.query(
+          'SELECT id FROM plans WHERE id = $1 AND is_active = TRUE',
+          [req.body.planId]
+        );
+        if (!planR.rowCount) throw new ApiError(404, 'Plan not found or inactive');
+      }
+
+      // Resolve the proposed date window — fall back to the current values
+      // when the patch doesn't touch them.
+      const fmtDate = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
+      const newStart = req.body.startDate ? fmtDate(new Date(req.body.startDate)) : fmtDate(cur.start_date);
+      const newEnd   = req.body.endDate   ? fmtDate(new Date(req.body.endDate))   : fmtDate(cur.end_date);
+      if (newEnd < newStart) {
+        throw new ApiError(400, 'End date cannot be before start date');
+      }
+
+      // Overlap guard — only meaningful if dates actually changed.
+      const datesChanged = newStart !== fmtDate(cur.start_date) || newEnd !== fmtDate(cur.end_date);
+      if (datesChanged) {
+        const dup = await client.query(
+          `SELECT m.id, m.start_date, m.end_date, m.status, p.name AS plan_name
+             FROM memberships m
+             JOIN plans p ON p.id = m.plan_id
+            WHERE m.member_id = $1
+              AND m.id <> $2
+              AND m.status IN ('active','frozen')
+              AND m.start_date <= $4::date
+              AND m.end_date   >= $3::date
+            ORDER BY m.created_at DESC
+            LIMIT 1
+            FOR UPDATE`,
+          [cur.member_id, cur.id, newStart, newEnd]
+        );
+        if (dup.rowCount) {
+          const d = dup.rows[0];
+          throw new ApiError(
+            409,
+            `New dates overlap another membership for this member (${d.plan_name}, ${fmtDate(d.start_date)} → ${fmtDate(d.end_date)}). Resolve that one first.`
+          );
+        }
+      }
+
+      // Apply the patch. updateById whitelists against FIELDS so any extra junk
+      // in the body (e.g. status, memberId) is silently ignored.
+      const patch = {};
+      if (req.body.planId    !== undefined) patch.planId    = req.body.planId;
+      if (req.body.startDate !== undefined) patch.startDate = newStart;
+      if (req.body.endDate   !== undefined) patch.endDate   = newEnd;
+      if (req.body.totalDue  !== undefined) patch.totalDue  = req.body.totalDue;
+      if (req.body.totalPaid !== undefined) patch.totalPaid = req.body.totalPaid;
+      if (Object.keys(patch).length === 0) {
+        throw new ApiError(400, 'No editable fields supplied');
+      }
+      return await updateById(client, TABLE, req.params.id, patch, FIELDS);
+    });
+    await audit(req, 'membership.update', TABLE, out.id, { fields: Object.keys(req.body) });
+    res.json(out);
   })
 );
 

@@ -3490,6 +3490,8 @@ const Memberships = ({ data, setData, currentUser }) => {
   const [modal, setModal] = useState(null); // 'assign' | 'pay' | null
   const [form, setForm] = useState({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" });
   const [payTarget, setPayTarget] = useState(null); // membership for additional payment
+  const [editTarget, setEditTarget] = useState(null); // admin: membership being edited
+  const [editForm, setEditForm] = useState({ plan: "", startDate: "", endDate: "", totalDue: "", totalPaid: "" });
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
 
@@ -3767,6 +3769,76 @@ const Memberships = ({ data, setData, currentUser }) => {
     }
   };
 
+  // Admin-only: open the Edit modal for a migrated/legacy row.
+  // Pre-fills with the current values; saveEdit only sends fields that changed.
+  const openEdit = (ms) => {
+    const bal = getMembershipBalance(ms, data.payments);
+    setEditTarget(ms);
+    setEditForm({
+      plan: ms.plan || "gym_monthly",
+      startDate: ms.startDate || "",
+      endDate: ms.endDate || "",
+      totalDue: String(ms.totalDue ?? bal.totalDue ?? 0),
+      totalPaid: String(ms.totalPaid ?? bal.totalPaid ?? 0),
+    });
+    setApiError("");
+    setModal("edit");
+  };
+
+  const saveEdit = async () => {
+    if (!editTarget) return;
+    const payload = {};
+    if (editForm.plan && editForm.plan !== editTarget.plan) {
+      const planId = resolvePlanId(editForm.plan);
+      if (!planId) { setApiError(`Plan "${editForm.plan}" not found in backend.`); return; }
+      payload.planId = planId;
+    }
+    if (editForm.startDate && editForm.startDate !== editTarget.startDate) payload.startDate = editForm.startDate;
+    if (editForm.endDate   && editForm.endDate   !== editTarget.endDate)   payload.endDate   = editForm.endDate;
+    if (payload.startDate && payload.endDate && payload.endDate < payload.startDate) {
+      setApiError("End date cannot be before start date."); return;
+    }
+    const dueNum = Number(editForm.totalDue);
+    if (!Number.isNaN(dueNum) && dueNum !== Number(editTarget.totalDue)) payload.totalDue = dueNum;
+    const paidNum = Number(editForm.totalPaid);
+    const curPaid = Number(editTarget.totalPaid ?? getMembershipBalance(editTarget, data.payments).totalPaid);
+    if (!Number.isNaN(paidNum) && paidNum !== curPaid) payload.totalPaid = paidNum;
+    if (Object.keys(payload).length === 0) { setModal(null); setEditTarget(null); return; }
+
+    setBusy(true);
+    setApiError("");
+    try {
+      await membershipsApi.update(editTarget.id, payload);
+      await reloadMemberships();
+      setModal(null);
+      setEditTarget(null);
+    } catch (err) {
+      setApiError(err?.message || "Failed to update membership");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Admin-only: hard-delete a membership row. FKs on payments / attendance use
+  // ON DELETE SET NULL, so historical records are preserved (just unlinked).
+  const deleteMembership = async (ms) => {
+    const member = data.members.find((m) => m.id === ms.memberId);
+    const who = member ? fullName(member) : "this member";
+    const ok = window.confirm(
+      `Permanently delete this ${getPlanName(ms.plan)} membership for ${who}?\n\n` +
+      `Dates: ${ms.startDate} → ${ms.endDate}\n\n` +
+      `This cannot be undone. Linked payments will keep their record but lose the link to this membership.`
+    );
+    if (!ok) return;
+    setApiError("");
+    try {
+      await membershipsApi.remove(ms.id);
+      await reloadMemberships();
+    } catch (err) {
+      alert(err?.message || "Delete failed");
+    }
+  };
+
   // Count pending payments
   const pendingCount = data.memberships.filter((ms) => ms.status === "pending_payment").length;
 
@@ -3850,6 +3922,8 @@ const Memberships = ({ data, setData, currentUser }) => {
                       {!isPrepaidMs && !isPending && !bal.isPaidInFull && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
                       {isAdmin && !isPrepaidMs && ms.status === "active" && !exp && <button className="btn btn-sm btn-secondary" onClick={() => freeze(ms)}><Pause size={12} /> Freeze</button>}
                       {isAdmin && ms.status === "frozen" && <button className="btn btn-sm btn-secondary" onClick={() => unfreeze(ms)}><Play size={12} /> Unfreeze</button>}
+                      {isAdmin && !isPrepaidMs && <button className="btn btn-sm btn-secondary" onClick={() => openEdit(ms)} title="Edit membership (admin only)"><Edit2 size={12} /> Edit</button>}
+                      {isAdmin && !isPrepaidMs && <button className="btn btn-sm btn-danger" onClick={() => deleteMembership(ms)} title="Delete membership (admin only)"><Trash2 size={12} /> Delete</button>}
                     </div>
                   </td>
                 </tr>
@@ -4319,6 +4393,57 @@ const Memberships = ({ data, setData, currentUser }) => {
                   </div>
                 </div>
               )}
+            </Modal>
+          );
+        })()
+      )}
+
+      {/* EDIT MEMBERSHIP MODAL — admin only, for fixing migrated/legacy rows */}
+      {modal === "edit" && editTarget && isAdmin && (
+        (() => {
+          const member = data.members.find((m) => m.id === editTarget.memberId);
+          const eligiblePlanCodes = Object.keys(PLANS).filter((k) => k !== "prepaid");
+          return (
+            <Modal title="Edit Membership (Admin)" onClose={() => { setModal(null); setEditTarget(null); }} footer={
+              <>
+                <button className="btn btn-secondary" onClick={() => { setModal(null); setEditTarget(null); }}>Cancel</button>
+                <button className="btn btn-primary" onClick={saveEdit} disabled={busy}><Check size={14} /> Save Changes</button>
+              </>
+            }>
+              <div style={{ marginBottom: 14, padding: "8px 10px", background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", fontSize: 12, color: "var(--text-dim)" }}>
+                <strong style={{ color: "var(--text)" }}>{fullName(member)}</strong>
+                {" — "}editing membership <code style={{ fontSize: 11 }}>{editTarget.id?.slice(0, 8)}…</code>. Member can't be reassigned; status is managed via Freeze / Unfreeze / Cancel.
+              </div>
+
+              <div className="form-grid">
+                <div className="form-group full">
+                  <label>Plan</label>
+                  <select value={editForm.plan} onChange={(e) => setEditForm({ ...editForm, plan: e.target.value })}>
+                    {eligiblePlanCodes.map((k) => <option key={k} value={k}>{PLANS[k].name}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Start Date</label>
+                  <input type="date" value={editForm.startDate} onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>End Date</label>
+                  <input type="date" value={editForm.endDate} onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Total Due (UGX)</label>
+                  <input type="number" min="0" value={editForm.totalDue} onChange={(e) => setEditForm({ ...editForm, totalDue: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Total Paid (UGX)</label>
+                  <input type="number" min="0" value={editForm.totalPaid} onChange={(e) => setEditForm({ ...editForm, totalPaid: e.target.value })} />
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14, padding: "8px 10px", background: "var(--warning-dim, #3a2a10)", border: "1px solid var(--warning)", borderRadius: "var(--radius-xs)", fontSize: 11, color: "var(--warning)" }}>
+                <AlertTriangle size={12} style={{ display: "inline", marginRight: 4, verticalAlign: "-2px" }} />
+                Changing dates that overlap another active/frozen membership for this member will be rejected. Resolve the other one first.
+              </div>
             </Modal>
           );
         })()
