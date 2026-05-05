@@ -58,6 +58,13 @@ router.get('/:id', validate([param('id').isUUID()]), asyncHandler(async (req, re
 }));
 
 // CREATE — derives end_date from plan.duration_days if not supplied.
+//
+// Refuses to create a membership whose date range overlaps an existing
+// non-finalized membership for the same member. "Non-finalized" means status
+// IN ('active', 'frozen') — a cancelled or expired row no longer holds the
+// slot. This prevents the duplicate-membership pattern we saw in production
+// (one member with overlapping Monthly Gym + Monthly Gym+Steam etc.). If
+// staff want to upgrade mid-plan, they should cancel the old row first.
 router.post(
   '/',
   requireRole('admin', 'manager', 'receptionist'),
@@ -82,13 +89,43 @@ router.post(
         end = new Date(start);
         end.setDate(end.getDate() + plan.duration_days);
       }
+      const startYMD = start.toISOString().split('T')[0];
+      const endYMD = end.toISOString().split('T')[0];
+
+      // ── Overlap guard ─────────────────────────────────────────────
+      // Two date ranges overlap when A.start <= B.end AND A.end >= B.start.
+      // We lock the offending rows FOR UPDATE so a concurrent assign can't
+      // race past this check.
+      const dup = await client.query(
+        `SELECT m.id, m.start_date, m.end_date, m.status,
+                p.name AS plan_name
+           FROM memberships m
+           JOIN plans p ON p.id = m.plan_id
+          WHERE m.member_id = $1
+            AND m.status IN ('active','frozen')
+            AND m.start_date <= $3::date
+            AND m.end_date   >= $2::date
+          ORDER BY m.created_at DESC
+          LIMIT 1
+          FOR UPDATE`,
+        [req.body.memberId, startYMD, endYMD]
+      );
+      if (dup.rowCount) {
+        const d = dup.rows[0];
+        const fmt = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v));
+        throw new ApiError(
+          409,
+          `This member already has an active membership (${d.plan_name}, ${fmt(d.start_date)} → ${fmt(d.end_date)}) that overlaps the requested dates. Cancel or wait for it to expire before assigning a new plan.`
+        );
+      }
+
       const totalDue = req.body.totalDue != null ? req.body.totalDue : plan.price;
 
       const payload = {
         memberId: req.body.memberId,
         planId: req.body.planId,
-        startDate: start.toISOString().split('T')[0],
-        endDate: end.toISOString().split('T')[0],
+        startDate: startYMD,
+        endDate: endYMD,
         totalDue,
         createdBy: req.user.id,
       };

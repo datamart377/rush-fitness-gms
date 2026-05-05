@@ -3889,6 +3889,30 @@ const Memberships = ({ data, setData, currentUser }) => {
                   <option value="">Select member...</option>
                   {activeMembers.map((m) => <option key={m.id} value={m.id}>{fullName(m)} ({m.phone})</option>)}
                 </select>
+                {(() => {
+                  // Warn the moment the picked member already has a non-finalized
+                  // membership that would overlap the new one. Mirrors the backend
+                  // overlap guard so staff don't have to click Assign to find out.
+                  if (!form.memberId) return null;
+                  const proposedStart = (isAdmin && form.startDate) ? form.startDate : today();
+                  const planInfo = PLANS[form.plan];
+                  const days = planInfo?.days || 30;
+                  const proposedEnd = dateToYMD(new Date(new Date(proposedStart).getTime() + days * 86400000));
+                  const conflict = (data.memberships || []).find((ms) =>
+                    ms.memberId === form.memberId
+                    && (ms.status === "active" || ms.status === "frozen" || ms.isActive === true)
+                    && ms.startDate <= proposedEnd
+                    && ms.endDate >= proposedStart
+                  );
+                  if (!conflict) return null;
+                  const planName = PLANS[conflict.plan]?.name || conflict.plan;
+                  return (
+                    <div style={{ marginTop: 6, padding: "8px 10px", background: "var(--warning-dim, #3a2a10)", border: "1px solid var(--warning)", borderRadius: "var(--radius-xs)", fontSize: 12, color: "var(--warning)" }}>
+                      <strong>Already on a plan:</strong> {planName}, {conflict.startDate} → {conflict.endDate} ({conflict.status || "active"}).
+                      Cancel or wait for it to expire before assigning a new one.
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
