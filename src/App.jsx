@@ -67,15 +67,61 @@ const adaptPayment = (p) => {
     // so revenue reductions and reconciliations actually compute totals correctly.
     amount: Number(p.amount || 0),
     discountAmount: Number(p.discountAmount || 0),
-    // Map backend "mpesa" → frontend "mobile_money" so existing UI badges keep working.
-    method: p.method === "mpesa" ? "mobile_money" : p.method,
+    // Map backend method names → frontend equivalents. The two MTN/Airtel
+    // values are kept distinct; legacy "mpesa" rows (no carrier captured)
+    // collapse to plain "mobile_money" and render as just "Mobile Money".
+    method: paymentMethodFromApi(p.method),
     type: adaptPaymentType(p.type),
     note: p.notes || p.note || "",
   };
 };
 
-// Frontend → API: the form uses "mobile_money", API expects "mpesa".
-const paymentMethodToApi = (m) => m === "mobile_money" ? "mpesa" : m;
+// Frontend → API: the form uses "mobile_money_mtn"/"mobile_money_airtel"
+// (and "mobile_money" for legacy/unspecified); API stores the matching
+// "mpesa_mtn"/"mpesa_airtel"/"mpesa" values.
+const paymentMethodToApi = (m) => {
+  if (m === "mobile_money_mtn")    return "mpesa_mtn";
+  if (m === "mobile_money_airtel") return "mpesa_airtel";
+  if (m === "mobile_money")        return "mpesa";
+  return m;
+};
+
+// API → Frontend: inverse of the above.
+const paymentMethodFromApi = (m) => {
+  if (m === "mpesa_mtn")    return "mobile_money_mtn";
+  if (m === "mpesa_airtel") return "mobile_money_airtel";
+  if (m === "mpesa")        return "mobile_money";
+  return m;
+};
+
+// Single source of truth for displaying a payment method in the UI.
+// Handles legacy "mobile_money", new MTN/Airtel variants, and the
+// "M-Money" short form used in dense tables.
+const PAYMENT_METHOD_LABELS = {
+  cash: "Cash",
+  mobile_money: "Mobile Money",
+  mobile_money_mtn: "Mobile Money (MTN)",
+  mobile_money_airtel: "Mobile Money (Airtel)",
+  card: "Card",
+  bank_transfer: "Bank Transfer",
+};
+const PAYMENT_METHOD_LABELS_SHORT = {
+  cash: "Cash",
+  mobile_money: "M-Money",
+  mobile_money_mtn: "MM-MTN",
+  mobile_money_airtel: "MM-Airtel",
+  card: "Card",
+  bank_transfer: "Bank",
+};
+const formatPaymentMethod = (m, short = false) => {
+  if (!m) return "—";
+  const map = short ? PAYMENT_METHOD_LABELS_SHORT : PAYMENT_METHOD_LABELS;
+  return map[m] || (m.charAt(0).toUpperCase() + m.slice(1));
+};
+// Anything that's mobile money — used by aggregations / filters that don't
+// need to distinguish carrier (the dashboard's combined Mobile Money total).
+const isMobileMoneyMethod = (m) =>
+  m === "mobile_money" || m === "mobile_money_mtn" || m === "mobile_money_airtel";
 
 // ── Locker adapter (backend status enum → frontend isOccupied bool) ──
 const adaptLocker = (l) => l ? ({
@@ -1909,7 +1955,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Emergency Contact</label><input value={walkinForm.emergency} onChange={(e) => setWalkinForm({ ...walkinForm, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
             <div className="form-group"><label>Payment Method *</label>
               <select value={walkinForm.paymentMethod} onChange={(e) => setWalkinForm({ ...walkinForm, paymentMethod: e.target.value })}>
-                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
+                <option value="cash">Cash</option><option value="mobile_money_mtn">Mobile Money (MTN)</option><option value="mobile_money_airtel">Mobile Money (Airtel)</option><option value="card">Card</option>
               </select>
             </div>
             <div className="form-group full"><label>Payment Status *</label>
@@ -2615,7 +2661,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
             </div>
             <div className="form-group"><label>Payment Method *</label>
               <select value={editWalkin.paymentMethod || "cash"} onChange={(e) => setEditWalkin({ ...editWalkin, paymentMethod: e.target.value })}>
-                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
+                <option value="cash">Cash</option><option value="mobile_money_mtn">Mobile Money (MTN)</option><option value="mobile_money_airtel">Mobile Money (Airtel)</option><option value="card">Card</option>
               </select>
             </div>
             <div className="form-group full"><label>Amount (UGX)</label>
@@ -4072,7 +4118,8 @@ const Memberships = ({ data, setData, currentUser }) => {
               <label>Payment Method</label>
               <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
                 <option value="cash">Cash</option>
-                <option value="mobile_money">Mobile Money</option>
+                <option value="mobile_money_mtn">Mobile Money (MTN)</option>
+                <option value="mobile_money_airtel">Mobile Money (Airtel)</option>
                 <option value="card">Card</option>
               </select>
             </div>
@@ -4289,7 +4336,7 @@ const Memberships = ({ data, setData, currentUser }) => {
                 <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Payment History</p>
                 {data.payments.filter((p) => p.membershipId === payTarget.id).map((p, i) => (
                   <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
-                    <span style={{ color: "var(--text-dim)" }}>#{i + 1} — {formatDate(p.paidAt)} ({p.method === "mobile_money" ? "M-Money" : p.method})</span>
+                    <span style={{ color: "var(--text-dim)" }}>#{i + 1} — {formatDate(p.paidAt)} ({formatPaymentMethod(p.method, true)})</span>
                     <span style={{ fontWeight: 600, color: "var(--success)" }}>{formatUGX(p.amount)}</span>
                   </div>
                 ))}
@@ -4310,7 +4357,8 @@ const Memberships = ({ data, setData, currentUser }) => {
                   <label>Method</label>
                   <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
                     <option value="cash">Cash</option>
-                    <option value="mobile_money">Mobile Money</option>
+                    <option value="mobile_money_mtn">Mobile Money (MTN)</option>
+                    <option value="mobile_money_airtel">Mobile Money (Airtel)</option>
                     <option value="card">Card</option>
                   </select>
                 </div>
@@ -4377,7 +4425,7 @@ const Memberships = ({ data, setData, currentUser }) => {
               <div className="form-group">
                 <label>Payment Method</label>
                 <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
-                  <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
+                  <option value="cash">Cash</option><option value="mobile_money_mtn">Mobile Money (MTN)</option><option value="mobile_money_airtel">Mobile Money (Airtel)</option><option value="card">Card</option>
                 </select>
               </div>
 
@@ -4590,7 +4638,16 @@ const Payments = ({ data }) => {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const filtered = data.payments.filter((p) => {
-    if (tab !== "all" && p.method !== tab) return false;
+    // The "mobile_money" tab covers all carrier variants (MTN, Airtel, and
+    // legacy unspecified) so admins can scan all mobile-money rows in one
+    // place; the badge column still shows which carrier each row used.
+    if (tab !== "all") {
+      if (tab === "mobile_money") {
+        if (!isMobileMoneyMethod(p.method)) return false;
+      } else if (p.method !== tab) {
+        return false;
+      }
+    }
     if (!search) return true;
     const q = search.toLowerCase();
     const member = p.memberId ? data.members.find((m) => m.id === p.memberId) : null;
@@ -4644,7 +4701,7 @@ const Payments = ({ data }) => {
                     {desc.secondary && <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>{desc.secondary}</div>}
                     {p.discountAmount > 0 && <div style={{ color: "var(--success)", fontSize: 11, marginTop: 2 }}>Discount: -{formatUGX(p.discountAmount)}</div>}
                   </td>
-                  <td><Badge variant="neutral">{p.method === "mobile_money" ? "Mobile Money" : (p.method || "—").charAt(0).toUpperCase() + (p.method || "—").slice(1)}</Badge></td>
+                  <td><Badge variant="neutral">{formatPaymentMethod(p.method)}</Badge></td>
                   <td style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-muted)" }}>{p.reference || "—"}</td>
                   <td style={{ fontWeight: 600, color: isRefund ? "var(--warning)" : "var(--accent)", textAlign: "right" }}>
                     {isRefund && <span style={{ fontSize: 10, marginRight: 4 }}>(refunded)</span>}
@@ -4848,7 +4905,7 @@ const WalkIns = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Emergency Contact 2</label><input value={form.emergency2} onChange={(e) => setForm({ ...form, emergency2: e.target.value })} placeholder="Optional" /></div>
             <div className="form-group"><label>Payment Method *</label>
               <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
-                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
+                <option value="cash">Cash</option><option value="mobile_money_mtn">Mobile Money (MTN)</option><option value="mobile_money_airtel">Mobile Money (Airtel)</option><option value="card">Card</option>
               </select>
             </div>
             <div className="form-group"><label>Payment Status *</label>
@@ -4904,7 +4961,7 @@ const WalkIns = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Phone</label><input value={editTarget.phone || ""} onChange={(e) => setEditTarget({ ...editTarget, phone: e.target.value })} /></div>
             <div className="form-group"><label>Payment Method</label>
               <select value={editTarget.paymentMethod || "cash"} onChange={(e) => setEditTarget({ ...editTarget, paymentMethod: e.target.value })}>
-                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option>
+                <option value="cash">Cash</option><option value="mobile_money_mtn">Mobile Money (MTN)</option><option value="mobile_money_airtel">Mobile Money (Airtel)</option><option value="card">Card</option>
               </select>
             </div>
             <div className="form-group"><label>Payment Status</label>
@@ -6159,7 +6216,7 @@ const Shop = ({ data, setData, currentUser }) => {
             price: Number(s.unitPrice || 0),
           }],
           total: Number(s.total || 0),
-          method: s.paymentMethod === "mpesa" ? "mobile_money" : (s.paymentMethod || "cash"),
+          method: paymentMethodFromApi(s.paymentMethod) || "cash",
           soldBy: s.soldByName || s.soldByUsername || "Staff",
           soldAt: ts,
           date: ts.slice(0, 10),
@@ -6334,7 +6391,8 @@ const Shop = ({ data, setData, currentUser }) => {
                   <label>Payment Method</label>
                   <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
                     <option value="cash">Cash</option>
-                    <option value="mobile_money">Mobile Money</option>
+                    <option value="mobile_money_mtn">Mobile Money (MTN)</option>
+                    <option value="mobile_money_airtel">Mobile Money (Airtel)</option>
                     <option value="card">Card</option>
                   </select>
                 </div>
@@ -6450,7 +6508,7 @@ const Shop = ({ data, setData, currentUser }) => {
                   <tr key={sale.id}>
                     <td>{formatDate(sale.soldAt)} {formatTime(sale.soldAt)}</td>
                     <td style={{ color: "var(--text)", fontSize: 12 }}>{sale.items.map((i) => `${i.name} x${i.qty}`).join(", ")}</td>
-                    <td><Badge variant="neutral">{sale.method === "mobile_money" ? "Mobile Money" : sale.method.charAt(0).toUpperCase() + sale.method.slice(1)}</Badge></td>
+                    <td><Badge variant="neutral">{formatPaymentMethod(sale.method)}</Badge></td>
                     <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(sale.total)}</td>
                     <td style={{ color: "var(--text-dim)" }}>{sale.soldBy}</td>
                   </tr>
@@ -6576,7 +6634,7 @@ const Expenses = ({ data, setData, currentUser }) => {
                 <td>{formatDate(e.date)}</td>
                 <td><Badge variant="warning">{e.category}</Badge></td>
                 <td style={{ color: "var(--text)", maxWidth: 250 }}>{e.description}</td>
-                <td><Badge variant="neutral">{e.method === "mobile_money" ? "M-Money" : e.method.charAt(0).toUpperCase() + e.method.slice(1)}</Badge></td>
+                <td><Badge variant="neutral">{formatPaymentMethod(e.method, true)}</Badge></td>
                 <td style={{ fontWeight: 600, color: "var(--danger)" }}>{formatUGX(e.amount)}</td>
                 <td style={{ fontSize: 12, color: "var(--text-dim)" }}>{e.approvedBy}</td>
                 {isAdmin && (
@@ -6608,7 +6666,7 @@ const Expenses = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Amount (UGX) *</label><input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="e.g. 450000" /></div>
             <div className="form-group"><label>Payment Method</label>
               <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
-                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option>
+                <option value="cash">Cash</option><option value="mobile_money_mtn">Mobile Money (MTN)</option><option value="mobile_money_airtel">Mobile Money (Airtel)</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option>
               </select>
             </div>
             <div className="form-group full"><label>Receipt / Reference</label><input value={form.receipt} onChange={(e) => setForm({ ...form, receipt: e.target.value })} placeholder="Receipt number or reference (optional)" /></div>
@@ -6630,7 +6688,7 @@ const Expenses = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Amount (UGX)</label><input type="number" value={editTarget.amount} onChange={(e) => setEditTarget({ ...editTarget, amount: e.target.value })} /></div>
             <div className="form-group"><label>Payment Method</label>
               <select value={editTarget.method} onChange={(e) => setEditTarget({ ...editTarget, method: e.target.value })}>
-                <option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option>
+                <option value="cash">Cash</option><option value="mobile_money_mtn">Mobile Money (MTN)</option><option value="mobile_money_airtel">Mobile Money (Airtel)</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option>
               </select>
             </div>
             <div className="form-group full"><label>Receipt / Reference</label><input value={editTarget.receipt || ""} onChange={(e) => setEditTarget({ ...editTarget, receipt: e.target.value })} /></div>
@@ -6658,7 +6716,7 @@ const Reconciliation = ({ data, setData }) => {
           productName: s.productName,
           quantity: Number(s.quantity || 0),
           total: Number(s.total || 0),
-          method: s.paymentMethod === "mpesa" ? "mobile_money" : (s.paymentMethod || "cash"),
+          method: paymentMethodFromApi(s.paymentMethod) || "cash",
           soldBy: s.soldByName || s.soldByUsername || "Staff",
           soldAt: ts,
           date: ts.slice(0, 10),
@@ -6697,7 +6755,9 @@ const Reconciliation = ({ data, setData }) => {
 
   // Breakdown by payment method
   const systemCash = todayPayments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
-  const systemMobile = todayPayments.filter((p) => p.method === "mobile_money").reduce((s, p) => s + p.amount, 0);
+  // Combined Mobile Money total — sums MTN + Airtel + legacy unspecified rows
+  // so the dashboard's "Mobile Money" tile keeps showing one number.
+  const systemMobile = todayPayments.filter((p) => isMobileMoneyMethod(p.method)).reduce((s, p) => s + p.amount, 0);
   const systemCard = todayPayments.filter((p) => p.method === "card").reduce((s, p) => s + p.amount, 0);
   const totalRevenue = systemCash + systemMobile + systemCard;
 
@@ -6819,7 +6879,7 @@ const Reconciliation = ({ data, setData }) => {
                   <span style={{ color: "var(--text)" }}>{e.description}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <Badge variant="neutral">{e.method === "mobile_money" ? "M-Money" : e.method === "bank_transfer" ? "Bank" : e.method.charAt(0).toUpperCase() + e.method.slice(1)}</Badge>
+                  <Badge variant="neutral">{formatPaymentMethod(e.method, true)}</Badge>
                   <span style={{ fontWeight: 600, color: "var(--danger)", minWidth: 80, textAlign: "right" }}>-{formatUGX(e.amount)}</span>
                 </div>
               </div>
@@ -6875,7 +6935,7 @@ const Reconciliation = ({ data, setData }) => {
                     </div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-                    <Badge variant="neutral">{p.method === "mobile_money" ? "M-Money" : (p.method || "—").charAt(0).toUpperCase() + (p.method || "—").slice(1)}</Badge>
+                    <Badge variant="neutral">{formatPaymentMethod(p.method, true)}</Badge>
                     <span style={{ fontWeight: 600, color: "var(--accent)", minWidth: 80, textAlign: "right" }}>{formatUGX(p.amount)}</span>
                   </div>
                 </div>
@@ -7802,7 +7862,7 @@ const FinancialStatement = ({ data }) => {
                   <tr key={p.id} style={p.status === "refunded" ? { opacity: 0.6, textDecoration: "line-through" } : undefined}>
                     <td>{formatDate(p.paidAt)} {formatTime(p.paidAt)}</td>
                     <td><Badge variant="neutral">{p.type || "—"}</Badge></td>
-                    <td>{p.method === "mobile_money" ? "M-Money" : (p.method || "—").charAt(0).toUpperCase() + (p.method || "—").slice(1)}</td>
+                    <td>{formatPaymentMethod(p.method, true)}</td>
                     <td style={{ fontFamily: "monospace", fontSize: 11 }}>{p.reference || "—"}</td>
                     <td style={{ fontSize: 12, color: "var(--text-dim)", maxWidth: 250 }}>{p.notes || p.note || "—"}</td>
                     <td style={{ textAlign: "right", fontWeight: 600, color: p.status === "refunded" ? "var(--warning)" : "var(--accent)" }}>
@@ -7927,15 +7987,22 @@ const Reports = ({ data }) => {
 
             <div className="card">
               <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Payment Methods</h3>
-              {["cash", "mobile_money", "card"].map((method) => {
-                const total = data.payments.filter((p) => p.method === method && p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
-                return (
-                  <div key={method} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                    <span style={{ color: "var(--text)" }}>{method === "mobile_money" ? "Mobile Money" : method.charAt(0).toUpperCase() + method.slice(1)}</span>
-                    <span style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(total)}</span>
-                  </div>
-                );
-              })}
+              {/* Per-method revenue breakdown — Mobile Money is split MTN/Airtel
+                  for reconciliation, with a legacy "Mobile Money" line shown
+                  only if there are old unspecified-carrier rows to account for. */}
+              {(() => {
+                const allMethods = ["cash", "mobile_money_mtn", "mobile_money_airtel", "mobile_money", "card"];
+                return allMethods.map((method) => {
+                  const total = data.payments.filter((p) => p.method === method && p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
+                  if (method === "mobile_money" && total === 0) return null;
+                  return (
+                    <div key={method} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                      <span style={{ color: "var(--text)" }}>{formatPaymentMethod(method)}{method === "mobile_money" && <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 6 }}>(legacy, no carrier)</span>}</span>
+                      <span style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(total)}</span>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         </>
@@ -8400,7 +8467,7 @@ export default function App() {
               price: Number(s.unitPrice || 0),
             }],
             total: Number(s.total || 0),
-            method: s.paymentMethod === "mpesa" ? "mobile_money" : (s.paymentMethod || "cash"),
+            method: paymentMethodFromApi(s.paymentMethod) || "cash",
             soldBy: s.soldByName || s.soldByUsername || "Staff",
             soldAt: ts,
             date: ts.slice(0, 10),

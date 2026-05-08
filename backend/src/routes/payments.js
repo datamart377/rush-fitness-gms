@@ -26,7 +26,7 @@ router.get(
   validate([
     q('memberId').optional().isUUID(),
     q('membershipId').optional().isUUID(),
-    q('method').optional().isIn(['cash', 'mpesa', 'card', 'bank_transfer']),
+    q('method').optional().isIn(['cash', 'mpesa', 'mpesa_mtn', 'mpesa_airtel', 'card', 'bank_transfer']),
     q('from').optional().isISO8601(),
     q('to').optional().isISO8601(),
   ]),
@@ -67,7 +67,7 @@ router.post(
   requireRole('admin', 'manager', 'receptionist'),
   validate([
     body('amount').isFloat({ min: 0 }),
-    body('method').isIn(['cash', 'mpesa', 'card', 'bank_transfer']),
+    body('method').isIn(['cash', 'mpesa', 'mpesa_mtn', 'mpesa_airtel', 'card', 'bank_transfer']),
     body('memberId').optional({ checkFalsy: true }).isUUID(),
     body('membershipId').optional({ checkFalsy: true }).isUUID(),
     body('discountId').optional({ checkFalsy: true }).isUUID(),

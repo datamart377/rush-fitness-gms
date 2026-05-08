@@ -132,7 +132,7 @@ router.post(
     param('id').isUUID(),
     body('quantity').isInt({ min: 1 }),
     body('memberId').optional({ checkFalsy: true }).isUUID(),
-    body('paymentMethod').isIn(['cash', 'mpesa', 'card', 'bank_transfer']),
+    body('paymentMethod').isIn(['cash', 'mpesa', 'mpesa_mtn', 'mpesa_airtel', 'card', 'bank_transfer']),
     body('reference').optional().isString(),
   ]),
   asyncHandler(async (req, res) => {
