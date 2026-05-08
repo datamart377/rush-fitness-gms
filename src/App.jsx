@@ -3771,13 +3771,16 @@ const Memberships = ({ data, setData, currentUser }) => {
 
   // Admin-only: open the Edit modal for a migrated/legacy row.
   // Pre-fills with the current values; saveEdit only sends fields that changed.
+  // Run dates through dateToYMD because the API returns full ISO timestamps
+  // (e.g. "2026-04-15T00:00:00.000Z") and <input type="date"> only accepts
+  // bare YYYY-MM-DD — anything else makes the picker render empty.
   const openEdit = (ms) => {
     const bal = getMembershipBalance(ms, data.payments);
     setEditTarget(ms);
     setEditForm({
       plan: ms.plan || "gym_monthly",
-      startDate: ms.startDate || "",
-      endDate: ms.endDate || "",
+      startDate: dateToYMD(ms.startDate),
+      endDate: dateToYMD(ms.endDate),
       totalDue: String(ms.totalDue ?? bal.totalDue ?? 0),
       totalPaid: String(ms.totalPaid ?? bal.totalPaid ?? 0),
     });
@@ -3793,8 +3796,12 @@ const Memberships = ({ data, setData, currentUser }) => {
       if (!planId) { setApiError(`Plan "${editForm.plan}" not found in backend.`); return; }
       payload.planId = planId;
     }
-    if (editForm.startDate && editForm.startDate !== editTarget.startDate) payload.startDate = editForm.startDate;
-    if (editForm.endDate   && editForm.endDate   !== editTarget.endDate)   payload.endDate   = editForm.endDate;
+    // Compare against the YMD-normalized originals so a UTC-suffixed value
+    // like "2026-04-15T00:00:00.000Z" doesn't look "different" from "2026-04-15".
+    const origStart = dateToYMD(editTarget.startDate);
+    const origEnd   = dateToYMD(editTarget.endDate);
+    if (editForm.startDate && editForm.startDate !== origStart) payload.startDate = editForm.startDate;
+    if (editForm.endDate   && editForm.endDate   !== origEnd)   payload.endDate   = editForm.endDate;
     if (payload.startDate && payload.endDate && payload.endDate < payload.startDate) {
       setApiError("End date cannot be before start date."); return;
     }
@@ -3826,7 +3833,7 @@ const Memberships = ({ data, setData, currentUser }) => {
     const who = member ? fullName(member) : "this member";
     const ok = window.confirm(
       `Permanently delete this ${getPlanName(ms.plan)} membership for ${who}?\n\n` +
-      `Dates: ${ms.startDate} → ${ms.endDate}\n\n` +
+      `Dates: ${dateToYMD(ms.startDate)} → ${dateToYMD(ms.endDate)}\n\n` +
       `This cannot be undone. Linked payments will keep their record but lose the link to this membership.`
     );
     if (!ok) return;
@@ -4422,13 +4429,83 @@ const Memberships = ({ data, setData, currentUser }) => {
                     {eligiblePlanCodes.map((k) => <option key={k} value={k}>{PLANS[k].name}</option>)}
                   </select>
                 </div>
+                {/* Native date inputs only open the picker when the user clicks
+                    the calendar icon. Calling .showPicker() on focus/click makes
+                    clicking anywhere in the field open the calendar reliably.
+                    colorScheme: dark forces the picker to match our theme.    */}
                 <div className="form-group">
                   <label>Start Date</label>
-                  <input type="date" value={editForm.startDate} onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })} />
+                  <input
+                    type="date"
+                    value={editForm.startDate}
+                    onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })}
+                    onFocus={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                    onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                    style={{ colorScheme: "dark", cursor: "pointer" }}
+                  />
+                  {editForm.startDate && (
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                      {formatDate(editForm.startDate)}
+                    </div>
+                  )}
                 </div>
                 <div className="form-group">
                   <label>End Date</label>
-                  <input type="date" value={editForm.endDate} onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })} />
+                  <input
+                    type="date"
+                    value={editForm.endDate}
+                    min={editForm.startDate || undefined}
+                    onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })}
+                    onFocus={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                    onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                    style={{ colorScheme: "dark", cursor: "pointer" }}
+                  />
+                  {editForm.endDate && (
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                      {formatDate(editForm.endDate)}
+                    </div>
+                  )}
+                </div>
+                {/* Quick set: pick a duration in months and the end date snaps
+                    to start + N months (true calendar months — handles month-end
+                    edge cases like Jan 31 → Feb 28 correctly). */}
+                <div className="form-group full">
+                  <label>Quick Set Duration</label>
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const months = Number(e.target.value);
+                      if (!months || !editForm.startDate) return;
+                      const d = new Date(editForm.startDate);
+                      const targetMonth = d.getMonth() + months;
+                      d.setMonth(targetMonth);
+                      // If the resulting date overflowed (e.g. Jan 31 + 1mo would
+                      // become Mar 3), clamp back to the last day of the intended
+                      // month so "1 month" really means "the same day next month
+                      // or the last day, whichever comes first".
+                      if (d.getMonth() !== ((targetMonth % 12) + 12) % 12) {
+                        d.setDate(0);
+                      }
+                      setEditForm({ ...editForm, endDate: dateToYMD(d) });
+                    }}
+                    disabled={!editForm.startDate}
+                    style={{ cursor: editForm.startDate ? "pointer" : "not-allowed" }}
+                  >
+                    <option value="">— select duration —</option>
+                    <option value="1">1 month</option>
+                    <option value="2">2 months</option>
+                    <option value="3">3 months</option>
+                    <option value="6">6 months</option>
+                    <option value="9">9 months</option>
+                    <option value="12">12 months (1 year)</option>
+                    <option value="18">18 months</option>
+                    <option value="24">24 months (2 years)</option>
+                  </select>
+                  {!editForm.startDate && (
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                      Set a start date first.
+                    </div>
+                  )}
                 </div>
                 <div className="form-group">
                   <label>Total Due (UGX)</label>
