@@ -4637,6 +4637,32 @@ const PAYMENT_TYPE_BADGE = {
 const Payments = ({ data }) => {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
+  // Date range filter — ymd strings (YYYY-MM-DD). Empty = no bound.
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo]     = useState("");
+
+  // Quick-range presets — match the same patterns used on Reports.
+  const setRangePreset = (preset) => {
+    const now = new Date();
+    const todayYMD = dateToYMD(now);
+    if (preset === "today") {
+      setDateFrom(todayYMD); setDateTo(todayYMD);
+    } else if (preset === "yesterday") {
+      const y = dateToYMD(new Date(now.getTime() - 86400000));
+      setDateFrom(y); setDateTo(y);
+    } else if (preset === "week") {
+      // Last 7 days inclusive of today.
+      setDateFrom(dateToYMD(new Date(now.getTime() - 6 * 86400000)));
+      setDateTo(todayYMD);
+    } else if (preset === "month") {
+      // From the 1st of the current month through today.
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      setDateFrom(dateToYMD(first)); setDateTo(todayYMD);
+    } else if (preset === "all") {
+      setDateFrom(""); setDateTo("");
+    }
+  };
+
   const filtered = data.payments.filter((p) => {
     // The "mobile_money" tab covers all carrier variants (MTN, Airtel, and
     // legacy unspecified) so admins can scan all mobile-money rows in one
@@ -4647,6 +4673,13 @@ const Payments = ({ data }) => {
       } else if (p.method !== tab) {
         return false;
       }
+    }
+    // Date range filter — compare the payment's local-date ymd against the
+    // bounds so a midnight UTC timestamp doesn't get pushed to the prior day.
+    if (dateFrom || dateTo) {
+      const ymd = dateToYMD(p.paidAt);
+      if (dateFrom && ymd < dateFrom) return false;
+      if (dateTo   && ymd > dateTo)   return false;
     }
     if (!search) return true;
     const q = search.toLowerCase();
@@ -4666,11 +4699,53 @@ const Payments = ({ data }) => {
         <h2>Payments</h2>
         <p>Track all payment transactions — {filtered.length} record{filtered.length === 1 ? "" : "s"} · {formatUGX(totalShown)} total</p>
       </div>
-      <div className="toolbar">
-        <div className="search-bar" style={{ flex: 1, maxWidth: 360 }}>
+      <div className="toolbar" style={{ flexWrap: "wrap", gap: 12 }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: 240, maxWidth: 360 }}>
           <Search />
           <input placeholder="Search by name, item, reference, note..." value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
+        {/* Date range filter — local-date comparison, inclusive on both ends. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>From</label>
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+            onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+            style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+          />
+          <label style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>To</label>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+            onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+            style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+          />
+          {(dateFrom || dateTo) && (
+            <button type="button" className="btn btn-sm btn-secondary" onClick={() => setRangePreset("all")} title="Clear date range"><X size={12} /> Clear</button>
+          )}
+        </div>
+      </div>
+      {/* Quick-range chips — one click for the most common ranges. */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "8px 0 4px" }}>
+        {[
+          ["today",     "Today"],
+          ["yesterday", "Yesterday"],
+          ["week",      "Last 7 days"],
+          ["month",     "This month"],
+          ["all",       "All time"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className="btn btn-sm btn-secondary"
+            onClick={() => setRangePreset(key)}
+            style={{ padding: "4px 10px", fontSize: 11 }}
+          >{label}</button>
+        ))}
       </div>
       <div className="tabs">
         {["all", "cash", "mobile_money", "card"].map((t) => (
