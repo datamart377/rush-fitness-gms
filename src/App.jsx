@@ -4008,14 +4008,88 @@ const Memberships = ({ data, setData, currentUser }) => {
             return (
           <>
           <div className="form-grid">
-            {/* Single-member picker (default) */}
+            {/* Single-member picker (default) — searchable.
+                Reuses `_memberSearch` from form state and `filteredMembers`
+                computed above so the same name/phone-substring filter that
+                drives the group picker also drives this one. */}
             {!isGroup && (
               <div className="form-group full">
                 <label>Member</label>
-                <select value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })}>
-                  <option value="">Select member...</option>
-                  {activeMembers.map((m) => <option key={m.id} value={m.id}>{fullName(m)} ({m.phone})</option>)}
-                </select>
+                {(() => {
+                  const selected = form.memberId ? activeMembers.find((m) => m.id === form.memberId) : null;
+                  return (
+                    <>
+                      {/* Currently selected member chip — clear via the X. */}
+                      {selected && (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "var(--accent-dim)", border: "1px solid var(--accent)", borderRadius: "var(--radius-xs)", marginBottom: 6 }}>
+                          <span style={{ fontSize: 13, color: "var(--text)" }}>
+                            <span style={{ fontWeight: 600 }}>{fullName(selected)}</span>
+                            <span style={{ color: "var(--text-dim)", marginLeft: 6 }}>({selected.phone})</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setForm({ ...form, memberId: "", _memberSearch: "" })}
+                            title="Clear selection"
+                            style={{ background: "transparent", border: 0, color: "var(--text-dim)", cursor: "pointer", padding: 4 }}
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      )}
+                      {/* Search bar — name or phone substring. */}
+                      <div className="search-bar">
+                        <Search />
+                        <input
+                          placeholder={selected ? "Pick a different member..." : "Search by name or phone..."}
+                          value={form._memberSearch || ""}
+                          onChange={(e) => setForm({ ...form, _memberSearch: e.target.value })}
+                          autoFocus={!selected}
+                        />
+                      </div>
+                      {/* Scrollable result list — only renders when a search
+                          query is active or no member is selected, so a
+                          completed pick doesn't keep showing 200 names. */}
+                      {(!selected || memberSearch) && (
+                        <div style={{ marginTop: 6, maxHeight: 220, overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)" }}>
+                          {filteredMembers.length === 0 && (
+                            <div style={{ padding: 16, textAlign: "center", color: "var(--text-muted)", fontSize: 12 }}>
+                              No active members match{memberSearch ? ` "${form._memberSearch}"` : ""}.
+                            </div>
+                          )}
+                          {filteredMembers.slice(0, 100).map((m) => {
+                            const isSelected = m.id === form.memberId;
+                            return (
+                              <button
+                                type="button"
+                                key={m.id}
+                                onClick={() => setForm({ ...form, memberId: m.id, _memberSearch: "" })}
+                                style={{
+                                  display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between",
+                                  padding: "8px 12px", border: 0, borderBottom: "1px solid var(--border)",
+                                  background: isSelected ? "var(--accent-dim)" : "transparent",
+                                  color: "var(--text)", cursor: "pointer", textAlign: "left", fontSize: 13,
+                                }}
+                                onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-elevated)"; }}
+                                onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+                              >
+                                <span>
+                                  <span style={{ fontWeight: 500 }}>{fullName(m)}</span>
+                                  <span style={{ color: "var(--text-dim)", marginLeft: 6, fontSize: 12 }}>({m.phone})</span>
+                                </span>
+                                {isSelected && <Check size={14} style={{ color: "var(--accent)" }} />}
+                              </button>
+                            );
+                          })}
+                          {filteredMembers.length > 100 && (
+                            <div style={{ padding: "6px 12px", fontSize: 11, color: "var(--text-muted)", borderTop: "1px solid var(--border)" }}>
+                              Showing first 100 of {filteredMembers.length} matches — refine the search to narrow.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
                 {(() => {
                   // Warn the moment the picked member already has a non-finalized
                   // membership that would overlap the new one. Mirrors the backend
