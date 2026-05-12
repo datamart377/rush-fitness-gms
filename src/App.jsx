@@ -6778,6 +6778,32 @@ const Expenses = ({ data, setData, currentUser }) => {
 const Reconciliation = ({ data, setData }) => {
   const [modal, setModal] = useState(false);
   const [declaredCash, setDeclaredCash] = useState("");
+  // Date range — defaults to "today" so the page lands on the same view as
+  // before. Admins can shift the window to inspect any past day or span.
+  // Submission of a new reconciliation row is still gated to "viewing today"
+  // since shift submission is a "now" workflow, not a historical one.
+  const [dateFrom, setDateFrom] = useState(today());
+  const [dateTo,   setDateTo]   = useState(today());
+  const isViewingToday = dateFrom === today() && dateTo === today();
+  const isSingleDay = dateFrom === dateTo;
+  const rangeLabel = isViewingToday
+    ? "Today"
+    : isSingleDay
+      ? formatDate(dateFrom)
+      : `${formatDate(dateFrom)} → ${formatDate(dateTo)}`;
+  const setRangePreset = (preset) => {
+    const now = new Date();
+    const t = today();
+    if (preset === "today")     { setDateFrom(t); setDateTo(t); }
+    else if (preset === "yesterday") {
+      const y = dateToYMD(new Date(now.getTime() - 86400000));
+      setDateFrom(y); setDateTo(y);
+    } else if (preset === "week")  { setDateFrom(dateToYMD(new Date(now.getTime() - 6 * 86400000))); setDateTo(t); }
+    else if (preset === "month") {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      setDateFrom(dateToYMD(first)); setDateTo(t);
+    }
+  };
 
   // Load fresh shop sales so we can resolve product names for shop-payment rows
   // that pre-date the backend notes-injection fix.
@@ -6804,8 +6830,14 @@ const Reconciliation = ({ data, setData }) => {
     }).catch(() => { /* non-blocking */ });
   }, [setData]);
 
-  // SINGLE SOURCE OF TRUTH: all revenue flows through data.payments
-  const todayPayments = data.payments.filter((p) => p.paidAt.startsWith(today()) && p.type !== "prepaid_visit");
+  // SINGLE SOURCE OF TRUTH: all revenue flows through data.payments. Filtered
+  // by the selected date range (inclusive); prepaid_visit rows excluded since
+  // they're internal balance debits, not real money in.
+  const todayPayments = data.payments.filter((p) => {
+    if (p.type === "prepaid_visit") return false;
+    const ymd = dateToYMD(p.paidAt);
+    return ymd >= dateFrom && ymd <= dateTo;
+  });
 
   // Resolve a friendly description for a payment — used in the transactions list.
   const describePayment = (p) => {
@@ -6843,8 +6875,11 @@ const Reconciliation = ({ data, setData }) => {
   const shopRevenue = todayPayments.filter((p) => p.type === "product_sale").reduce((s, p) => s + p.amount, 0);
   const otherRevenue = totalRevenue - membershipRevenue - addonRevenue - walkinRevenue - shopRevenue;
 
-  // Expenses
-  const todayExpenses = data.expenses ? data.expenses.filter((e) => e.date === today()) : [];
+  // Expenses — same date-range window as payments. Expense rows already store
+  // a bare YYYY-MM-DD in `date`, so direct string compare works.
+  const todayExpenses = data.expenses
+    ? data.expenses.filter((e) => e.date >= dateFrom && e.date <= dateTo)
+    : [];
   const totalExpensesToday = todayExpenses.reduce((s, e) => s + e.amount, 0);
   const expenseByCat = {};
   todayExpenses.forEach((e) => { expenseByCat[e.category] = (expenseByCat[e.category] || 0) + e.amount; });
@@ -6878,7 +6913,56 @@ const Reconciliation = ({ data, setData }) => {
 
   return (
     <div>
-      <div className="page-header"><h2>Daily Reconciliation</h2><p>Full end-of-shift financial summary — revenue, expenses & cash verification</p></div>
+      <div className="page-header">
+        <h2>Daily Reconciliation</h2>
+        <p>Full end-of-shift financial summary — revenue, expenses & cash verification</p>
+      </div>
+
+      {/* Date range picker — pick a single day or a span; defaults to today. */}
+      <div className="card" style={{ marginBottom: 16, padding: "12px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>
+            Viewing: <span style={{ color: "var(--accent)", fontWeight: 700 }}>{rangeLabel}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
+            <label style={{ fontSize: 11, color: "var(--text-muted)" }}>From</label>
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || today()}
+              onChange={(e) => setDateFrom(e.target.value || today())}
+              onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+              style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+            />
+            <label style={{ fontSize: 11, color: "var(--text-muted)" }}>To</label>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              max={today()}
+              onChange={(e) => setDateTo(e.target.value || today())}
+              onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+              style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+            />
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+          {[
+            ["today",     "Today"],
+            ["yesterday", "Yesterday"],
+            ["week",      "Last 7 days"],
+            ["month",     "This month"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => setRangePreset(key)}
+              style={{ padding: "4px 10px", fontSize: 11 }}
+            >{label}</button>
+          ))}
+        </div>
+      </div>
 
       {/* Top-level summary: Revenue vs Expenses vs Net */}
       <div className="card-grid" style={{ marginBottom: 20 }}>
@@ -6909,7 +6993,7 @@ const Reconciliation = ({ data, setData }) => {
 
       {/* Revenue by Source Breakdown */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 16 }}>Today's Revenue Breakdown by Source</h3>
+        <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 16 }}>Revenue Breakdown by Source — {rangeLabel}</h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
           {[
             { label: "Memberships", value: membershipRevenue, color: "var(--success)" },
@@ -6945,7 +7029,7 @@ const Reconciliation = ({ data, setData }) => {
       {/* Expenses Breakdown */}
       {todayExpenses.length > 0 && (
         <div className="card" style={{ marginBottom: 20, borderLeft: "3px solid var(--danger)" }}>
-          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Today's Expenses ({todayExpenses.length})</h3>
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Expenses — {rangeLabel} ({todayExpenses.length})</h3>
           <div style={{ maxHeight: 200, overflowY: "auto" }}>
             {todayExpenses.map((e) => (
               <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
@@ -6989,7 +7073,7 @@ const Reconciliation = ({ data, setData }) => {
 
       {/* Today's Transactions Detail */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Today's Transactions ({todayPayments.length})</h3>
+        <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Transactions — {rangeLabel} ({todayPayments.length})</h3>
         {todayPayments.length > 0 ? (
           <div style={{ maxHeight: 320, overflowY: "auto" }}>
             {[...todayPayments].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)).map((p) => {
@@ -7018,12 +7102,20 @@ const Reconciliation = ({ data, setData }) => {
             })}
           </div>
         ) : (
-          <p style={{ color: "var(--text-muted)", fontSize: 13 }}>No transactions recorded today.</p>
+          <p style={{ color: "var(--text-muted)", fontSize: 13 }}>No transactions recorded in this range.</p>
         )}
       </div>
 
-      {/* Reconciliation Submission */}
-      {!todayRec ? (
+      {/* Reconciliation Submission — only relevant for today; when viewing a
+          past range, hide the submit card so admins don't accidentally write
+          a reconciliation row populated with historical totals. */}
+      {!isViewingToday ? (
+        <div className="card" style={{ padding: "16px 20px", background: "var(--bg-elevated)", borderLeft: "3px solid var(--info)" }}>
+          <p style={{ color: "var(--text-dim)", fontSize: 13, margin: 0 }}>
+            Viewing historical range — switch to <strong>Today</strong> to submit a new reconciliation.
+          </p>
+        </div>
+      ) : !todayRec ? (
         <div className="card" style={{ textAlign: "center", padding: 40 }}>
           <AlertTriangle size={40} style={{ color: "var(--warning)", marginBottom: 12 }} />
           <h3 style={{ fontFamily: "var(--font-display)", marginBottom: 8 }}>Reconciliation Not Submitted</h3>
