@@ -8215,25 +8215,64 @@ const Reports = ({ data }) => {
   });
 
   const [tab, setTab] = useState("overview"); // overview | debtors
+  // Debtors-tab filters — search by name/phone and an inclusive date range.
+  // The "date" on a debtor is the membership start date (members) or visit
+  // date (walk-ins) — i.e. when the obligation was incurred.
+  const [debtorSearch, setDebtorSearch] = useState("");
+  const [debtorFrom, setDebtorFrom] = useState("");
+  const [debtorTo, setDebtorTo] = useState("");
 
-  // DEBTORS: members with pending_payment memberships (partial payments)
+  // DEBTORS: members with pending_payment memberships (partial payments).
+  // We stamp a `debtorDate` on each row so the date filter below has a single
+  // field to compare against, regardless of whether the source is a membership
+  // or a walk-in.
   const memberDebtors = data.memberships.filter((ms) => ms.status === "pending_payment" || (ms.isActive && ms.totalDue)).map((ms) => {
     const bal = getMembershipBalance(ms, data.payments);
     if (bal.isPaidInFull) return null;
     const member = data.members.find((m) => m.id === ms.memberId);
     if (!member) return null;
-    return { type: "membership", member, membership: ms, ...bal };
+    return { type: "membership", member, membership: ms, debtorDate: dateToYMD(ms.startDate), ...bal };
   }).filter(Boolean);
 
   // DEBTORS: walk-ins with pending payment
   const walkinDebtors = data.walkIns.filter((w) => w.paymentStatus === "pending").map((w) => ({
     type: "walkin", name: `${w.firstName || ""} ${w.lastName || w.name || ""}`.trim(), phone: w.phone,
     totalDue: w.amountDue || w.amountPaid || 0, totalPaid: 0, balance: w.amountDue || w.amountPaid || 0,
-    date: w.visitDate, activities: w.activities?.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(", ") || "",
+    date: w.visitDate, debtorDate: dateToYMD(w.visitDate),
+    activities: w.activities?.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(", ") || "",
   }));
 
   const allDebtors = [...memberDebtors, ...walkinDebtors];
-  const totalOutstanding = allDebtors.reduce((s, d) => s + d.balance, 0);
+
+  // Apply search + date range filters. Search matches name or phone substring.
+  const filteredDebtors = allDebtors.filter((d) => {
+    if (debtorFrom && d.debtorDate < debtorFrom) return false;
+    if (debtorTo   && d.debtorDate > debtorTo)   return false;
+    if (debtorSearch) {
+      const q = debtorSearch.toLowerCase();
+      const name = (d.type === "membership" ? fullName(d.member) : d.name || "").toLowerCase();
+      const phone = (d.type === "membership" ? d.member.phone : d.phone) || "";
+      if (!name.includes(q) && !phone.includes(q)) return false;
+    }
+    return true;
+  });
+  const filteredMemberDebtors = filteredDebtors.filter((d) => d.type === "membership");
+  const filteredWalkinDebtors = filteredDebtors.filter((d) => d.type === "walkin");
+  const totalOutstanding = filteredDebtors.reduce((s, d) => s + d.balance, 0);
+
+  // Quick-range chips for the debtors tab.
+  const setDebtorRangePreset = (preset) => {
+    const now = new Date();
+    const t = today();
+    if (preset === "today")     { setDebtorFrom(t); setDebtorTo(t); }
+    else if (preset === "week") { setDebtorFrom(dateToYMD(new Date(now.getTime() - 6 * 86400000))); setDebtorTo(t); }
+    else if (preset === "month") {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      setDebtorFrom(dateToYMD(first)); setDebtorTo(t);
+    } else if (preset === "all") {
+      setDebtorFrom(""); setDebtorTo("");
+    }
+  };
 
   return (
     <div>
@@ -8241,7 +8280,7 @@ const Reports = ({ data }) => {
 
       <div className="tabs" style={{ marginBottom: 20 }}>
         <button className={`tab ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Revenue Overview</button>
-        <button className={`tab ${tab === "debtors" ? "active" : ""}`} onClick={() => setTab("debtors")}>Debtors Report ({allDebtors.length})</button>
+        <button className={`tab ${tab === "debtors" ? "active" : ""}`} onClick={() => setTab("debtors")}>Debtors Report ({filteredDebtors.length}{filteredDebtors.length !== allDebtors.length ? `/${allDebtors.length}` : ""})</button>
         <button className={`tab ${tab === "statement" ? "active" : ""}`} onClick={() => setTab("statement")}>Financial Statement</button>
       </div>
 
@@ -8294,24 +8333,88 @@ const Reports = ({ data }) => {
       {tab === "debtors" && (
         <>
           <div className="card-grid" style={{ marginBottom: 20 }}>
-            <StatCard icon={AlertTriangle} label="Total Debtors" value={allDebtors.length} color="var(--danger)" bg="var(--danger-dim)" />
+            <StatCard icon={AlertTriangle} label="Total Debtors" value={filteredDebtors.length} color="var(--danger)" bg="var(--danger-dim)" />
             <StatCard icon={DollarSign} label="Total Outstanding" value={formatUGX(totalOutstanding)} color="var(--danger)" bg="var(--danger-dim)" />
-            <StatCard icon={Users} label="Member Debtors" value={memberDebtors.length} color="var(--warning)" bg="var(--warning-dim)" />
-            <StatCard icon={UserCheck} label="Walk-In Debtors" value={walkinDebtors.length} color="var(--info)" bg="var(--info-dim)" />
+            <StatCard icon={Users} label="Member Debtors" value={filteredMemberDebtors.length} color="var(--warning)" bg="var(--warning-dim)" />
+            <StatCard icon={UserCheck} label="Walk-In Debtors" value={filteredWalkinDebtors.length} color="var(--info)" bg="var(--info-dim)" />
           </div>
 
-          {allDebtors.length === 0 ? (
+          {/* Search + date range toolbar — narrows the debtor list to a chosen
+              window (membership start date for members, visit date for
+              walk-ins) and/or a name/phone substring match. */}
+          <div className="card" style={{ padding: "12px 16px", marginBottom: 16 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <div className="search-bar" style={{ flex: 1, minWidth: 240, maxWidth: 360 }}>
+                <Search />
+                <input
+                  placeholder="Search by name or phone..."
+                  value={debtorSearch}
+                  onChange={(e) => setDebtorSearch(e.target.value)}
+                />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <label style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>From</label>
+                <input
+                  type="date"
+                  value={debtorFrom}
+                  max={debtorTo || undefined}
+                  onChange={(e) => setDebtorFrom(e.target.value)}
+                  onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                  style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+                />
+                <label style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>To</label>
+                <input
+                  type="date"
+                  value={debtorTo}
+                  min={debtorFrom || undefined}
+                  onChange={(e) => setDebtorTo(e.target.value)}
+                  onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                  style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+                />
+                {(debtorSearch || debtorFrom || debtorTo) && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-secondary"
+                    onClick={() => { setDebtorSearch(""); setDebtorFrom(""); setDebtorTo(""); }}
+                    title="Clear all filters"
+                  ><X size={12} /> Clear</button>
+                )}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+              {[
+                ["today",  "Today"],
+                ["week",   "Last 7 days"],
+                ["month",  "This month"],
+                ["all",    "All time"],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => setDebtorRangePreset(key)}
+                  style={{ padding: "4px 10px", fontSize: 11 }}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+
+          {filteredDebtors.length === 0 ? (
             <div className="card" style={{ textAlign: "center", padding: 40 }}>
               <Check size={40} style={{ color: "var(--success)", marginBottom: 12 }} />
-              <h3 style={{ fontFamily: "var(--font-display)", marginBottom: 8, color: "var(--success)" }}>No Outstanding Debts</h3>
-              <p style={{ color: "var(--text-dim)" }}>All payments are up to date.</p>
+              <h3 style={{ fontFamily: "var(--font-display)", marginBottom: 8, color: "var(--success)" }}>
+                {allDebtors.length === 0 ? "No Outstanding Debts" : "No debtors match the current filters"}
+              </h3>
+              <p style={{ color: "var(--text-dim)" }}>
+                {allDebtors.length === 0 ? "All payments are up to date." : "Try widening the date range or clearing the search."}
+              </p>
             </div>
           ) : (
             <div className="table-wrapper">
               <table>
                 <thead><tr><th>Type</th><th>Name</th><th>Phone</th><th>Details</th><th>Total Due</th><th>Paid</th><th>Balance</th><th>Progress</th></tr></thead>
                 <tbody>
-                  {allDebtors.map((d, i) => (
+                  {filteredDebtors.map((d, i) => (
                     <tr key={i}>
                       <td><Badge variant={d.type === "membership" ? "warning" : "info"}>{d.type === "membership" ? "Member" : "Walk-In"}</Badge></td>
                       <td style={{ color: "var(--text)", fontWeight: 500 }}>{d.type === "membership" ? fullName(d.member) : d.name}</td>
@@ -8339,25 +8442,37 @@ const Reports = ({ data }) => {
             </div>
           )}
 
-          {allDebtors.length > 0 && (
-            <div className="card" style={{ marginTop: 20 }}>
-              <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Summary</h3>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-                <div>
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Total Owed</p>
-                  <p style={{ fontSize: 22, fontWeight: 700, color: "var(--danger)" }}>{formatUGX(totalOutstanding)}</p>
-                </div>
-                <div>
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Already Collected</p>
-                  <p style={{ fontSize: 22, fontWeight: 700, color: "var(--success)" }}>{formatUGX(allDebtors.reduce((s, d) => s + d.totalPaid, 0))}</p>
-                </div>
-                <div>
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Collection Rate</p>
-                  <p style={{ fontSize: 22, fontWeight: 700, color: "var(--accent)" }}>{allDebtors.reduce((s, d) => s + d.totalDue, 0) > 0 ? Math.round(allDebtors.reduce((s, d) => s + d.totalPaid, 0) / allDebtors.reduce((s, d) => s + d.totalDue, 0) * 100) : 0}%</p>
+          {filteredDebtors.length > 0 && (() => {
+            const sumPaid = filteredDebtors.reduce((s, d) => s + d.totalPaid, 0);
+            const sumDue  = filteredDebtors.reduce((s, d) => s + d.totalDue,  0);
+            const rate    = sumDue > 0 ? Math.round(sumPaid / sumDue * 100) : 0;
+            return (
+              <div className="card" style={{ marginTop: 20 }}>
+                <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>
+                  Summary
+                  {filteredDebtors.length !== allDebtors.length && (
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 8, fontWeight: 400, textTransform: "none" }}>
+                      — {filteredDebtors.length} of {allDebtors.length} debtors (filtered)
+                    </span>
+                  )}
+                </h3>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+                  <div>
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Total Owed</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: "var(--danger)" }}>{formatUGX(totalOutstanding)}</p>
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Already Collected</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: "var(--success)" }}>{formatUGX(sumPaid)}</p>
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Collection Rate</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: "var(--accent)" }}>{rate}%</p>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </>
       )}
     </div>
