@@ -8408,8 +8408,10 @@ const ROLE_PERMISSIONS = {
     actions: ["create_member", "edit_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_equipment", "manage_trainers", "manage_products", "manage_expenses", "view_reports", "view_payments", "reconcile", "export_data", "edit_walkin"],
   },
   receptionist: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "equipment", "shop", "payments", "expenses", "reports"],
-    actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member", "sell_products", "record_expense", "update_equipment_status"],
+    // Front Desk role — handles cash directly, so it gets the Reconciliation
+    // page to submit end-of-shift cash declarations against system totals.
+    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "equipment", "shop", "payments", "expenses", "reconciliation", "reports"],
+    actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member", "sell_products", "record_expense", "update_equipment_status", "reconcile"],
   },
   trainer: {
     pages: ["dashboard", "checkin", "members", "attendance", "timetable", "equipment"],
