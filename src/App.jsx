@@ -3449,7 +3449,28 @@ const Members = ({ data, setData, currentUser }) => {
                 Fill <strong>either</strong> the National ID or the Passport — whichever the member has. The other field will lock automatically.
               </p>
             </div>
-            <div className="form-group"><label>Date of Birth</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
+            <div className="form-group">
+              <label>Date of Birth</label>
+              {/* Native date input — clicking anywhere on the field opens the
+                  calendar via showPicker() (without this, only the small icon
+                  on the right opens it). colorScheme: dark themes the picker
+                  for our UI. max=today prevents picking a future birth date.
+                  A formatted preview line under the input confirms the value. */}
+              <input
+                type="date"
+                value={form.dob}
+                max={today()}
+                onChange={(e) => setForm({ ...form, dob: e.target.value })}
+                onFocus={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                style={{ colorScheme: "dark", cursor: "pointer" }}
+              />
+              {form.dob && (
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  {formatDate(form.dob)}
+                </div>
+              )}
+            </div>
             <div className="form-group"><label>Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Optional" /></div>
             <div className="form-group"><label>Emergency Contact 1</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
             <div className="form-group"><label>Emergency Contact 2</label><input value={form.emergency2 || ""} onChange={(e) => setForm({ ...form, emergency2: e.target.value })} placeholder="Optional" /></div>
@@ -5804,7 +5825,28 @@ const Trainers = ({ data, setData }) => {
                 </div>
               )}
             </div>
-            <div className="form-group"><label>Date of Birth</label><input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></div>
+            <div className="form-group">
+              <label>Date of Birth</label>
+              {/* Native date input — clicking anywhere on the field opens the
+                  calendar via showPicker() (without this, only the small icon
+                  on the right opens it). colorScheme: dark themes the picker
+                  for our UI. max=today prevents picking a future birth date.
+                  A formatted preview line under the input confirms the value. */}
+              <input
+                type="date"
+                value={form.dob}
+                max={today()}
+                onChange={(e) => setForm({ ...form, dob: e.target.value })}
+                onFocus={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                style={{ colorScheme: "dark", cursor: "pointer" }}
+              />
+              {form.dob && (
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  {formatDate(form.dob)}
+                </div>
+              )}
+            </div>
             <div className="form-group"><label>Email</label><input value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Optional" /></div>
             <div className="form-group"><label>Emergency Contact 1</label><input value={form.emergency || ""} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0781110000" /></div>
             <div className="form-group"><label>Emergency Contact 2</label><input value={form.emergency2 || ""} onChange={(e) => setForm({ ...form, emergency2: e.target.value })} placeholder="Optional" /></div>
