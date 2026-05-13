@@ -3561,6 +3561,10 @@ const Memberships = ({ data, setData, currentUser }) => {
   const [editForm, setEditForm] = useState({ plan: "", startDate: "", endDate: "", totalDue: "", totalPaid: "" });
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
+  // Search box on the Memberships table — matches member name, phone, or plan
+  // name (case-insensitive substring). The visible-status filter still gates
+  // the list first (active/frozen/pending_payment); the search narrows within.
+  const [search, setSearch] = useState("");
 
   // Pull memberships + payments from backend; mirror into shared `data` state.
   const reloadMemberships = useCallback(async () => {
@@ -3931,7 +3935,14 @@ const Memberships = ({ data, setData, currentUser }) => {
       )}
 
       <div className="toolbar">
-        <div />
+        <div className="search-bar" style={{ flex: 1, maxWidth: 360 }}>
+          <Search />
+          <input
+            placeholder="Search by member name, phone, or plan..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
       </div>
 
@@ -3949,7 +3960,18 @@ const Memberships = ({ data, setData, currentUser }) => {
         <table>
           <thead><tr><th>Member</th><th>Plan</th><th>Start</th><th>End</th><th>Payment</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
-            {data.memberships.filter((ms) => ms.isActive || ms.status === "frozen" || ms.status === "pending_payment").map((ms) => {
+            {data.memberships
+              .filter((ms) => ms.isActive || ms.status === "frozen" || ms.status === "pending_payment")
+              .filter((ms) => {
+                if (!search) return true;
+                const q = search.toLowerCase();
+                const member = data.members.find((m) => m.id === ms.memberId);
+                const name  = (member ? fullName(member) : "").toLowerCase();
+                const phone = (member?.phone || "").toLowerCase();
+                const plan  = getPlanName(ms.plan).toLowerCase();
+                return name.includes(q) || phone.includes(q) || plan.includes(q);
+              })
+              .map((ms) => {
               const member = data.members.find((m) => m.id === ms.memberId);
               const exp = new Date(ms.endDate) < new Date() && ms.status !== "frozen" && ms.status !== "pending_payment";
               const bal = getMembershipBalance(ms, data.payments);
