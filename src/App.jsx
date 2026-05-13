@@ -4248,37 +4248,91 @@ const Memberships = ({ data, setData, currentUser }) => {
               </select>
             </div>
 
-            {/* ADMIN-ONLY: backdate the membership for record migration. */}
-            {isAdmin && (
-              <div className="form-group full">
-                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Shield size={12} style={{ color: "var(--accent)" }} />
-                  Start Date <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— admin only, leave blank for today</span>
-                </label>
-                <div style={{ position: "relative" }}>
-                  <Calendar size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--accent)", pointerEvents: "none" }} />
-                  <input
-                    type="date"
-                    value={form.startDate}
-                    max={today()}
-                    onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                    onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }}
-                    style={{ paddingLeft: 30, cursor: "pointer" }}
-                  />
-                </div>
-                {form.startDate && (() => {
-                  const planInfo = PLANS[form.plan];
-                  const days = planInfo?.days || 0;
-                  const end = days ? dateToYMD(new Date(new Date(form.startDate).getTime() + days * 86400000)) : null;
-                  return (
-                    <p style={{ fontSize: 11, color: "var(--accent)", marginTop: 4 }}>
-                      ↳ Backdating to <strong>{formatDate(form.startDate)}</strong>{end && <> — expires <strong>{formatDate(end)}</strong></>}
-                      <button type="button" onClick={() => setForm({ ...form, startDate: "" })} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", padding: 0 }}>✕ clear</button>
+            {/* ADMIN-ONLY: backdate the membership for record migration.
+                Manual entry — accepts DD/MM/YYYY (Ugandan/UK style) or
+                YYYY-MM-DD. The display value is the raw text the admin
+                typed (form._startDateRaw); we parse into form.startDate
+                as a YYYY-MM-DD only when the input is a valid date, so
+                the rest of the code (overlap warning, submit payload)
+                sees a clean canonical value or nothing. */}
+            {isAdmin && (() => {
+              // Parser: returns YYYY-MM-DD or "" if input doesn't validate.
+              const parseManualDate = (raw) => {
+                const s = (raw || "").trim();
+                if (!s) return "";
+                // DD/MM/YYYY or D/M/YYYY (dashes and dots accepted too).
+                const m1 = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+                if (m1) {
+                  const [, d, mo, y] = m1;
+                  const dd = d.padStart(2, "0"), mm = mo.padStart(2, "0");
+                  const test = new Date(`${y}-${mm}-${dd}T12:00:00Z`);
+                  if (test.getUTCFullYear() === Number(y) && test.getUTCMonth() + 1 === Number(mo) && test.getUTCDate() === Number(d)) {
+                    return `${y}-${mm}-${dd}`;
+                  }
+                  return "";
+                }
+                // YYYY-MM-DD
+                const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                if (m2) {
+                  const [, y, mo, d] = m2;
+                  const test = new Date(`${y}-${mo}-${d}T12:00:00Z`);
+                  if (test.getUTCFullYear() === Number(y) && test.getUTCMonth() + 1 === Number(mo) && test.getUTCDate() === Number(d)) {
+                    return `${y}-${mo}-${d}`;
+                  }
+                  return "";
+                }
+                return "";
+              };
+              const raw = form._startDateRaw ?? "";
+              const parsed = form.startDate; // already YYYY-MM-DD when valid
+              const hasInput = raw.trim().length > 0;
+              const isValid = hasInput && parsed && parsed <= today();
+              return (
+                <div className="form-group full">
+                  <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <Shield size={12} style={{ color: "var(--accent)" }} />
+                    Start Date <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— admin only, leave blank for today</span>
+                  </label>
+                  <div style={{ position: "relative" }}>
+                    <Calendar size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--accent)", pointerEvents: "none" }} />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="dd/mm/yyyy"
+                      value={raw}
+                      maxLength={10}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        const ymd = parseManualDate(next);
+                        setForm({ ...form, _startDateRaw: next, startDate: ymd });
+                      }}
+                      style={{ paddingLeft: 30 }}
+                    />
+                  </div>
+                  {hasInput && !parsed && (
+                    <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 4 }}>
+                      Enter the date as DD/MM/YYYY (e.g. 15/04/2026).
                     </p>
-                  );
-                })()}
-              </div>
-            )}
+                  )}
+                  {hasInput && parsed && parsed > today() && (
+                    <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 4 }}>
+                      Start date can't be in the future. Adjust or clear.
+                    </p>
+                  )}
+                  {isValid && (() => {
+                    const planInfo = PLANS[form.plan];
+                    const days = planInfo?.days || 0;
+                    const end = days ? dateToYMD(new Date(new Date(parsed).getTime() + days * 86400000)) : null;
+                    return (
+                      <p style={{ fontSize: 11, color: "var(--accent)", marginTop: 4 }}>
+                        ↳ Backdating to <strong>{formatDate(parsed)}</strong>{end && <> — expires <strong>{formatDate(end)}</strong></>}
+                        <button type="button" onClick={() => setForm({ ...form, startDate: "", _startDateRaw: "" })} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", padding: 0 }}>✕ clear</button>
+                      </p>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
 
             {/* PAYMENT TYPE TOGGLE — hidden for prepaid (always deposit) */}
             {form.plan !== "prepaid" && (
