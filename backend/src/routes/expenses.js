@@ -43,9 +43,13 @@ router.get('/:id', validate([param('id').isUUID()]), asyncHandler(async (req, re
   res.json(await getById(pool, TABLE, req.params.id));
 }));
 
+// Front desk staff handle till cash and pay for small operational items
+// (lunch, supplies, utilities receipts), so they create expense rows. The
+// recordedBy column is stamped from the auth token below, so admin can
+// always see who entered each row. Delete remains admin-only.
 router.post(
   '/',
-  requireRole('admin', 'manager'),
+  requireRole('admin', 'manager', 'receptionist'),
   validate([
     body('category').isString().trim().notEmpty(),
     body('amount').isFloat({ min: 0 }),
