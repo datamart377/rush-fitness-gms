@@ -6797,10 +6797,50 @@ const Expenses = ({ data, setData, currentUser }) => {
   const [modal, setModal] = useState(null); // 'add' | 'edit' | null
   const [form, setForm] = useState({ category: "Utilities", description: "", amount: "", date: today(), method: "cash", receipt: "" });
   const [editTarget, setEditTarget] = useState(null);
-  const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  // Default range: first of the current month → today (same behavior as the
+  // old `filterMonth` had). Admins can widen or narrow it with the toolbar.
+  const _initMonth = (() => {
+    const n = new Date();
+    return { from: dateToYMD(new Date(n.getFullYear(), n.getMonth(), 1)), to: dateToYMD(n) };
+  })();
+  const [dateFrom, setDateFrom] = useState(_initMonth.from);
+  const [dateTo,   setDateTo]   = useState(_initMonth.to);
+  // Search box — matches description or category, case-insensitive substring.
+  const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
   const isAdmin = currentUser?.role === "admin";
+
+  // Friendly label for the current window — drives every "May 2026 Total",
+  // "Category Breakdown — …" heading so the user always knows what they're
+  // looking at without having to scan the date inputs.
+  const rangeLabel = (() => {
+    if (!dateFrom && !dateTo) return "All time";
+    if (dateFrom === dateTo) return formatDate(dateFrom);
+    // If the range is exactly the calendar month from 1st → today/last day, show "May 2026"
+    const fromD = dateFrom ? new Date(dateFrom) : null;
+    const toD   = dateTo   ? new Date(dateTo)   : null;
+    if (fromD && toD && fromD.getDate() === 1 && fromD.getMonth() === toD.getMonth() && fromD.getFullYear() === toD.getFullYear()) {
+      return fromD.toLocaleDateString("en-UG", { month: "short", year: "numeric" });
+    }
+    return `${formatDate(dateFrom)} → ${formatDate(dateTo)}`;
+  })();
+
+  const setRangePreset = (preset) => {
+    const now = new Date();
+    const t = today();
+    if (preset === "today")     { setDateFrom(t); setDateTo(t); }
+    else if (preset === "yesterday") {
+      const y = dateToYMD(new Date(now.getTime() - 86400000));
+      setDateFrom(y); setDateTo(y);
+    } else if (preset === "week") { setDateFrom(dateToYMD(new Date(now.getTime() - 6 * 86400000))); setDateTo(t); }
+    else if (preset === "month") {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      setDateFrom(dateToYMD(first)); setDateTo(t);
+    } else if (preset === "all") {
+      setDateFrom(""); setDateTo("");
+    }
+  };
 
   const reload = useCallback(async () => {
     try {
@@ -6812,7 +6852,17 @@ const Expenses = ({ data, setData, currentUser }) => {
   }, [setData]);
   useEffect(() => { reload(); }, [reload]);
 
-  const filteredExpenses = data.expenses.filter((e) => (e.date || "").startsWith(filterMonth));
+  const filteredExpenses = data.expenses.filter((e) => {
+    const ymd = e.date || "";
+    if (dateFrom && ymd < dateFrom) return false;
+    if (dateTo   && ymd > dateTo)   return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!(e.description || "").toLowerCase().includes(q)
+        && !(e.category || "").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
   const totalExpenses = filteredExpenses.reduce((s, e) => s + e.amount, 0);
   const todayExpenses = data.expenses.filter((e) => e.date === today()).reduce((s, e) => s + e.amount, 0);
   const categoryTotals = {};
@@ -6860,22 +6910,74 @@ const Expenses = ({ data, setData, currentUser }) => {
 
       <div className="card-grid" style={{ marginBottom: 20 }}>
         <StatCard icon={DollarSign} label="Today's Expenses" value={formatUGX(todayExpenses)} color="var(--danger)" bg="var(--danger-dim)" />
-        <StatCard icon={TrendingUp} label={`${filterMonth} Total`} value={formatUGX(totalExpenses)} color="var(--warning)" bg="var(--warning-dim)" />
+        <StatCard icon={TrendingUp} label={`${rangeLabel} Total`} value={formatUGX(totalExpenses)} color="var(--warning)" bg="var(--warning-dim)" />
         <StatCard icon={Receipt} label="Transactions" value={filteredExpenses.length} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={AlertTriangle} label="Top Category" value={topCategory ? topCategory[0] : "—"} color="var(--accent)" bg="var(--accent-dim)" />
       </div>
 
-      <div className="toolbar">
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} style={{ padding: "8px 12px", background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", color: "var(--text)", fontSize: 13 }} />
+      {/* Search + date range + quick presets — same pattern as Payments,
+          Reconciliation, and Debtors so the toolbar feels consistent. */}
+      <div className="toolbar" style={{ flexWrap: "wrap", gap: 12 }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: 240, maxWidth: 360 }}>
+          <Search />
+          <input
+            placeholder="Search by description or category..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>From</label>
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+            onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+            style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+          />
+          <label style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>To</label>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+            onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+            style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+          />
+          {(search || dateFrom || dateTo) && (
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => { setSearch(""); setDateFrom(""); setDateTo(""); }}
+              title="Clear all filters"
+            ><X size={12} /> Clear</button>
+          )}
         </div>
         <button className="btn btn-primary" onClick={() => { setForm({ category: "Utilities", description: "", amount: "", date: today(), method: "cash", receipt: "" }); setModal("add"); }}><Plus size={16} /> Record Expense</button>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "8px 0 4px" }}>
+        {[
+          ["today",     "Today"],
+          ["yesterday", "Yesterday"],
+          ["week",      "Last 7 days"],
+          ["month",     "This month"],
+          ["all",       "All time"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className="btn btn-sm btn-secondary"
+            onClick={() => setRangePreset(key)}
+            style={{ padding: "4px 10px", fontSize: 11 }}
+          >{label}</button>
+        ))}
       </div>
 
       {/* Category breakdown */}
       {Object.keys(categoryTotals).length > 0 && (
         <div className="card" style={{ marginBottom: 20 }}>
-          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Category Breakdown — {filterMonth}</h3>
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Category Breakdown — {rangeLabel}</h3>
           <div style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden", background: "var(--bg-input)", marginBottom: 12 }}>
             {Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]).map(([cat], i) => (
               <div key={cat} style={{ width: `${categoryTotals[cat] / totalExpenses * 100}%`, background: `hsl(${i * 35 + 10}, 70%, 55%)` }} />
