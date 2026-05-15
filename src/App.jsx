@@ -3171,6 +3171,12 @@ const memberFormToApi = (f) => ({
 const Members = ({ data, setData, currentUser }) => {
   const isAdmin = currentUser?.role === "admin";
   const [search, setSearch] = useState("");
+  // Filter dropdowns on the Members table. "all" means no filter on that axis.
+  // Membership is the *active* membership plan code, or "__none__" for members
+  // with no active membership. Status maps to m.isActive (active / inactive).
+  const [filterGender, setFilterGender] = useState("all");
+  const [filterMembership, setFilterMembership] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'view' | 'terms' | null
   const [current, setCurrent] = useState(null);
   const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", passportNumber: "", pin: "", photo: null });
@@ -3198,14 +3204,40 @@ const Members = ({ data, setData, currentUser }) => {
 
   useEffect(() => { reload(); }, [reload]);
 
+  // Resolve each member's *current* active-or-frozen membership plan code,
+  // so the Membership filter can match against it. "" means no active plan.
+  const memberActivePlan = (m) => {
+    const ms = data.memberships.find((x) => x.memberId === m.id && x.isActive);
+    return ms ? ms.plan : "";
+  };
+
   const filtered = data.members.filter((m) => {
+    // Search (name / phone / NIN / passport).
     const q = search.toLowerCase();
-    return (
-      fullName(m).toLowerCase().includes(q) ||
-      (m.phone || "").includes(search) ||
-      (m.nationalId || "").toLowerCase().includes(q) ||
-      (m.passportNumber || "").toLowerCase().includes(q)
-    );
+    if (search) {
+      const hit =
+        fullName(m).toLowerCase().includes(q) ||
+        (m.phone || "").includes(search) ||
+        (m.nationalId || "").toLowerCase().includes(q) ||
+        (m.passportNumber || "").toLowerCase().includes(q);
+      if (!hit) return false;
+    }
+    // Gender — exact match on the Members.gender enum ('Male'/'Female'/'Other').
+    if (filterGender !== "all" && (m.gender || "") !== filterGender) return false;
+    // Membership — "__none__" picks members with no active plan; any other
+    // value matches the plan code of their active membership exactly.
+    if (filterMembership !== "all") {
+      const plan = memberActivePlan(m);
+      if (filterMembership === "__none__") {
+        if (plan) return false;
+      } else if (plan !== filterMembership) {
+        return false;
+      }
+    }
+    // Status — maps to m.isActive (the deactivated/reactivated bool).
+    if (filterStatus === "active" && !m.isActive) return false;
+    if (filterStatus === "inactive" && m.isActive) return false;
+    return true;
   });
 
   const openAdd = () => { setForm({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", passportNumber: "", pin: Math.floor(1000 + Math.random() * 9000).toString(), photo: null }); setTermsAccepted(false); setTermsScrolled(false); setApiError(""); setModal("add"); };
@@ -3315,10 +3347,61 @@ const Members = ({ data, setData, currentUser }) => {
         <p>Manage gym member registration and profiles</p>
       </div>
 
-      <div className="toolbar">
-        <div className="search-bar"><Search /><input placeholder="Search members..." value={search} onChange={(e) => setSearch(e.target.value)} /></div>
-        <button className="btn btn-primary" onClick={openAdd}><UserPlus size={16} /> Add Member</button>
+      <div className="toolbar" style={{ flexWrap: "wrap", gap: 10 }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: 220, maxWidth: 320 }}>
+          <Search />
+          <input placeholder="Search members..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        {/* Gender / Membership / Status filters — each "all" means no narrowing.
+            All three AND with the search box and with each other. */}
+        <select
+          value={filterGender}
+          onChange={(e) => setFilterGender(e.target.value)}
+          style={{ padding: "8px 12px", background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", color: "var(--text)", fontSize: 13 }}
+          title="Filter by gender"
+        >
+          <option value="all">All genders</option>
+          <option value="Male">Male</option>
+          <option value="Female">Female</option>
+          <option value="Other">Other</option>
+        </select>
+        <select
+          value={filterMembership}
+          onChange={(e) => setFilterMembership(e.target.value)}
+          style={{ padding: "8px 12px", background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", color: "var(--text)", fontSize: 13 }}
+          title="Filter by active membership plan"
+        >
+          <option value="all">All memberships</option>
+          <option value="__none__">No active plan</option>
+          {Object.entries(PLANS).filter(([k]) => k !== "prepaid").map(([k, p]) => (
+            <option key={k} value={k}>{p.name}</option>
+          ))}
+        </select>
+        <select
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+          style={{ padding: "8px 12px", background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", color: "var(--text)", fontSize: 13 }}
+          title="Filter by member status"
+        >
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        {(filterGender !== "all" || filterMembership !== "all" || filterStatus !== "all") && (
+          <button
+            type="button"
+            className="btn btn-sm btn-secondary"
+            onClick={() => { setFilterGender("all"); setFilterMembership("all"); setFilterStatus("all"); }}
+            title="Clear all filters"
+          ><X size={12} /> Clear</button>
+        )}
+        <button className="btn btn-primary" onClick={openAdd} style={{ marginLeft: "auto" }}><UserPlus size={16} /> Add Member</button>
       </div>
+      {filtered.length !== data.members.length && (
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+          Showing <strong style={{ color: "var(--accent)" }}>{filtered.length}</strong> of {data.members.length} members.
+        </div>
+      )}
 
       {apiError && (
         <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
