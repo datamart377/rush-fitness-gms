@@ -4061,6 +4061,17 @@ const Memberships = ({ data, setData, currentUser }) => {
               const isPending = ms.status === "pending_payment";
               const isPrepaidMs = ms.plan === "prepaid";
               const prepaidBal = ms.prepaidBalance || 0;
+              // Status-aware colour for the Payment cell. An expired or cancelled
+              // membership shouldn't read as green "100%" — the period is over,
+              // so the outcome is neutral regardless of how much was paid. Active
+              // rows keep the original green-paid / amber-partial scheme.
+              const isCancelled = ms.status === "cancelled";
+              const isInactiveState = exp || isCancelled;
+              const payColor = isInactiveState
+                ? "var(--text-muted)"
+                : bal.isPaidInFull
+                  ? "var(--success)"
+                  : "var(--warning)";
               return (
                 <tr key={ms.id} style={isPending ? { background: "rgba(249,115,22,0.04)" } : undefined}>
                   <td style={{ color: "var(--text)", fontWeight: 500 }}>{fullName(member)}</td>
@@ -4080,12 +4091,16 @@ const Memberships = ({ data, setData, currentUser }) => {
                       <div style={{ minWidth: 150 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
                           <span style={{ color: "var(--text-dim)" }}>{formatUGX(bal.totalPaid)} / {formatUGX(bal.totalDue)}</span>
-                          <span style={{ fontWeight: 600, color: bal.isPaidInFull ? "var(--success)" : "var(--warning)" }}>{Math.round(bal.totalPaid / bal.totalDue * 100)}%</span>
+                          <span style={{ fontWeight: 600, color: payColor }}>{Math.round(bal.totalPaid / bal.totalDue * 100)}%</span>
                         </div>
                         <div style={{ height: 6, background: "var(--bg-input)", borderRadius: 3, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${Math.min(100, Math.round(bal.totalPaid / bal.totalDue * 100))}%`, background: bal.isPaidInFull ? "var(--success)" : "var(--warning)", borderRadius: 3, transition: "width 0.3s" }} />
+                          <div style={{ height: "100%", width: `${Math.min(100, Math.round(bal.totalPaid / bal.totalDue * 100))}%`, background: payColor, borderRadius: 3, transition: "width 0.3s" }} />
                         </div>
-                        {!bal.isPaidInFull && <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 2, fontWeight: 600 }}>Balance: {formatUGX(bal.balance)}</div>}
+                        {!bal.isPaidInFull && (
+                          isInactiveState
+                            ? <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Outstanding: {formatUGX(bal.balance)}</div>
+                            : <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 2, fontWeight: 600 }}>Balance: {formatUGX(bal.balance)}</div>
+                        )}
                       </div>
                     ) : (
                       <Badge variant="success">Paid</Badge>
