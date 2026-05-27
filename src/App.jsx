@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, EyeOff, Pause, Play, Hash, Receipt, TrendingUp, ArrowLeft, Camera, RefreshCw, Star, Zap, Award, Upload } from "lucide-react";
+import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, EyeOff, Pause, Play, Hash, Receipt, TrendingUp, TrendingDown, ArrowLeft, Camera, RefreshCw, Star, Zap, Award, Upload } from "lucide-react";
 import {
   authApi, membersApi, plansApi, membershipsApi, paymentsApi, trainersApi,
   lockersApi, productsApi, equipmentApi, walkInsApi, attendanceApi,
@@ -1384,10 +1384,28 @@ const StatCard = ({ icon: Icon, label, value, color, bg }) => (
 
 // ─── DASHBOARD ──────────────────────────────────────────────
 const Dashboard = ({ data }) => {
+  // All "today" counters MUST use dateToYMD() on the source field so we compare
+  // local-tz YYYY-MM-DD against `today()` (also local-tz). Comparing against the
+  // raw backend ISO timestamp (e.g. "2026-05-30T00:00:00.000Z") or using
+  // .startsWith() against a UTC string both produce wrong counts in Uganda
+  // (UTC+3) where the local date frequently differs from the UTC date.
+  const todayYmd = today();
   const activeMembers = data.members.filter((m) => m.isActive).length;
-  const todayCheckins = data.attendance.filter((a) => a.date === today()).length;
-  const todayWalkIns = data.walkIns.filter((w) => w.visitDate === today()).length;
-  const todayRevenue = data.payments.filter((p) => p.paidAt.startsWith(today()) && p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
+  // attendance.date is already normalized to YYYY-MM-DD by adaptAttendance,
+  // so a direct equality compare is safe here.
+  const todayCheckins = data.attendance.filter((a) => a.date === todayYmd).length;
+  // Walk-ins: visitDate is NOT normalized by adaptWalkIn (legacy), so wrap it.
+  const todayWalkIns = data.walkIns.filter((w) => dateToYMD(w.visitDate) === todayYmd).length;
+  // Revenue: use dateToYMD on the ISO paidAt so the tz-shift bug doesn't
+  // attribute payments to the wrong calendar day.
+  const todayRevenue = data.payments
+    .filter((p) => p.type !== "prepaid_visit" && dateToYMD(p.paidAt) === todayYmd)
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
+  // Expenses: adaptExpense already normalizes spentOn → YYYY-MM-DD string in `date`.
+  const todayExpenses = (data.expenses || [])
+    .filter((e) => e.date === todayYmd)
+    .reduce((s, e) => s + Number(e.amount || 0), 0);
+  const totalLockers = data.lockers.length || 40;
   const availableLockers = data.lockers.filter((l) => !l.isOccupied).length;
   const frozenCount = data.memberships.filter((ms) => ms.status === "frozen").length;
   const maintenanceEquip = data.equipment.filter((eq) => eq.status === "maintenance").length;
@@ -1412,7 +1430,8 @@ const Dashboard = ({ data }) => {
         <StatCard icon={LogIn} label="Today's Check-ins" value={todayCheckins} color="var(--success)" bg="var(--success-dim)" />
         <StatCard icon={UserCheck} label="Walk-ins Today" value={todayWalkIns} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={DollarSign} label="Today's Revenue" value={formatUGX(todayRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
-        <StatCard icon={Layers} label="Lockers Available" value={`${availableLockers}/40`} color="var(--info)" bg="var(--info-dim)" />
+        <StatCard icon={TrendingDown} label="Today's Expenses" value={formatUGX(todayExpenses)} color="var(--danger)" bg="var(--danger-dim)" />
+        <StatCard icon={Layers} label="Lockers Available" value={`${availableLockers}/${totalLockers}`} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={Pause} label="Frozen Memberships" value={frozenCount} color="var(--warning)" bg="var(--warning-dim)" />
         <StatCard icon={Wrench} label="Equipment in Maintenance" value={maintenanceEquip} color="var(--danger)" bg="var(--danger-dim)" />
         <StatCard icon={AlertTriangle} label="Expiring in 3 Days" value={expiringIn3.length} color="var(--warning)" bg="var(--warning-dim)" />
