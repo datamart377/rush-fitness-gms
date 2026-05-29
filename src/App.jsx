@@ -7300,26 +7300,11 @@ const Reconciliation = ({ data, setData }) => {
     return ymd >= dateFrom && ymd <= dateTo;
   });
 
-  // Resolve a friendly description for a payment — used in the transactions list.
-  const describePayment = (p) => {
-    // 1. If notes were stored (new sales), use them as-is.
-    if (p.note && p.note.trim()) return p.note;
-    // 2. Member name if linked
-    if (p.memberId) {
-      const m = data.members.find((x) => x.id === p.memberId);
-      if (m) return fullName(m);
-    }
-    // 3. Shop sale fallback — look up product_sale → product
-    if (p.productSaleId || p.type === "product_sale") {
-      const sale = (data.productSales || []).find((s) => s.id === p.productSaleId);
-      if (sale) {
-        const item = sale.items?.[0];
-        if (item) return `${item.name} × ${item.qty}`;
-        if (sale.productName) return `${sale.productName} × ${sale.quantity || 1}`;
-      }
-    }
-    return "—";
-  };
+  // Payment description is resolved via the module-level describePayment helper
+  // (defined near line 4920). That helper returns the rich { kind, primary,
+  // secondary } shape the Transactions list below expects. A local one used to
+  // shadow it here and returned a plain string, which silently broke `desc.kind`
+  // and `desc.primary`, making every non-member row render as "—".
 
   // Breakdown by payment method
   const systemCash = todayPayments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
