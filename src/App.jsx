@@ -4068,14 +4068,18 @@ const Memberships = ({ data, setData, currentUser }) => {
               const isPending = ms.status === "pending_payment";
               const isPrepaidMs = ms.plan === "prepaid";
               const prepaidBal = ms.prepaidBalance || 0;
-              // Status-aware colour for the Payment cell. An expired or cancelled
-              // membership shouldn't read as green "100%" — the period is over,
-              // so the outcome is neutral regardless of how much was paid. Active
-              // rows keep the original green-paid / amber-partial scheme.
+              // Status-aware colour for the Payment cell.
+              //   Active + paid       → green  (success — happy path)
+              //   Active + partial    → amber  (warning — needs follow-up)
+              //   Expired + paid      → red    (danger — period lapsed, needs renewal)
+              //   Expired + partial   → muted  (already flagged by red "Outstanding" text below)
+              //   Cancelled           → muted  (terminated, neutral)
+              // Cancelled stays muted so it doesn't compete visually with Expired,
+              // which is the row state staff actually need to action on.
               const isCancelled = ms.status === "cancelled";
               const isInactiveState = exp || isCancelled;
               const payColor = isInactiveState
-                ? "var(--text-muted)"
+                ? (exp && bal.isPaidInFull ? "var(--danger)" : "var(--text-muted)")
                 : bal.isPaidInFull
                   ? "var(--success)"
                   : "var(--warning)";
