@@ -1585,7 +1585,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null });
   const [walkinSearch, setWalkinSearch] = useState("");
   // Walk-in records filters (date range, payment status, check-in status)
-  const [walkinFilter, setWalkinFilter] = useState({ from: "", to: "", paymentStatus: "all", checkedIn: "all" });
+  const [walkinFilter, setWalkinFilter] = useState({ from: "", to: "", paymentStatus: "all", checkedIn: "all", gender: "all", activity: "all", memberPlan: "all" });
   const [editWalkin, setEditWalkin] = useState(null);
 
   const results = search.length >= 2 ? data.members.filter((m) => {
@@ -2264,10 +2264,40 @@ const CheckIn = ({ data, setData, currentUser }) => {
           // Check-in status
           if (walkinFilter.checkedIn === "yes" && !w.checkedIn) return false;
           if (walkinFilter.checkedIn === "no"  &&  w.checkedIn) return false;
+          // Gender
+          if (walkinFilter.gender !== "all") {
+            if ((w.gender || "").toLowerCase() !== walkinFilter.gender.toLowerCase()) return false;
+          }
+          // Activity — walk-ins may carry either an `activities` array or a single
+          // `activityId`. Match if the selected activity appears in either shape.
+          if (walkinFilter.activity !== "all") {
+            const acts = Array.isArray(w.activities) ? w.activities : (w.activityId ? [w.activityId] : []);
+            if (!acts.includes(walkinFilter.activity)) return false;
+          }
+          // Member plan — walk-ins themselves don't carry a plan, so we resolve
+          // it through the visitor's member record (matched by phone) and that
+          // member's most recent active membership. Useful for spotting which
+          // active members are still paying for walk-in sessions.
+          if (walkinFilter.memberPlan !== "all") {
+            const matchedMember = (data.members || []).find((m) => m.phone && w.phone && m.phone === w.phone);
+            if (walkinFilter.memberPlan === "none") {
+              // "Not a member" — exclude walk-ins whose phone matches a member
+              // that has any active membership.
+              if (matchedMember) {
+                const hasActive = (data.memberships || []).some((ms) => ms.memberId === matchedMember.id && ms.status === "active");
+                if (hasActive) return false;
+              }
+            } else {
+              // Specific plan — require an active membership on that plan key.
+              if (!matchedMember) return false;
+              const activeMs = (data.memberships || []).find((ms) => ms.memberId === matchedMember.id && ms.status === "active");
+              if (!activeMs || activeMs.plan !== walkinFilter.memberPlan) return false;
+            }
+          }
           return true;
         });
-        const filtersActive = !!(walkinFilter.from || walkinFilter.to || walkinFilter.paymentStatus !== "all" || walkinFilter.checkedIn !== "all");
-        const resetFilters = () => setWalkinFilter({ from: "", to: "", paymentStatus: "all", checkedIn: "all" });
+        const filtersActive = !!(walkinFilter.from || walkinFilter.to || walkinFilter.paymentStatus !== "all" || walkinFilter.checkedIn !== "all" || walkinFilter.gender !== "all" || walkinFilter.activity !== "all" || walkinFilter.memberPlan !== "all");
+        const resetFilters = () => setWalkinFilter({ from: "", to: "", paymentStatus: "all", checkedIn: "all", gender: "all", activity: "all", memberPlan: "all" });
 
         // For returning-visitor detection: dedupe by phone, keeping the most recent.
         const uniqueByPhone = {};
@@ -2407,6 +2437,34 @@ const CheckIn = ({ data, setData, currentUser }) => {
                   <option value="all">All</option>
                   <option value="yes">Checked in</option>
                   <option value="no">Not checked in</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Gender</label>
+                <select value={walkinFilter.gender} onChange={(e) => setWalkinFilter({ ...walkinFilter, gender: e.target.value })}>
+                  <option value="all">All</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Activity</label>
+                <select value={walkinFilter.activity} onChange={(e) => setWalkinFilter({ ...walkinFilter, activity: e.target.value })}>
+                  <option value="all">All</option>
+                  {((data.activities && data.activities.length) ? data.activities : ACTIVITIES).map((a) => (
+                    <option key={a.id || a.code} value={a.id || a.code}>{a.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Membership plan</label>
+                <select value={walkinFilter.memberPlan} onChange={(e) => setWalkinFilter({ ...walkinFilter, memberPlan: e.target.value })} title="Filter walk-ins by the visitor's current membership plan (matched by phone)">
+                  <option value="all">All</option>
+                  <option value="none">Not a member</option>
+                  {Object.entries(PLANS).map(([key, p]) => (
+                    <option key={key} value={key}>{p.name}</option>
+                  ))}
                 </select>
               </div>
               {filtersActive && (
