@@ -7351,6 +7351,48 @@ const Reconciliation = ({ data, setData }) => {
   const pendingWalkIns = data.walkIns.filter((w) => w.visitDate === today() && w.paymentStatus === "pending");
   const pendingAmount = pendingWalkIns.reduce((s, w) => s + (w.amountDue || 0), 0);
 
+  // Revenue by Activity — attributes paid revenue to specific activities so
+  // staff can see which classes/sessions are driving income.
+  //
+  //   • Walk-in records are the primary source. Each paid walk-in inside the
+  //     date range gets its amount split evenly across the activities the
+  //     guest signed up for (most walk-ins are a single activity, but the form
+  //     allows up to MAX_ACTIVITIES, so we divide to avoid double-counting).
+  //   • Add-on payments — typed "addon" with an explicit activity_id — are
+  //     credited in full to that activity (members buying e.g. an extra
+  //     Spinning slot on top of a Gym Monthly plan).
+  //
+  // We intentionally don't try to break membership revenue down by activity
+  // since memberships grant unlimited access to a bundle of activities and any
+  // split would be guesswork.
+  const activityRevenue = {};
+  data.walkIns.forEach((w) => {
+    const ymd = dateToYMD(w.visitDate);
+    if (ymd < dateFrom || ymd > dateTo) return;
+    if (w.paymentStatus && w.paymentStatus !== "paid") return; // pending / refunded
+    const amount = Number(w.amountDue || w.amount || w.amountPaid || 0);
+    if (amount <= 0) return;
+    const acts = Array.isArray(w.activities) && w.activities.length
+      ? w.activities
+      : (w.activityId ? [w.activityId] : []);
+    if (acts.length === 0) return;
+    const share = amount / acts.length;
+    acts.forEach((aid) => { activityRevenue[aid] = (activityRevenue[aid] || 0) + share; });
+  });
+  todayPayments
+    .filter((p) => p.type === "addon" && p.activityId)
+    .forEach((p) => { activityRevenue[p.activityId] = (activityRevenue[p.activityId] || 0) + Number(p.amount || 0); });
+  // Sort descending by revenue for stable, top-first display.
+  const activityList = (data.activities && data.activities.length ? data.activities : ACTIVITIES);
+  const activityRevenueRows = Object.entries(activityRevenue)
+    .map(([id, value]) => ({
+      id,
+      value,
+      name: activityList.find((a) => (a.id || a.code) === id)?.name || id,
+    }))
+    .sort((a, b) => b.value - a.value);
+  const activityRevenueTotal = activityRevenueRows.reduce((s, r) => s + r.value, 0);
+
   const submit = () => {
     const declared = Number(declaredCash);
     const expectedCash = systemCash - cashExpenses;
@@ -7483,6 +7525,51 @@ const Reconciliation = ({ data, setData }) => {
               <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--warning)", marginRight: 4 }} />Walk-Ins</span>
               <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--accent)", marginRight: 4 }} />Shop</span>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Revenue by Activity — class/session-level attribution */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, margin: 0 }}>Revenue by Activity — {rangeLabel}</h3>
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            From walk-ins &amp; activity add-ons · {formatUGX(activityRevenueTotal)} total
+          </span>
+        </div>
+        {activityRevenueRows.length > 0 ? (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+              {activityRevenueRows.map((row) => {
+                const pct = activityRevenueTotal > 0 ? Math.round(row.value / activityRevenueTotal * 100) : 0;
+                return (
+                  <div key={row.id} style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--info)" }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{row.name}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "var(--info)", marginTop: 4 }}>{formatUGX(row.value)}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{pct}% of activity revenue</div>
+                  </div>
+                );
+              })}
+            </div>
+            {activityRevenueTotal > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ display: "flex", height: 6, borderRadius: 3, overflow: "hidden", background: "var(--bg-input)" }}>
+                  {activityRevenueRows.map((row, i) => {
+                    // Cycle through the established palette so adjacent slices are distinguishable.
+                    const colours = ["var(--success)", "var(--info)", "var(--warning)", "var(--accent)", "var(--danger)"];
+                    const colour = colours[i % colours.length];
+                    return (
+                      <div key={row.id} title={`${row.name}: ${formatUGX(row.value)}`}
+                        style={{ width: `${row.value / activityRevenueTotal * 100}%`, background: colour }} />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>
+            No activity-tagged revenue in this period. Walk-in records with selected activities and add-on payments will appear here.
           </div>
         )}
       </div>
