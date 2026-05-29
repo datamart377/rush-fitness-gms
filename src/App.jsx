@@ -3630,9 +3630,16 @@ const Members = ({ data, setData, currentUser }) => {
 };
 
 // ─── MEMBERSHIPS ────────────────────────────────────────────
-const getMembershipBalance = (ms, payments) => {
-  const paid = payments.filter((p) => p.membershipId === ms.id).reduce((s, p) => s + p.amount, 0);
-  return { totalDue: ms.totalDue || 0, totalPaid: paid, balance: (ms.totalDue || 0) - paid, isPaidInFull: paid >= (ms.totalDue || 0) };
+// Source of truth = memberships.total_paid (server-maintained).
+// Backend auto-bumps this column on payment insert (see backend/src/routes/payments.js),
+// so it always reflects the payments-table sum AND honors any admin overrides via
+// the Edit Membership (Admin) PATCH endpoint. Previously this function recomputed
+// from the payments table, which silently ignored admin edits to total_paid.
+// The `payments` arg is kept for backward compatibility but no longer used here.
+const getMembershipBalance = (ms /* , payments */) => {
+  const totalDue = Number(ms.totalDue || 0);
+  const totalPaid = Number(ms.totalPaid || 0);
+  return { totalDue, totalPaid, balance: totalDue - totalPaid, isPaidInFull: totalPaid >= totalDue };
 };
 
 const Memberships = ({ data, setData, currentUser }) => {
