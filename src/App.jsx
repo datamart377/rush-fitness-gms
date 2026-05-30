@@ -173,6 +173,13 @@ const adaptWalkIn = (w) => {
     amount: amt,
     amountDue: amt,
     amountPaid: w.paymentStatus === "paid" ? amt : 0,
+    // Backend stores `emergencyPhone`/`emergencyPhone2`; legacy frontend reads
+    // `emergency`/`emergency2`. Mirror the member adapter so Add and Edit
+    // Walk-In modals can round-trip these fields. Added with migration 007.
+    gender: w.gender || "",
+    emergencyName: w.emergencyName || "",
+    emergency: w.emergencyPhone || "",
+    emergency2: w.emergencyPhone2 || "",
   };
 };
 
@@ -1601,7 +1608,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const isAdmin = currentUser?.role === "admin";
 
   // Walk-in quick form
-  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null });
+  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null });
   const [walkinSearch, setWalkinSearch] = useState("");
   // Walk-in records filters (date range, payment status, check-in status)
   const [walkinFilter, setWalkinFilter] = useState({ from: "", to: "", paymentStatus: "all", checkedIn: "all", gender: "all", activity: "all", memberPlan: "all" });
@@ -1803,6 +1810,10 @@ const CheckIn = ({ data, setData, currentUser }) => {
         amount: total,
         paymentStatus: walkinForm.paymentStatus,
         checkedIn: isCheckedIn,
+        // Safety + demographic fields (persisted via migration 007).
+        gender:          walkinForm.gender     || undefined,
+        emergencyPhone:  walkinForm.emergency  || "",
+        emergencyPhone2: walkinForm.emergency2 || "",
         notes: walkinForm.selectedActivities.length > 1
           ? `Bundle: ${actNames} (UGX 10,000 discount)`
           : actNames,
@@ -1951,7 +1962,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
               lastName:  w.lastName  || "",
               phone:     w.phone     || "",
               gender:    w.gender    || f.gender,
-              emergency: w.emergency || f.emergency || "",
+              emergency:  w.emergency  || f.emergency  || "",
+              emergency2: w.emergency2 || f.emergency2 || "",
               // Don't carry over activities or payment from the previous visit —
               // those are visit-specific
               selectedActivities: [],
@@ -1971,7 +1983,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 <option>Male</option><option>Female</option>
               </select>
             </div>
-            <div className="form-group"><label>Emergency Contact</label><input value={walkinForm.emergency} onChange={(e) => setWalkinForm({ ...walkinForm, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
+            <div className="form-group"><label>Emergency Contact 1 *</label><input value={walkinForm.emergency} onChange={(e) => setWalkinForm({ ...walkinForm, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
+            <div className="form-group"><label>Emergency Contact 2</label><input value={walkinForm.emergency2 || ""} onChange={(e) => setWalkinForm({ ...walkinForm, emergency2: e.target.value })} placeholder="Optional" /></div>
             <div className="form-group"><label>Payment Method *</label>
               <select value={walkinForm.paymentMethod} onChange={(e) => setWalkinForm({ ...walkinForm, paymentMethod: e.target.value })}>
                 <option value="cash">Cash</option><option value="mobile_money_mtn">Mobile Money (MTN)</option><option value="mobile_money_airtel">Mobile Money (Airtel)</option><option value="card">Card</option>
@@ -2403,6 +2416,11 @@ const CheckIn = ({ data, setData, currentUser }) => {
               activityId: dailyAct?.id || dailyAct?.code,
               paymentStatus: "paid",
               checkedIn: true,
+              // Propagate the member's emergency contacts onto the walk-in
+              // row so safety info isn't lost when an expired member is
+              // checked in as a walk-in.
+              emergencyPhone:  m.emergency  || "",
+              emergencyPhone2: m.emergency2 || "",
               notes: `Expired-member walk-in: ${name}${lapsedNote}`,
             });
             try {
@@ -2439,7 +2457,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
             firstName: m.firstName || "",
             lastName:  m.lastName  || "",
             phone:     m.phone     || "",
-            emergency: m.emergency || m.emergencyPhone || "",
+            emergency:  m.emergency  || m.emergencyPhone  || "",
+            emergency2: m.emergency2 || m.emergencyPhone2 || "",
             selectedActivities: [],
             paymentMethod: "cash",
             paymentStatus: "paid",
@@ -2496,6 +2515,10 @@ const CheckIn = ({ data, setData, currentUser }) => {
               amount,
               paymentStatus: "paid",
               checkedIn: true,
+              // Carry the original visitor's safety info forward.
+              gender:           w.gender     || undefined,
+              emergencyPhone:   w.emergency  || "",
+              emergencyPhone2:  w.emergency2 || "",
               notes: `Re-check-in (returning visitor): ${dailyAct?.name || "Daily Gym Access"}`,
             });
             // Persist the payment record
@@ -2809,7 +2832,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
         <Modal title={isAdmin ? "Edit Walk-In Record" : "Update Walk-In — Payment & Activities"} onClose={() => setEditWalkin(null)} footer={
           <>
             <button className="btn btn-secondary" onClick={() => setEditWalkin(null)}>Cancel</button>
-            <button className="btn btn-primary" onClick={() => {
+            <button className="btn btn-primary" onClick={async () => {
               const newAmount = Number(editWalkin.amountDue) || 0;
               const newStatus = editWalkin.paymentStatus || "paid";
               const newMethod = editWalkin.paymentMethod || "cash";
@@ -2818,6 +2841,30 @@ const CheckIn = ({ data, setData, currentUser }) => {
               const nameStr = `${editWalkin.firstName || ""} ${editWalkin.lastName || ""}`.trim();
               const origLockerId = editWalkin._originalLockerId;
               const newLockerId = editWalkin.lockerAssigned;
+
+              // Persist the edit to the backend BEFORE updating local state.
+              // Previously this modal only mutated React state, so edits were
+              // reverted on next reload — that's why emergency contacts (and
+              // other admin-edited fields) appeared to "disappear".
+              // Use ?? "" for the safety + demographic fields so a staff
+              // member can clear them through the UI.
+              try {
+                await walkInsApi.update(editWalkin.id, {
+                  firstName: editWalkin.firstName || undefined,
+                  lastName:  editWalkin.lastName  || undefined,
+                  fullName:  nameStr || editWalkin.name || undefined,
+                  phone:     editWalkin.phone ?? "",
+                  visitDate: editWalkin.visitDate || undefined,
+                  amount:    newAmount,
+                  paymentStatus: newStatus,
+                  gender:           editWalkin.gender         ?? "",
+                  emergencyPhone:   editWalkin.emergency      ?? "",
+                  emergencyPhone2:  editWalkin.emergency2     ?? "",
+                });
+              } catch (err) {
+                alert(err?.message || "Failed to save walk-in changes");
+                return;
+              }
 
               setData((d) => {
                 // Update the walk-in record
@@ -2893,7 +2940,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
               <div className="form-group"><label>Surname</label><input value={editWalkin.lastName || ""} onChange={(e) => setEditWalkin({ ...editWalkin, lastName: e.target.value })} /></div>
               <div className="form-group"><label>Other Name(s)</label><input value={editWalkin.firstName || ""} onChange={(e) => setEditWalkin({ ...editWalkin, firstName: e.target.value })} /></div>
               <div className="form-group"><label>Phone</label><input value={editWalkin.phone || ""} onChange={(e) => setEditWalkin({ ...editWalkin, phone: e.target.value })} /></div>
-              <div className="form-group"><label>Emergency Contact</label><input value={editWalkin.emergency || ""} onChange={(e) => setEditWalkin({ ...editWalkin, emergency: e.target.value })} /></div>
+              <div className="form-group"><label>Emergency Contact 1</label><input value={editWalkin.emergency || ""} onChange={(e) => setEditWalkin({ ...editWalkin, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
+              <div className="form-group"><label>Emergency Contact 2</label><input value={editWalkin.emergency2 || ""} onChange={(e) => setEditWalkin({ ...editWalkin, emergency2: e.target.value })} placeholder="Optional" /></div>
               <div className="form-group"><label>Gender</label>
                 <select value={editWalkin.gender || "Male"} onChange={(e) => setEditWalkin({ ...editWalkin, gender: e.target.value })}>
                   <option>Male</option><option>Female</option>
@@ -3416,8 +3464,10 @@ const adaptMember = (m) => m ? ({
 }) : null;
 
 // Inverse: take frontend form → API body.
-// We send empty strings (not undefined) for nationalId/passportNumber so the
-// backend can clear them on PATCH if the user explicitly removed one.
+// We send empty strings (not undefined) for nationalId/passportNumber and the
+// emergency phones so the backend can CLEAR them on PATCH if the user
+// explicitly removed one. Using `|| undefined` would drop the key, which
+// silently no-ops the clear-out and leaves the old value in the DB.
 const memberFormToApi = (f) => ({
   firstName: f.firstName?.trim(),
   lastName: f.lastName?.trim(),
@@ -3427,8 +3477,8 @@ const memberFormToApi = (f) => ({
   dob: f.dob || undefined,
   nationalId: (f.nationalId || "").trim(),
   passportNumber: (f.passportNumber || "").trim(),
-  emergencyPhone: f.emergency || undefined,
-  emergencyPhone2: f.emergency2 || undefined,
+  emergencyPhone:  f.emergency  ?? "",
+  emergencyPhone2: f.emergency2 ?? "",
   photoUrl: f.photo || undefined,
   pin: f.pin || undefined,
 });
@@ -5383,6 +5433,12 @@ const WalkIns = ({ data, setData, currentUser }) => {
         visitDate: today(),
         amount: total,
         paymentStatus: form.paymentStatus,
+        // Safety + demographic fields (persisted via migration 007).
+        // Send empty strings on create so backend stores NULL when blank
+        // rather than dropping the key entirely.
+        gender: form.gender || undefined,
+        emergencyPhone: form.emergency || "",
+        emergencyPhone2: form.emergency2 || "",
         notes: form.selectedActivities.length > 1
           ? `Bundle: ${actNames} (UGX 10,000 discount)`
           : actNames,
@@ -5419,6 +5475,11 @@ const WalkIns = ({ data, setData, currentUser }) => {
         phone: editTarget.phone,
         amount: editTarget.amountDue,
         paymentStatus: editTarget.paymentStatus,
+        // Safety + demographic fields (persisted via migration 007). Use ?? "" so
+        // a staff member can CLEAR an existing emergency contact through Edit.
+        gender: editTarget.gender ?? "",
+        emergencyPhone: editTarget.emergency ?? "",
+        emergencyPhone2: editTarget.emergency2 ?? "",
         notes: editTarget.note,
       });
       await reload();

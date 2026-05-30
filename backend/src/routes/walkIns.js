@@ -14,6 +14,9 @@ const TABLE = 'walk_ins';
 const FIELDS = [
   'full_name', 'first_name', 'last_name', 'phone', 'visit_date', 'activity_id', 'amount',
   'payment_status', 'checked_in', 'checked_in_at', 'recorded_by', 'notes',
+  // Safety + demographic fields. Added in migration 007 so walk-in emergency
+  // contacts are actually persisted instead of being silently dropped.
+  'gender', 'emergency_name', 'emergency_phone', 'emergency_phone_2',
 ];
 
 router.use(requireAuth);
@@ -54,6 +57,10 @@ router.post(
     body('phone').optional({ checkFalsy: true }).isString(),
     body('paymentStatus').optional().isIn(['pending', 'paid', 'refunded']),
     body('checkedIn').optional().isBoolean(),
+    body('gender').optional({ checkFalsy: true }).isIn(['Male', 'Female', 'Other']),
+    body('emergencyName').optional({ checkFalsy: false }).isString().trim().isLength({ max: 120 }),
+    body('emergencyPhone').optional({ checkFalsy: false }).isString().trim().isLength({ max: 40 }),
+    body('emergencyPhone2').optional({ checkFalsy: false }).isString().trim().isLength({ max: 40 }),
   ]),
   asyncHandler(async (req, res) => {
     const out = await withTx(async (client) => {
