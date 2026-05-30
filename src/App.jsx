@@ -2318,6 +2318,138 @@ const CheckIn = ({ data, setData, currentUser }) => {
         const filtersActive = !!(walkinFilter.from || walkinFilter.to || walkinFilter.paymentStatus !== "all" || walkinFilter.checkedIn !== "all" || walkinFilter.gender !== "all" || walkinFilter.activity !== "all" || walkinFilter.memberPlan !== "all");
         const resetFilters = () => setWalkinFilter({ from: "", to: "", paymentStatus: "all", checkedIn: "all", gender: "all", activity: "all", memberPlan: "all" });
 
+        // ── EXPIRED MEMBERS — surface members whose membership has lapsed so
+        //   staff can check them in as walk-ins. A member qualifies when:
+        //     • their name or phone matches the search query, AND
+        //     • they have at least one membership row in the past, AND
+        //     • they have NO currently-valid membership.
+        //
+        //   IMPORTANT — the backend does NOT auto-flip ms.status to "expired"
+        //   when the end date passes. Throughout the app (line 1620, 1912, 4304)
+        //   the "Expired" badge is derived from `endDate < today` while status
+        //   stays "active". So we must use the same date-based check here,
+        //   otherwise lapsed-by-date but still-status="active" rows (like Sarah
+        //   Nakamya's row that ended 20 May 2026) get treated as current.
+        //
+        //   "Currently valid" = end date is today or future AND status is not
+        //   cancelled, OR the row is explicitly frozen / pending_payment.
+        //   The instant a renewal lands (new row with future end date), the
+        //   member drops out automatically.
+        // Compare YYYY-MM-DD strings directly so the Uganda-vs-UTC midnight boundary
+        // can't shift a same-day end-date into yesterday (the backend ships endDate
+        // as midnight UTC, which lands at 03:00 local — without YMD normalisation,
+        // `new Date(...)` comparisons get the wrong day).
+        const todayYmd = today();
+        const isCurrentlyValid = (ms) => {
+          if (ms.status === "cancelled" || ms.status === "expired") return false;
+          if (ms.status === "frozen" || ms.status === "pending_payment") return true;
+          // Status is "active" (or anything else not explicitly handled) — fall back to date.
+          return dateToYMD(ms.endDate) >= todayYmd;
+        };
+        const isLapsed = (ms) => {
+          if (ms.status === "cancelled" || ms.status === "expired") return true;
+          // Status="active" but end date already in the past = lapsed by time.
+          return dateToYMD(ms.endDate) < todayYmd;
+        };
+
+        const expiredMembers = q ? (data.members || []).filter((m) => {
+          const fn = (m.firstName || "").toLowerCase();
+          const ln = (m.lastName || "").toLowerCase();
+          const nm = `${m.firstName || ""} ${m.lastName || ""}`.trim().toLowerCase();
+          const ph = (m.phone || "").toLowerCase();
+          if (!fn.includes(q) && !ln.includes(q) && !nm.includes(q) && !ph.includes(q)) return false;
+          const memberMs = (data.memberships || []).filter((ms) => ms.memberId === m.id);
+          if (memberMs.length === 0) return false;
+          if (memberMs.some(isCurrentlyValid)) return false;   // active OR frozen OR pending OR future-dated
+          return memberMs.some(isLapsed);                       // at least one lapsed row
+        }) : [];
+
+        // For each expired member, surface the most-recently-ended membership so
+        // staff can see at a glance what plan lapsed and when. Uses the same
+        // date-or-status definition of "lapsed" as the filter above.
+        const latestLapsedFor = (m) => {
+          const rows = (data.memberships || [])
+            .filter((ms) => ms.memberId === m.id && isLapsed(ms));
+          if (rows.length === 0) return null;
+          return rows.slice().sort((a, b) => new Date(b.endDate || 0) - new Date(a.endDate || 0))[0];
+        };
+
+        // Quick Check-In for an expired member: creates a walk-in record + payment
+        // + attendance using their existing name/phone and Daily Gym Access defaults.
+        // Mirrors quickReCheckIn() above so the UX is consistent.
+        const quickCheckInExpiredMember = async (m) => {
+          const name = `${m.firstName || ""} ${m.lastName || ""}`.trim() || "Member";
+          const dailyAct = ACTIVITIES.find((a) => (a.id || a.code) === "gym_daily_activity") || ACTIVITIES[0];
+          const amount = dailyAct?.standalone || 20000;
+          const lapsed = latestLapsedFor(m);
+          const lapsedNote = lapsed ? ` — membership lapsed ${formatDate(lapsed.endDate)} (${getPlanName(lapsed.plan)})` : "";
+          if (!confirm(
+            `Walk-in check-in for ${name}?\n\n` +
+            `Their membership has expired. This will record a walk-in visit:\n` +
+            `• Activity: ${dailyAct?.name || "Daily Gym Access"}\n` +
+            `• Amount: ${formatUGX(amount)}\n` +
+            `• Payment: Cash, Paid\n\n` +
+            `If they want to renew their membership instead, use the Memberships page.`
+          )) return;
+          try {
+            await walkInsApi.create({
+              firstName: m.firstName?.trim() || undefined,
+              lastName:  m.lastName?.trim()  || undefined,
+              fullName:  name,
+              phone:     m.phone || undefined,
+              gender:    m.gender || undefined,
+              visitDate: today(),
+              amount,
+              activityId: dailyAct?.id || dailyAct?.code,
+              paymentStatus: "paid",
+              checkedIn: true,
+              notes: `Expired-member walk-in: ${name}${lapsedNote}`,
+            });
+            try {
+              await paymentsApi.create({
+                memberId: m.id,
+                amount,
+                method: "cash",
+                type: "walk_in",
+                notes: `Walk-in: ${name} — ${dailyAct?.name || "Daily Gym Access"} (expired-member)`,
+              });
+            } catch (e) { console.warn("Expired-member walk-in payment record failed:", e); }
+            const [wiRes, payRes, attRes] = await Promise.all([
+              walkInsApi.list({ limit: 500 }),
+              paymentsApi.list({ limit: 500 }),
+              attendanceApi.list({ limit: 500 }),
+            ]);
+            setData((d) => ({
+              ...d,
+              walkIns: (wiRes?.data || []).map(adaptWalkIn),
+              payments: (payRes?.data || []).map(adaptPayment),
+              attendance: (attRes?.data || []).map(adaptAttendance),
+            }));
+            setWalkinSearch("");
+            alert(`✓ ${name} checked in as walk-in. Receipt: ${formatUGX(amount)} ${dailyAct?.name || "Daily Gym Access"}.`);
+          } catch (err) {
+            alert(err?.message || "Walk-in check-in failed");
+          }
+        };
+
+        // Pre-fill the walk-in form with an expired member's details so staff
+        // can choose a different activity / payment method before saving.
+        const registerExpiredMember = (m) => {
+          setWalkinForm({
+            firstName: m.firstName || "",
+            lastName:  m.lastName  || "",
+            phone:     m.phone     || "",
+            emergency: m.emergency || m.emergencyPhone || "",
+            selectedActivities: [],
+            paymentMethod: "cash",
+            paymentStatus: "paid",
+            gender: m.gender || "Male",
+            locker: null,
+          });
+          setMode("walkin");
+          setWalkinSearch("");
+        };
+
         // For returning-visitor detection: dedupe by phone, keeping the most recent.
         const uniqueByPhone = {};
         [...filteredWalkIns].sort((a, b) => new Date(b.visitDate || 0) - new Date(a.visitDate || 0))
@@ -2493,6 +2625,62 @@ const CheckIn = ({ data, setData, currentUser }) => {
               )}
             </div>
           </div>
+
+          {/* EXPIRED-MEMBER SHORTCUT: when the search matches a registered member
+              whose membership has lapsed, surface them here so staff can check
+              them in as a walk-in instead of refusing entry. The card disappears
+              automatically the moment the member renews (their next membership row
+              becomes active/frozen/pending_payment, which knocks them out of the
+              `expiredMembers` filter above). */}
+          {q && expiredMembers.length > 0 && (
+            <div className="card" style={{ marginBottom: 16, borderLeft: "3px solid var(--warning)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <h4 style={{ fontSize: 13, color: "var(--warning)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  <AlertTriangle size={14} style={{ display: "inline", verticalAlign: "middle", marginRight: 6 }} />
+                  Members with Expired Memberships ({expiredMembers.length})
+                </h4>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Check in as walk-in — disappears on renewal</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+                {expiredMembers.slice(0, 6).map((m) => {
+                  const lapsed = latestLapsedFor(m);
+                  const name = `${m.firstName || ""} ${m.lastName || ""}`.trim() || "Member";
+                  const checkedInToday = data.walkIns.some((x) => x.phone && m.phone && x.phone === m.phone && dateToYMD(x.visitDate) === today() && x.checkedIn);
+                  return (
+                    <div key={m.id} style={{
+                      padding: 12, background: "var(--bg-elevated)", border: "1px solid var(--border)",
+                      borderRadius: "var(--radius-sm)", transition: "var(--transition)",
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                        <div style={{ fontWeight: 600, color: "var(--text)" }}>{name}</div>
+                        <Badge variant="danger">Expired</Badge>
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>{m.phone || "no phone"}</div>
+                      {lapsed && (
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
+                          {getPlanName(lapsed.plan)} • ended {formatDate(lapsed.endDate)}
+                        </div>
+                      )}
+                      {checkedInToday ? (
+                        <div style={{ marginTop: 8, padding: "6px 10px", background: "var(--success-dim)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "var(--radius-xs)", textAlign: "center", fontSize: 11, color: "var(--success)", fontWeight: 600 }}>
+                          ✓ Already checked in today
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+                          <button className="btn btn-sm btn-success" onClick={() => quickCheckInExpiredMember(m)} style={{ flex: 1, padding: "6px 8px", fontSize: 11, justifyContent: "center" }} title="Check in as walk-in (Daily Gym, Cash, Paid)">
+                            <LogIn size={12} /> Quick Check-In
+                          </button>
+                          <button className="btn btn-sm btn-secondary" onClick={() => registerExpiredMember(m)} style={{ flex: 1, padding: "6px 8px", fontSize: 11, justifyContent: "center" }} title="Open the walk-in form pre-filled with their details">
+                            <UserPlus size={12} /> Register
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* RETURNING-VISITOR SHORTCUT: when search matches existing visitors, show
               quick "Register Again" action(s) at the top so staff can re-register
