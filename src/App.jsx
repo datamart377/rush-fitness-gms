@@ -5752,6 +5752,30 @@ const Attendance = ({ data, setData }) => {
     return ms ? (ms.plan || ms.planCode) : null;
   };
 
+  // For the display column we want to surface SOMETHING even if the active
+  // membership has lapsed — fall back to the member's most recent membership
+  // (by end_date) so historical attendance rows still show their plan context.
+  const memberPlanForDisplay = (memberId) => {
+    if (!memberId) return null;
+    const all = (data.memberships || []).filter((m) => m.memberId === memberId);
+    if (!all.length) return null;
+    const active = all.find((m) => m.isActive || m.status === "active" || m.status === "frozen");
+    if (active) return active.plan || active.planCode;
+    const sorted = [...all].sort((a, b) =>
+      String(b.endDate || "").localeCompare(String(a.endDate || ""))
+    );
+    return sorted[0] ? (sorted[0].plan || sorted[0].planCode) : null;
+  };
+
+  // Resolve the walk-in record attached to an attendance row, so we can
+  // surface gender/activity which the attendance API doesn't join in.
+  const walkInForRow = (a) => {
+    if (!a) return null;
+    const id = a.walkInId || a.walk_in_id;
+    if (!id) return null;
+    return (data.walkIns || []).find((w) => w.id === id) || null;
+  };
+
   const filtered = [...(data.attendance || [])]
     .filter((a) => {
       const date = a.date || (a.checkIn ? a.checkIn.slice(0, 10) : "");
@@ -5924,14 +5948,30 @@ const Attendance = ({ data, setData }) => {
           <tbody>
             {filtered.map((a) => {
               const member = a.memberId ? data.members.find((m) => m.id === a.memberId) : null;
-              const planCode = memberActivePlan(a.memberId);
-              const planLabel = planCode ? getPlanName(planCode) : "—";
+              const walkIn = !member ? walkInForRow(a) : null;
 
-              // Activity — backend stores UUID, our adapter exposes both .uuid and .id (code).
-              const act = a.activityId
-                ? ACTIVITIES.find((x) => x.uuid === a.activityId || x.id === a.activityId || x.code === a.activityId)
+              // Gender — prefer member, then walk-in; only "—" if both are blank.
+              const genderLabel = member?.gender || walkIn?.gender || "—";
+
+              // Plan — members get their active OR most recent plan; walk-ins
+              // are labelled "Walk-In" so the column is never empty for them.
+              let planLabel = "—";
+              if (member) {
+                const planCode = memberPlanForDisplay(a.memberId);
+                if (planCode) planLabel = getPlanName(planCode);
+              } else if (walkIn) {
+                planLabel = "Walk-In";
+              }
+
+              // Activity — backend stores UUID, adapter exposes both .uuid and .id (code).
+              // Fall back to the walk-in's activity_id when the attendance row didn't capture one.
+              const actId = a.activityId || walkIn?.activityId || null;
+              const act = actId
+                ? ACTIVITIES.find((x) => x.uuid === actId || x.id === actId || x.code === actId)
                 : null;
-              const activityLabel = act ? act.name : (a.activityId ? "Unknown" : "—");
+              const activityLabel = act
+                ? act.name
+                : (actId ? "Unknown" : (walkIn ? "Walk-In Visit" : "—"));
 
               // Locker — look up by ID from data.lockers to get the number + section.
               const lockerObj = a.lockerId ? data.lockers.find((l) => l.id === a.lockerId) : null;
@@ -5941,8 +5981,8 @@ const Attendance = ({ data, setData }) => {
               return (
                 <tr key={a.id}>
                   <td>{formatDate(a.date)}</td>
-                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{member ? fullName(member) : a.guestName || "Guest"}</td>
-                  <td>{member?.gender || "—"}</td>
+                  <td style={{ color: "var(--text)", fontWeight: 500 }}>{member ? fullName(member) : (walkIn ? (walkIn.name || `${walkIn.firstName || ""} ${walkIn.lastName || ""}`.trim()) : (a.guestName || "Guest"))}</td>
+                  <td>{genderLabel}</td>
                   <td style={{ fontSize: 12 }}>{planLabel}</td>
                   <td style={{ fontSize: 12 }}>{activityLabel}</td>
                   <td>{formatTime(a.checkIn)}</td>
