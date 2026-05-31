@@ -8932,6 +8932,13 @@ const Reports = ({ data }) => {
   const [overviewFrom, setOverviewFrom] = useState(initialMonth.from);
   const [overviewTo, setOverviewTo] = useState(initialMonth.to);
 
+  // Trend Analysis tab — granularity picker drives how the timeline is
+  // bucketed. Month = last 12 calendar months, Week = last 12 weeks
+  // (Mon→Sun), Day = last 30 days. Defaulting to month gives the most
+  // recognisable shape for "is the gym growing?" without overwhelming
+  // small datasets.
+  const [trendGranularity, setTrendGranularity] = useState("month");
+
   // Applying a preset overwrites both date inputs and remembers which
   // chip should appear active. "custom" simply selects the chip without
   // touching the dates — the user is about to edit them.
@@ -9115,6 +9122,126 @@ const Reports = ({ data }) => {
     .sort((a, b) => b.visits - a.visits || b.totalPaid - a.totalPaid)
     .slice(0, 10);
 
+  // ── Trend Analysis bucketing ─────────────────────────────────────
+  //   computeBuckets() generates an ordered list of time windows for
+  //   the chosen granularity. bucketCounts() then walks each record
+  //   (membership / walk-in) into the bucket whose [start..end]
+  //   contains its date. Comparisons stay as YYYY-MM-DD strings so
+  //   the timezone-shift trap is avoided (Uganda is UTC+3).
+  const computeBuckets = (granularity) => {
+    const now = new Date();
+    const out = [];
+    if (granularity === "month") {
+      for (let i = 11; i >= 0; i--) {
+        const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const end   = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+        const labelMonth = start.toLocaleDateString("en-UG", { month: "short" });
+        // Append year on January boundaries so the X-axis is unambiguous.
+        const label = start.getMonth() === 0 ? `${labelMonth} '${String(start.getFullYear()).slice(-2)}` : labelMonth;
+        out.push({ label, start: dateToYMD(start), end: dateToYMD(end), count: 0 });
+      }
+    } else if (granularity === "week") {
+      const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const offsetToMonday = (base.getDay() + 6) % 7;  // days since Monday
+      for (let i = 11; i >= 0; i--) {
+        const start = new Date(base);
+        start.setDate(base.getDate() - offsetToMonday - 7 * i);
+        const end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        const label = start.toLocaleDateString("en-UG", { month: "short", day: "numeric" });
+        out.push({ label, start: dateToYMD(start), end: dateToYMD(end), count: 0 });
+      }
+    } else {                                            // day — last 30 days
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        const label = d.toLocaleDateString("en-UG", { month: "short", day: "numeric" });
+        out.push({ label, start: dateToYMD(d), end: dateToYMD(d), count: 0 });
+      }
+    }
+    return out;
+  };
+
+  const bucketCounts = (records, dateGetter) => {
+    const buckets = computeBuckets(trendGranularity);
+    records.forEach((r) => {
+      const ymd = dateToYMD(dateGetter(r));
+      if (!ymd) return;
+      for (const b of buckets) {
+        if (ymd >= b.start && ymd <= b.end) { b.count += 1; return; }
+      }
+    });
+    return buckets;
+  };
+
+  const membershipTrend = bucketCounts(data.memberships, (ms) => ms.startDate);
+  const walkInTrend     = bucketCounts(data.walkIns,     (w)  => w.visitDate);
+
+  // Trend direction = first half vs second half of the series. >5%
+  // counts as growth/decline; otherwise "stable" so noise doesn't
+  // colour the badge inappropriately.
+  const trendDirection = (buckets) => {
+    if (buckets.length < 2) return { delta: 0, label: "stable", color: "var(--text-muted)", icon: "—" };
+    const half     = Math.floor(buckets.length / 2);
+    const earlier  = buckets.slice(0, half).reduce((s, b) => s + b.count, 0);
+    const recent   = buckets.slice(buckets.length - half).reduce((s, b) => s + b.count, 0);
+    if (earlier === 0 && recent === 0) return { delta: 0, label: "no data", color: "var(--text-muted)", icon: "—" };
+    const pct = earlier > 0 ? Math.round((recent - earlier) / earlier * 100) : (recent > 0 ? 100 : 0);
+    if (pct >  5) return { delta: pct, label: "growing",   color: "var(--success)", icon: "▲" };
+    if (pct < -5) return { delta: pct, label: "declining", color: "var(--danger)",  icon: "▼" };
+    return        { delta: pct, label: "stable",    color: "var(--text-muted)", icon: "━" };
+  };
+
+  const membershipDir = trendDirection(membershipTrend);
+  const walkInDir     = trendDirection(walkInTrend);
+
+  // SVG line chart with area fill, dots, value labels on non-zero
+  // points, dashed Y gridlines, and a thinned X-axis label set so
+  // 30-day series don't clobber each other.
+  const renderTrendChart = (buckets, color) => {
+    const max = Math.max(...buckets.map((b) => b.count), 1);
+    const W = 800, H = 220;
+    const pad = { t: 20, r: 16, b: 36, l: 32 };
+    const iw = W - pad.l - pad.r;
+    const ih = H - pad.t - pad.b;
+    const points = buckets.map((b, i) => ({
+      x: pad.l + (i / Math.max(buckets.length - 1, 1)) * iw,
+      y: pad.t + (1 - b.count / max) * ih,
+      ...b,
+    }));
+    const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+    const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(1)},${(pad.t + ih).toFixed(1)} L${points[0].x.toFixed(1)},${(pad.t + ih).toFixed(1)} Z`;
+    const yTicks   = max <= 4 ? Array.from({ length: max + 1 }, (_, i) => i) : [0, Math.ceil(max / 2), max];
+    const xStride  = buckets.length > 12 ? Math.ceil(buckets.length / 8) : 1;
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {yTicks.map((t, i) => {
+          const y = pad.t + (1 - t / max) * ih;
+          return (
+            <g key={`yt-${i}`}>
+              <line x1={pad.l} y1={y} x2={W - pad.r} y2={y} stroke="var(--border)" strokeDasharray={t === 0 ? "0" : "2,3"} strokeWidth="1" />
+              <text x={pad.l - 6} y={y + 3} fontSize="10" fill="var(--text-muted)" textAnchor="end">{t}</text>
+            </g>
+          );
+        })}
+        <path d={areaPath} fill={color} fillOpacity="0.15" />
+        <path d={linePath} fill="none" stroke={color} strokeWidth="2" />
+        {points.map((p, i) => (
+          <g key={`pt-${i}`}>
+            <circle cx={p.x} cy={p.y} r="3" fill={color} />
+            {p.count > 0 && (
+              <text x={p.x} y={p.y - 8} fontSize="9" fill="var(--text)" textAnchor="middle">{p.count}</text>
+            )}
+          </g>
+        ))}
+        {points.map((p, i) =>
+          (i % xStride === 0 || i === points.length - 1)
+            ? <text key={`xl-${i}`} x={p.x} y={H - pad.b + 18} fontSize="10" fill="var(--text-muted)" textAnchor="middle">{p.label}</text>
+            : null
+        )}
+      </svg>
+    );
+  };
+
   return (
     <div>
       <div className="page-header"><h2>Reports</h2><p>Revenue analytics and debtor tracking</p></div>
@@ -9123,6 +9250,7 @@ const Reports = ({ data }) => {
         <button className={`tab ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Revenue Overview</button>
         <button className={`tab ${tab === "debtors" ? "active" : ""}`} onClick={() => setTab("debtors")}>Debtors Report ({filteredDebtors.length}{filteredDebtors.length !== allDebtors.length ? `/${allDebtors.length}` : ""})</button>
         <button className={`tab ${tab === "attendance" ? "active" : ""}`} onClick={() => setTab("attendance")}>Attendance Analysis</button>
+        <button className={`tab ${tab === "trends" ? "active" : ""}`} onClick={() => setTab("trends")}>Trend Analysis</button>
         <button className={`tab ${tab === "statement" ? "active" : ""}`} onClick={() => setTab("statement")}>Financial Statement</button>
       </div>
 
@@ -9229,6 +9357,77 @@ const Reports = ({ data }) => {
                 <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Total Member Check-Ins</p>
                 <p style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", margin: "4px 0 0" }}>{memberStats.reduce((s, m) => s + m.visits, 0)}</p>
               </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === "trends" && (
+        <>
+          {/* ── Granularity toolbar ───────────────────────────────────
+              Three chips swap the X-axis resolution. The window is
+              fixed per granularity (12 months / 12 weeks / 30 days) —
+              this matches the way owners typically think about cadence
+              and keeps the chart shape comparable across granularities. */}
+          <div className="card" style={{ padding: "12px 16px", marginBottom: 16 }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Granularity</span>
+              {[
+                ["day",   "Last 30 days"],
+                ["week",  "Last 12 weeks"],
+                ["month", "Last 12 months"],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`btn btn-sm ${trendGranularity === key ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setTrendGranularity(key)}
+                  style={{ padding: "4px 10px", fontSize: 11 }}
+                >{label}</button>
+              ))}
+              <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)" }}>
+                Trend direction = first half vs second half of the window
+              </span>
+            </div>
+          </div>
+
+          {/* ── Membership Growth ─────────────────────────────────── */}
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>Membership Growth</h3>
+              <span style={{ fontSize: 12, color: membershipDir.color, fontWeight: 600 }}>
+                {membershipDir.icon} {membershipDir.label.toUpperCase()}{" "}
+                {membershipDir.label !== "no data" && (
+                  <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+                    ({membershipDir.delta > 0 ? "+" : ""}{membershipDir.delta}% vs earlier period)
+                  </span>
+                )}
+              </span>
+            </div>
+            {renderTrendChart(membershipTrend, "var(--accent)")}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, fontSize: 12, color: "var(--text-muted)", flexWrap: "wrap", gap: 12 }}>
+              <span>Total in window: <strong style={{ color: "var(--text)" }}>{membershipTrend.reduce((s, b) => s + b.count, 0)}</strong> new membership{membershipTrend.reduce((s, b) => s + b.count, 0) === 1 ? "" : "s"}</span>
+              <span>Peak period: <strong style={{ color: "var(--text)" }}>{(() => { const p = membershipTrend.reduce((m, b) => b.count > m.count ? b : m, { count: 0 }); return p.count > 0 ? `${p.label} (${p.count})` : "—"; })()}</strong></span>
+            </div>
+          </div>
+
+          {/* ── Walk-In Growth ────────────────────────────────────── */}
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>Walk-In Growth</h3>
+              <span style={{ fontSize: 12, color: walkInDir.color, fontWeight: 600 }}>
+                {walkInDir.icon} {walkInDir.label.toUpperCase()}{" "}
+                {walkInDir.label !== "no data" && (
+                  <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+                    ({walkInDir.delta > 0 ? "+" : ""}{walkInDir.delta}% vs earlier period)
+                  </span>
+                )}
+              </span>
+            </div>
+            {renderTrendChart(walkInTrend, "var(--info)")}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, fontSize: 12, color: "var(--text-muted)", flexWrap: "wrap", gap: 12 }}>
+              <span>Total in window: <strong style={{ color: "var(--text)" }}>{walkInTrend.reduce((s, b) => s + b.count, 0)}</strong> walk-in{walkInTrend.reduce((s, b) => s + b.count, 0) === 1 ? "" : "s"}</span>
+              <span>Peak period: <strong style={{ color: "var(--text)" }}>{(() => { const p = walkInTrend.reduce((m, b) => b.count > m.count ? b : m, { count: 0 }); return p.count > 0 ? `${p.label} (${p.count})` : "—"; })()}</strong></span>
             </div>
           </div>
         </>
