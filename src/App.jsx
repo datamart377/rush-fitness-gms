@@ -8954,15 +8954,20 @@ const Reports = ({ data }) => {
     return true;
   };
 
-  // Pre-filter the three source arrays once so each card below stays
+  // Pre-filter the four source arrays once so each card below stays
   // readable. "prepaid_visit" payments are excluded from revenue per
   // pre-existing logic — they're internal accounting entries, not cash.
+  // Expenses are filtered against e.date (stored as a YYYY-MM-DD string
+  // by the expense adapter), so no extra date conversion is needed.
   const filteredPayments    = data.payments.filter((p) => inRange(dateToYMD(p.paidAt)));
   const filteredMemberships = data.memberships.filter((ms) => inRange(dateToYMD(ms.startDate)));
   const filteredMembers     = data.members.filter((m) => inRange(dateToYMD(m.createdAt)));
+  const filteredExpenses    = (data.expenses || []).filter((e) => inRange(e.date));
 
   const totalRevenue   = filteredPayments.filter((p) => p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
   const totalDiscounts = filteredPayments.reduce((s, p) => s + (p.discountAmount || 0), 0);
+  const totalExpenses  = filteredExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const netProfit      = totalRevenue - totalExpenses;
 
   // Membership distribution: counts each plan in the filtered window.
   const planBreakdown = {};
@@ -8970,6 +8975,16 @@ const Reports = ({ data }) => {
     const key = getPlanName(ms.plan);
     planBreakdown[key] = (planBreakdown[key] || 0) + 1;
   });
+
+  // Expense breakdown: groups filtered expenses by category, sorted
+  // descending by total so the biggest cost centres appear first —
+  // typically what owners look at first when reconciling.
+  const expenseBreakdown = {};
+  filteredExpenses.forEach((e) => {
+    const key = e.category || "Uncategorised";
+    expenseBreakdown[key] = (expenseBreakdown[key] || 0) + Number(e.amount || 0);
+  });
+  const expenseBreakdownSorted = Object.entries(expenseBreakdown).sort((a, b) => b[1] - a[1]);
 
   // Human-readable label for the active window — used in the page
   // subtitle so the numbers don't look context-less.
@@ -9109,10 +9124,20 @@ const Reports = ({ data }) => {
             </div>
           </div>
 
+          {/* Top stat row: the four numbers an owner looks at first when
+              reconciling a window — money in, money out, bottom line, and
+              new members signed up. Net Profit goes green when positive,
+              red when negative for instant visual feedback. */}
           <div className="card-grid">
             <StatCard icon={DollarSign} label={`Revenue (${rangeLabel})`} value={formatUGX(totalRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
-            <StatCard icon={TrendingUp} label="Transactions" value={filteredPayments.filter((p) => p.type !== "prepaid_visit").length} color="var(--success)" bg="var(--success-dim)" />
-            <StatCard icon={Tag} label="Discounts Given" value={formatUGX(totalDiscounts)} color="var(--warning)" bg="var(--warning-dim)" />
+            <StatCard icon={TrendingDown} label="Expenses" value={formatUGX(totalExpenses)} color="var(--danger)" bg="var(--danger-dim)" />
+            <StatCard
+              icon={TrendingUp}
+              label="Net Profit"
+              value={formatUGX(netProfit)}
+              color={netProfit >= 0 ? "var(--success)" : "var(--danger)"}
+              bg={netProfit >= 0 ? "var(--success-dim)" : "var(--danger-dim)"}
+            />
             <StatCard icon={Users} label="New Registrations" value={filteredMembers.length} color="var(--info)" bg="var(--info-dim)" />
           </div>
 
@@ -9149,7 +9174,46 @@ const Reports = ({ data }) => {
                   );
                 });
               })()}
+              {/* Discounts surfaced as a small footer line so owners still
+                  see total markdowns without it taking up a full StatCard. */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 0", marginTop: 8, borderTop: "1px solid var(--border)" }}>
+                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Discounts given</span>
+                <span style={{ fontWeight: 600, color: "var(--warning)" }}>{formatUGX(totalDiscounts)}</span>
+              </div>
             </div>
+          </div>
+
+          {/* ── Expenses by Category ───────────────────────────────────
+              Shows where money went during the active window, sorted by
+              cost descending and with a percent-of-total bar so owners
+              can spot the biggest line items at a glance. Hidden when
+              there are no expenses to keep the page tidy. */}
+          <div className="card" style={{ marginTop: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>Expenses by Category</h3>
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                {filteredExpenses.length} expense{filteredExpenses.length === 1 ? "" : "s"} totalling{" "}
+                <strong style={{ color: "var(--danger)" }}>{formatUGX(totalExpenses)}</strong>
+              </span>
+            </div>
+            {expenseBreakdownSorted.length === 0 ? (
+              <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>No expenses recorded in this window.</p>
+            ) : (
+              expenseBreakdownSorted.map(([category, amount]) => {
+                const pct = totalExpenses > 0 ? Math.round((amount / totalExpenses) * 100) : 0;
+                return (
+                  <div key={category} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ color: "var(--text)" }}>{category}</span>
+                      <span style={{ fontWeight: 600, color: "var(--danger)" }}>{formatUGX(amount)} <span style={{ color: "var(--text-muted)", fontWeight: 400, fontSize: 11 }}>({pct}%)</span></span>
+                    </div>
+                    <div style={{ height: 4, background: "var(--bg-input)", borderRadius: 2, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pct}%`, background: "var(--danger)", borderRadius: 2 }} />
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </>
       )}
