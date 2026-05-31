@@ -9059,6 +9059,62 @@ const Reports = ({ data }) => {
     }
   };
 
+  // ── Attendance tab — top 10 most consistent walk-ins & members ──
+  //   Walk-ins are grouped by phone number because they don't have a
+  //   stable identity across visits. Only PAID walk-in visits count
+  //   towards "consistency" (the user asked for analysis "based on
+  //   payments"). Total paid is summed across all matching visits so
+  //   owners can see lifetime value alongside visit frequency.
+  //
+  //   Members are ranked by count of attendance records (each check-in
+  //   = one entry). Total paid sums all payments attributed to the
+  //   member, again excluding the internal "prepaid_visit" bookkeeping
+  //   entries that aren't real cash in.
+  const walkInGroups = {};
+  data.walkIns.forEach((w) => {
+    if (!w.phone) return;                              // skip records with no contact
+    if (w.paymentStatus === "pending") return;         // only count paid visits
+    const key = w.phone.trim();
+    if (!walkInGroups[key]) {
+      walkInGroups[key] = {
+        phone: key,
+        name: `${w.firstName || ""} ${w.lastName || w.name || ""}`.trim() || "(no name)",
+        visits: 0,
+        totalPaid: 0,
+        lastVisit: "",
+      };
+    }
+    walkInGroups[key].visits  += 1;
+    walkInGroups[key].totalPaid += Number(w.amountPaid || w.amountDue || 0);
+    const d = dateToYMD(w.visitDate);
+    if (!walkInGroups[key].lastVisit || d > walkInGroups[key].lastVisit) walkInGroups[key].lastVisit = d;
+    // Keep the most recent name spelling — guests sometimes update it.
+    const nm = `${w.firstName || ""} ${w.lastName || w.name || ""}`.trim();
+    if (nm && nm !== "(no name)") walkInGroups[key].name = nm;
+  });
+  const topWalkIns = Object.values(walkInGroups)
+    .sort((a, b) => b.visits - a.visits || b.totalPaid - a.totalPaid)
+    .slice(0, 10);
+
+  // Per-member check-in count + total paid, restricted to active and
+  // archived members alike — we want true visit frequency, not status.
+  const memberStats = data.members.map((m) => {
+    const visits = data.attendance.filter((a) => a.memberId === m.id).length;
+    const totalPaid = data.payments
+      .filter((p) => p.memberId === m.id && p.type !== "prepaid_visit")
+      .reduce((s, p) => s + p.amount, 0);
+    // Last check-in date — useful for spotting members who used to be
+    // frequent and have gone quiet (churn risk signal).
+    const lastVisit = data.attendance
+      .filter((a) => a.memberId === m.id)
+      .reduce((acc, a) => { const d = dateToYMD(a.date); return d > acc ? d : acc; }, "");
+    return { id: m.id, name: fullName(m), phone: m.phone, visits, totalPaid, lastVisit };
+  });
+  const topMembers = memberStats
+    .filter((m) => m.visits > 0)                       // ignore never-checked-in members
+    .sort((a, b) => b.visits - a.visits || b.totalPaid - a.totalPaid)
+    .slice(0, 10);
+
   return (
     <div>
       <div className="page-header"><h2>Reports</h2><p>Revenue analytics and debtor tracking</p></div>
@@ -9066,10 +9122,117 @@ const Reports = ({ data }) => {
       <div className="tabs" style={{ marginBottom: 20 }}>
         <button className={`tab ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Revenue Overview</button>
         <button className={`tab ${tab === "debtors" ? "active" : ""}`} onClick={() => setTab("debtors")}>Debtors Report ({filteredDebtors.length}{filteredDebtors.length !== allDebtors.length ? `/${allDebtors.length}` : ""})</button>
+        <button className={`tab ${tab === "attendance" ? "active" : ""}`} onClick={() => setTab("attendance")}>Attendance Analysis</button>
         <button className={`tab ${tab === "statement" ? "active" : ""}`} onClick={() => setTab("statement")}>Financial Statement</button>
       </div>
 
       {tab === "statement" && <FinancialStatement data={data} />}
+
+      {tab === "attendance" && (
+        <>
+          {/* ── Top 10 most consistent guests — paid walk-ins (grouped
+              by phone) on the left, members ranked by check-in count on
+              the right. Designed for the "who are our regulars?" and
+              "who's drifting away?" questions owners ask weekly. */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
+            <div className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>Top 10 Walk-In Regulars</h3>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Grouped by phone • paid visits only</span>
+              </div>
+              {topWalkIns.length === 0 ? (
+                <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>No paid walk-in records yet.</p>
+              ) : (
+                <div className="table-wrapper" style={{ marginTop: 0 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 36 }}>#</th>
+                        <th>Guest</th>
+                        <th>Phone</th>
+                        <th style={{ textAlign: "right" }}>Visits</th>
+                        <th style={{ textAlign: "right" }}>Total Paid</th>
+                        <th>Last Visit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topWalkIns.map((w, i) => (
+                        <tr key={w.phone}>
+                          <td style={{ color: "var(--text-muted)", fontWeight: 600 }}>{i + 1}</td>
+                          <td style={{ color: "var(--text)", fontWeight: 500 }}>{w.name}</td>
+                          <td style={{ fontSize: 12 }}>{w.phone}</td>
+                          <td style={{ textAlign: "right" }}><Badge variant="info">{w.visits}</Badge></td>
+                          <td style={{ textAlign: "right", fontWeight: 600, color: "var(--accent)" }}>{formatUGX(w.totalPaid)}</td>
+                          <td style={{ fontSize: 12, color: "var(--text-dim)" }}>{w.lastVisit ? formatDate(w.lastVisit) : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>Top 10 Member Regulars</h3>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>By check-in count</span>
+              </div>
+              {topMembers.length === 0 ? (
+                <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>No member check-ins recorded yet.</p>
+              ) : (
+                <div className="table-wrapper" style={{ marginTop: 0 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 36 }}>#</th>
+                        <th>Member</th>
+                        <th>Phone</th>
+                        <th style={{ textAlign: "right" }}>Check-Ins</th>
+                        <th style={{ textAlign: "right" }}>Total Paid</th>
+                        <th>Last Visit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topMembers.map((m, i) => (
+                        <tr key={m.id}>
+                          <td style={{ color: "var(--text-muted)", fontWeight: 600 }}>{i + 1}</td>
+                          <td style={{ color: "var(--text)", fontWeight: 500 }}>{m.name}</td>
+                          <td style={{ fontSize: 12 }}>{m.phone}</td>
+                          <td style={{ textAlign: "right" }}><Badge variant="success">{m.visits}</Badge></td>
+                          <td style={{ textAlign: "right", fontWeight: 600, color: "var(--accent)" }}>{formatUGX(m.totalPaid)}</td>
+                          <td style={{ fontSize: 12, color: "var(--text-dim)" }}>{m.lastVisit ? formatDate(m.lastVisit) : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Summary strip — quick aggregate context underneath. */}
+          <div className="card" style={{ marginTop: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16 }}>
+              <div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Unique Walk-In Guests</p>
+                <p style={{ fontSize: 22, fontWeight: 700, color: "var(--info)", margin: "4px 0 0" }}>{Object.keys(walkInGroups).length}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Active Member Regulars</p>
+                <p style={{ fontSize: 22, fontWeight: 700, color: "var(--success)", margin: "4px 0 0" }}>{memberStats.filter((m) => m.visits > 0).length}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Total Walk-In Visits</p>
+                <p style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", margin: "4px 0 0" }}>{Object.values(walkInGroups).reduce((s, w) => s + w.visits, 0)}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Total Member Check-Ins</p>
+                <p style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", margin: "4px 0 0" }}>{memberStats.reduce((s, m) => s + m.visits, 0)}</p>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
 
       {tab === "overview" && (
