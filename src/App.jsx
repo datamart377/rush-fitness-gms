@@ -2812,7 +2812,48 @@ const CheckIn = ({ data, setData, currentUser }) => {
                         <button className="btn btn-sm btn-primary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => checkInWalkInGuest(w)}><LogIn size={12} /> In</button>
                       ) : <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Pay first</span>}
                     </td>
-                    <td><button className="btn btn-icon btn-secondary" onClick={() => setEditWalkin({ ...w, _originalAmount: w.amountDue || w.amountPaid, _originalStatus: w.paymentStatus || "paid", _originalLockerId: w.lockerAssigned || null })} title="Edit walk-in"><Edit2 size={14} /></button></td>
+                    <td>
+                      {/* Edit + Delete actions. Delete is gated on admin
+                          because the backend route requires that role —
+                          surfacing the button to other staff would just
+                          produce a 403 after the confirm prompt. */}
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          className="btn btn-icon btn-secondary"
+                          onClick={() => setEditWalkin({ ...w, _originalAmount: w.amountDue || w.amountPaid, _originalStatus: w.paymentStatus || "paid", _originalLockerId: w.lockerAssigned || null })}
+                          title="Edit walk-in"
+                        ><Edit2 size={14} /></button>
+                        {isAdmin && (
+                          <button
+                            className="btn btn-icon btn-danger"
+                            style={{ background: "rgba(239,68,68,0.15)" }}
+                            title="Delete walk-in record (admin only)"
+                            onClick={async () => {
+                              const who = `${w.firstName || ""} ${w.lastName || w.name || ""}`.trim() || w.phone || "this record";
+                              if (!window.confirm(`Delete walk-in record for ${who} on ${formatDate(w.visitDate)}?\n\nThis cannot be undone. Linked attendance entries (if any) will also be removed by the database cascade.`)) return;
+                              try {
+                                await walkInsApi.remove(w.id);
+                                // Refresh both walk-ins and attendance so the
+                                // Check-In History below reflects the deletion
+                                // immediately (attendance rows cascade-delete
+                                // with the walk-in via FK).
+                                const [wiRes, attRes] = await Promise.all([
+                                  walkInsApi.list({ limit: 500 }),
+                                  attendanceApi.list({ limit: 500 }),
+                                ]);
+                                setData((d) => ({
+                                  ...d,
+                                  walkIns: (wiRes?.data || []).map(adaptWalkIn),
+                                  attendance: (attRes?.data || []).map(adaptAttendance),
+                                }));
+                              } catch (err) {
+                                alert(err?.message || "Failed to delete walk-in record");
+                              }
+                            }}
+                          ><Trash2 size={14} /></button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {filteredWalkIns.length === 0 && (
