@@ -8889,17 +8889,102 @@ const FinancialStatement = ({ data }) => {
 };
 
 const Reports = ({ data }) => {
-  const totalRevenue = data.payments.filter((p) => p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const monthlyRevenue = data.payments.filter((p) => p.paidAt.startsWith(currentMonth) && p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
-  const totalDiscounts = data.payments.reduce((s, p) => s + (p.discountAmount || 0), 0);
+  const [tab, setTab] = useState("overview"); // overview | debtors
+
+  // ── Revenue Overview date range filter ─────────────────────────────
+  //   Default window = the current calendar month, matching the legacy
+  //   "This Month" card. Presets cover the windows owners typically
+  //   reconcile against (today, week, month, quarter, year, all time).
+  //   "custom" leaves the two date inputs editable so the user can pick
+  //   an arbitrary range. All overview metrics below are recomputed
+  //   against this window, so filtering is consistent across cards,
+  //   membership distribution, and payment methods.
+  const computeRange = (preset) => {
+    const now = new Date();
+    const t = today();
+    if (preset === "today") {
+      return { from: t, to: t };
+    }
+    if (preset === "week") {
+      // Trailing 7 days inclusive of today.
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+      return { from: dateToYMD(start), to: t };
+    }
+    if (preset === "month") {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { from: dateToYMD(start), to: t };
+    }
+    if (preset === "quarter") {
+      const q = Math.floor(now.getMonth() / 3);
+      const start = new Date(now.getFullYear(), q * 3, 1);
+      return { from: dateToYMD(start), to: t };
+    }
+    if (preset === "year") {
+      const start = new Date(now.getFullYear(), 0, 1);
+      return { from: dateToYMD(start), to: t };
+    }
+    // "all" or anything else → unbounded
+    return { from: "", to: "" };
+  };
+
+  const initialMonth = computeRange("month");
+  const [overviewPreset, setOverviewPreset] = useState("month");
+  const [overviewFrom, setOverviewFrom] = useState(initialMonth.from);
+  const [overviewTo, setOverviewTo] = useState(initialMonth.to);
+
+  // Applying a preset overwrites both date inputs and remembers which
+  // chip should appear active. "custom" simply selects the chip without
+  // touching the dates — the user is about to edit them.
+  const applyOverviewPreset = (preset) => {
+    setOverviewPreset(preset);
+    if (preset === "custom") return;
+    const r = computeRange(preset);
+    setOverviewFrom(r.from);
+    setOverviewTo(r.to);
+  };
+
+  // Inclusive date-in-range test. Empty bounds = unbounded on that side.
+  //   A payment / membership / member belongs to the window if its
+  //   reference date (paidAt, startDate, createdAt) falls within
+  //   [overviewFrom, overviewTo] inclusive when compared as YYYY-MM-DD.
+  const inRange = (ymd) => {
+    if (!ymd) return false;
+    if (overviewFrom && ymd < overviewFrom) return false;
+    if (overviewTo   && ymd > overviewTo)   return false;
+    return true;
+  };
+
+  // Pre-filter the three source arrays once so each card below stays
+  // readable. "prepaid_visit" payments are excluded from revenue per
+  // pre-existing logic — they're internal accounting entries, not cash.
+  const filteredPayments    = data.payments.filter((p) => inRange(dateToYMD(p.paidAt)));
+  const filteredMemberships = data.memberships.filter((ms) => inRange(dateToYMD(ms.startDate)));
+  const filteredMembers     = data.members.filter((m) => inRange(dateToYMD(m.createdAt)));
+
+  const totalRevenue   = filteredPayments.filter((p) => p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
+  const totalDiscounts = filteredPayments.reduce((s, p) => s + (p.discountAmount || 0), 0);
+
+  // Membership distribution: counts each plan in the filtered window.
   const planBreakdown = {};
-  data.memberships.forEach((ms) => {
+  filteredMemberships.forEach((ms) => {
     const key = getPlanName(ms.plan);
     planBreakdown[key] = (planBreakdown[key] || 0) + 1;
   });
 
-  const [tab, setTab] = useState("overview"); // overview | debtors
+  // Human-readable label for the active window — used in the page
+  // subtitle so the numbers don't look context-less.
+  const rangeLabel = (() => {
+    if (overviewPreset === "all" || (!overviewFrom && !overviewTo)) return "All time";
+    if (overviewPreset === "today")   return `Today (${formatDate(overviewFrom)})`;
+    if (overviewPreset === "week")    return `Last 7 days (${formatDate(overviewFrom)} – ${formatDate(overviewTo)})`;
+    if (overviewPreset === "month")   return `This month (${formatDate(overviewFrom)} – ${formatDate(overviewTo)})`;
+    if (overviewPreset === "quarter") return `This quarter (${formatDate(overviewFrom)} – ${formatDate(overviewTo)})`;
+    if (overviewPreset === "year")    return `This year (${formatDate(overviewFrom)} – ${formatDate(overviewTo)})`;
+    if (overviewFrom && overviewTo)   return `${formatDate(overviewFrom)} – ${formatDate(overviewTo)}`;
+    if (overviewFrom)                 return `From ${formatDate(overviewFrom)}`;
+    if (overviewTo)                   return `Up to ${formatDate(overviewTo)}`;
+    return "All time";
+  })();
   // Debtors-tab filters — search by name/phone and an inclusive date range.
   // The "date" on a debtor is the membership start date (members) or visit
   // date (walk-ins) — i.e. when the obligation was incurred.
@@ -8974,16 +9059,69 @@ const Reports = ({ data }) => {
 
       {tab === "overview" && (
         <>
+          {/* ── Date-range filter toolbar ──────────────────────────────
+              Preset chips cover the common reconciliation windows; the
+              two date inputs let owners pick an arbitrary span. Editing
+              either date input automatically switches the active chip to
+              "Custom" so the UI stays in sync with what's shown. */}
+          <div className="card" style={{ padding: "12px 16px", marginBottom: 16 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              {[
+                ["today",   "Today"],
+                ["week",    "Last 7 days"],
+                ["month",   "This month"],
+                ["quarter", "This quarter"],
+                ["year",    "This year"],
+                ["all",     "All time"],
+                ["custom",  "Custom"],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`btn btn-sm ${overviewPreset === key ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => applyOverviewPreset(key)}
+                  style={{ padding: "4px 10px", fontSize: 11 }}
+                >{label}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+              <label style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>From</label>
+              <input
+                type="date"
+                value={overviewFrom}
+                max={overviewTo || undefined}
+                onChange={(e) => { setOverviewFrom(e.target.value); setOverviewPreset("custom"); }}
+                onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+              />
+              <label style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>To</label>
+              <input
+                type="date"
+                value={overviewTo}
+                min={overviewFrom || undefined}
+                onChange={(e) => { setOverviewTo(e.target.value); setOverviewPreset("custom"); }}
+                onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+              />
+              <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)" }}>
+                Showing: <strong style={{ color: "var(--text)" }}>{rangeLabel}</strong>
+              </span>
+            </div>
+          </div>
+
           <div className="card-grid">
-            <StatCard icon={DollarSign} label="Total Revenue" value={formatUGX(totalRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
-            <StatCard icon={TrendingUp} label="This Month" value={formatUGX(monthlyRevenue)} color="var(--success)" bg="var(--success-dim)" />
-            <StatCard icon={Tag} label="Total Discounts Given" value={formatUGX(totalDiscounts)} color="var(--warning)" bg="var(--warning-dim)" />
-            <StatCard icon={Users} label="Total Registrations" value={data.members.length} color="var(--info)" bg="var(--info-dim)" />
+            <StatCard icon={DollarSign} label={`Revenue (${rangeLabel})`} value={formatUGX(totalRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
+            <StatCard icon={TrendingUp} label="Transactions" value={filteredPayments.filter((p) => p.type !== "prepaid_visit").length} color="var(--success)" bg="var(--success-dim)" />
+            <StatCard icon={Tag} label="Discounts Given" value={formatUGX(totalDiscounts)} color="var(--warning)" bg="var(--warning-dim)" />
+            <StatCard icon={Users} label="New Registrations" value={filteredMembers.length} color="var(--info)" bg="var(--info-dim)" />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 8 }}>
             <div className="card">
               <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Membership Distribution</h3>
+              {Object.keys(planBreakdown).length === 0 && (
+                <p style={{ color: "var(--text-muted)", fontSize: 13 }}>No memberships sold in this window.</p>
+              )}
               {Object.entries(planBreakdown).map(([plan, count]) => (
                 <div key={plan} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                   <span style={{ color: "var(--text)" }}>{plan}</span>
@@ -8996,11 +9134,12 @@ const Reports = ({ data }) => {
               <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Payment Methods</h3>
               {/* Per-method revenue breakdown — Mobile Money is split MTN/Airtel
                   for reconciliation, with a legacy "Mobile Money" line shown
-                  only if there are old unspecified-carrier rows to account for. */}
+                  only if there are old unspecified-carrier rows to account for.
+                  Filtered to the active date range. */}
               {(() => {
                 const allMethods = ["cash", "mobile_money_mtn", "mobile_money_airtel", "mobile_money", "card"];
                 return allMethods.map((method) => {
-                  const total = data.payments.filter((p) => p.method === method && p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
+                  const total = filteredPayments.filter((p) => p.method === method && p.type !== "prepaid_visit").reduce((s, p) => s + p.amount, 0);
                   if (method === "mobile_money" && total === 0) return null;
                   return (
                     <div key={method} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
