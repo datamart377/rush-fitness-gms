@@ -9973,22 +9973,26 @@ const ROLE_PERMISSIONS = {
     actions: ["create_member", "edit_member", "deactivate_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_staff", "manage_equipment", "manage_trainers", "manage_activities", "manage_products", "manage_expenses", "view_reports", "view_payments", "reconcile", "export_data", "view_audit_log", "edit_walkin", "delete_expense"],
   },
   manager: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "activities", "trainers", "equipment", "lockers", "payments", "shop", "expenses", "discounts", "reconciliation", "reports"],
-    actions: ["create_member", "edit_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_equipment", "manage_trainers", "manage_products", "manage_expenses", "view_reports", "view_payments", "reconcile", "export_data", "edit_walkin"],
+    // Reports module is admin-only — see policy below. Removed "reports"
+    // from pages and "view_reports" from actions.
+    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "activities", "trainers", "equipment", "lockers", "payments", "shop", "expenses", "discounts", "reconciliation"],
+    actions: ["create_member", "edit_member", "assign_plan", "freeze_membership", "record_payment", "manage_discounts", "manage_equipment", "manage_trainers", "manage_products", "manage_expenses", "view_payments", "reconcile", "export_data", "edit_walkin"],
   },
   receptionist: {
     // Front Desk role — handles cash directly, so it gets the Reconciliation
     // page to submit end-of-shift cash declarations against system totals.
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "equipment", "shop", "payments", "expenses", "reconciliation", "reports"],
+    // Reports module is intentionally NOT included — admin-only policy.
+    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "equipment", "shop", "payments", "expenses", "reconciliation"],
     actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member", "sell_products", "record_expense", "update_equipment_status", "reconcile"],
   },
   trainer: {
     pages: ["dashboard", "checkin", "members", "attendance", "timetable", "equipment"],
     actions: ["update_equipment_status"],
   },
-  // Back-compat for any old in-memory rows that still say "staff"
+  // Back-compat for any old in-memory rows that still say "staff".
+  // Reports module is admin-only — removed from pages.
   staff: {
-    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "equipment", "shop", "payments", "expenses", "reports"],
+    pages: ["dashboard", "checkin", "kiosk", "members", "memberships", "attendance", "timetable", "lockers", "equipment", "shop", "payments", "expenses"],
     actions: ["create_member", "edit_member", "assign_plan", "record_payment", "checkin_member", "sell_products", "record_expense", "update_equipment_status"],
   },
 };
