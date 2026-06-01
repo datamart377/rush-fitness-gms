@@ -9006,6 +9006,39 @@ const Reports = ({ data }) => {
   // small datasets.
   const [trendGranularity, setTrendGranularity] = useState("month");
 
+  // ── Attendance Analysis date range filter ─────────────────────────
+  //   Same preset shape as Revenue Overview. Default = current month so
+  //   the "top regulars" view reflects current-period behaviour rather
+  //   than lifetime totals (which can hide recent drift).
+  const [attendancePreset, setAttendancePreset] = useState("month");
+  const [attendanceFrom, setAttendanceFrom] = useState(initialMonth.from);
+  const [attendanceTo, setAttendanceTo] = useState(initialMonth.to);
+  const applyAttendancePreset = (preset) => {
+    setAttendancePreset(preset);
+    if (preset === "custom") return;
+    const r = computeRange(preset);
+    setAttendanceFrom(r.from);
+    setAttendanceTo(r.to);
+  };
+  const inAttendanceRange = (ymd) => {
+    if (!ymd) return false;
+    if (attendanceFrom && ymd < attendanceFrom) return false;
+    if (attendanceTo   && ymd > attendanceTo)   return false;
+    return true;
+  };
+  const attendanceRangeLabel = (() => {
+    if (attendancePreset === "all" || (!attendanceFrom && !attendanceTo)) return "All time";
+    if (attendancePreset === "today")   return `Today (${formatDate(attendanceFrom)})`;
+    if (attendancePreset === "week")    return `Last 7 days (${formatDate(attendanceFrom)} – ${formatDate(attendanceTo)})`;
+    if (attendancePreset === "month")   return `This month (${formatDate(attendanceFrom)} – ${formatDate(attendanceTo)})`;
+    if (attendancePreset === "quarter") return `This quarter (${formatDate(attendanceFrom)} – ${formatDate(attendanceTo)})`;
+    if (attendancePreset === "year")    return `This year (${formatDate(attendanceFrom)} – ${formatDate(attendanceTo)})`;
+    if (attendanceFrom && attendanceTo) return `${formatDate(attendanceFrom)} – ${formatDate(attendanceTo)}`;
+    if (attendanceFrom)                 return `From ${formatDate(attendanceFrom)}`;
+    if (attendanceTo)                   return `Up to ${formatDate(attendanceTo)}`;
+    return "All time";
+  })();
+
   // Applying a preset overwrites both date inputs and remembers which
   // chip should appear active. "custom" simply selects the chip without
   // touching the dates — the user is about to edit them.
@@ -9144,8 +9177,13 @@ const Reports = ({ data }) => {
   //   = one entry). Total paid sums all payments attributed to the
   //   member, again excluding the internal "prepaid_visit" bookkeeping
   //   entries that aren't real cash in.
+  // Restrict the walk-in source array to the selected window. visitDate
+  // is the natural anchor — it's the date the guest actually attended.
+  const attendanceWalkInsScoped = data.walkIns.filter((w) =>
+    inAttendanceRange(dateToYMD(w.visitDate))
+  );
   const walkInGroups = {};
-  data.walkIns.forEach((w) => {
+  attendanceWalkInsScoped.forEach((w) => {
     if (!w.phone) return;                              // skip records with no contact
     if (w.paymentStatus === "pending") return;         // only count paid visits
     const key = w.phone.trim();
@@ -9172,14 +9210,17 @@ const Reports = ({ data }) => {
 
   // Per-member check-in count + total paid, restricted to active and
   // archived members alike — we want true visit frequency, not status.
+  // Both visits and totalPaid are scoped to the selected window so the
+  // ranking reflects current-period regularity. lastVisit stays scoped
+  // too so a stale "last visit" doesn't leak into the filtered view.
+  const attendanceScoped = data.attendance.filter((a) => inAttendanceRange(a.date));
+  const paymentsScoped   = data.payments.filter((p) => inAttendanceRange(dateToYMD(p.paidAt)));
   const memberStats = data.members.map((m) => {
-    const visits = data.attendance.filter((a) => a.memberId === m.id).length;
-    const totalPaid = data.payments
+    const visits = attendanceScoped.filter((a) => a.memberId === m.id).length;
+    const totalPaid = paymentsScoped
       .filter((p) => p.memberId === m.id && p.type !== "prepaid_visit")
       .reduce((s, p) => s + p.amount, 0);
-    // Last check-in date — useful for spotting members who used to be
-    // frequent and have gone quiet (churn risk signal).
-    const lastVisit = data.attendance
+    const lastVisit = attendanceScoped
       .filter((a) => a.memberId === m.id)
       .reduce((acc, a) => { const d = dateToYMD(a.date); return d > acc ? d : acc; }, "");
     return { id: m.id, name: fullName(m), phone: m.phone, visits, totalPaid, lastVisit };
@@ -9325,6 +9366,56 @@ const Reports = ({ data }) => {
 
       {tab === "attendance" && (
         <>
+          {/* ── Date-range filter toolbar (mirrors Revenue Overview) ────
+              Scopes every metric below — walk-in groups, member visits,
+              total-paid sums, and the summary strip — to the chosen
+              window. "Custom" leaves the date inputs editable; editing
+              either input auto-switches the active chip to Custom. */}
+          <div className="card" style={{ padding: "12px 16px", marginBottom: 16 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              {[
+                ["today",   "Today"],
+                ["week",    "Last 7 days"],
+                ["month",   "This month"],
+                ["quarter", "This quarter"],
+                ["year",    "This year"],
+                ["all",     "All time"],
+                ["custom",  "Custom"],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`btn btn-sm ${attendancePreset === key ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => applyAttendancePreset(key)}
+                  style={{ padding: "4px 10px", fontSize: 11 }}
+                >{label}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+              <label style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>From</label>
+              <input
+                type="date"
+                value={attendanceFrom}
+                max={attendanceTo || undefined}
+                onChange={(e) => { setAttendanceFrom(e.target.value); setAttendancePreset("custom"); }}
+                onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+              />
+              <label style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>To</label>
+              <input
+                type="date"
+                value={attendanceTo}
+                min={attendanceFrom || undefined}
+                onChange={(e) => { setAttendanceTo(e.target.value); setAttendancePreset("custom"); }}
+                onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
+                style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
+              />
+              <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)" }}>
+                Showing: <strong style={{ color: "var(--text)" }}>{attendanceRangeLabel}</strong>
+              </span>
+            </div>
+          </div>
+
           {/* ── Top 10 most consistent guests — paid walk-ins (grouped
               by phone) on the left, members ranked by check-in count on
               the right. Designed for the "who are our regulars?" and
@@ -9333,7 +9424,7 @@ const Reports = ({ data }) => {
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
                 <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>Top 10 Walk-In Regulars</h3>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Grouped by phone • paid visits only</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Grouped by phone • paid visits • {attendanceRangeLabel}</span>
               </div>
               {topWalkIns.length === 0 ? (
                 <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>No paid walk-in records yet.</p>
@@ -9370,7 +9461,7 @@ const Reports = ({ data }) => {
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
                 <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>Top 10 Member Regulars</h3>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>By check-in count</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>By check-in count • {attendanceRangeLabel}</span>
               </div>
               {topMembers.length === 0 ? (
                 <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>No member check-ins recorded yet.</p>
