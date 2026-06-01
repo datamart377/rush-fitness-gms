@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, EyeOff, Pause, Play, Hash, Receipt, TrendingUp, TrendingDown, ArrowLeft, Camera, RefreshCw, Star, Zap, Award, Upload } from "lucide-react";
+import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, UserX, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, EyeOff, Pause, Play, Hash, Receipt, TrendingUp, TrendingDown, ArrowLeft, Camera, RefreshCw, Star, Zap, Award, Upload } from "lucide-react";
 import {
   authApi, membersApi, plansApi, membershipsApi, paymentsApi, trainersApi,
   lockersApi, productsApi, equipmentApi, walkInsApi, attendanceApi,
@@ -1397,10 +1397,23 @@ const Dashboard = ({ data }) => {
   // .startsWith() against a UTC string both produce wrong counts in Uganda
   // (UTC+3) where the local date frequently differs from the UTC date.
   const todayYmd = today();
-  const activeMembers = data.members.filter((m) => m.isActive).length;
+  const activeMembersList = data.members.filter((m) => m.isActive);
+  const activeMembers = activeMembersList.length;
   // attendance.date is already normalized to YYYY-MM-DD by adaptAttendance,
   // so a direct equality compare is safe here.
   const todayCheckins = data.attendance.filter((a) => a.date === todayYmd).length;
+  // Active members who have NOT checked in today (missed attendance).
+  // Build a Set of memberIds present in today's attendance, then count active
+  // members whose id is not in that set. Walk-ins are excluded because we only
+  // care about subscribed members' adherence.
+  const todayAttendedMemberIds = new Set(
+    data.attendance
+      .filter((a) => a.date === todayYmd && a.memberId)
+      .map((a) => a.memberId)
+  );
+  const missedAttendanceToday = activeMembersList.filter(
+    (m) => !todayAttendedMemberIds.has(m.id)
+  ).length;
   // Walk-ins: visitDate is NOT normalized by adaptWalkIn (legacy), so wrap it.
   const todayWalkIns = data.walkIns.filter((w) => dateToYMD(w.visitDate) === todayYmd).length;
   // Revenue: use dateToYMD on the ISO paidAt so the tz-shift bug doesn't
@@ -1435,6 +1448,7 @@ const Dashboard = ({ data }) => {
       <div className="card-grid">
         <StatCard icon={Users} label="Active Members" value={activeMembers} color="var(--accent)" bg="var(--accent-dim)" />
         <StatCard icon={LogIn} label="Today's Check-ins" value={todayCheckins} color="var(--success)" bg="var(--success-dim)" />
+        <StatCard icon={UserX} label="Missed Attendance Today" value={missedAttendanceToday} color="var(--warning)" bg="var(--warning-dim)" />
         <StatCard icon={UserCheck} label="Walk-ins Today" value={todayWalkIns} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={DollarSign} label="Today's Revenue" value={formatUGX(todayRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
         <StatCard icon={TrendingDown} label="Today's Expenses" value={formatUGX(todayExpenses)} color="var(--danger)" bg="var(--danger-dim)" />
