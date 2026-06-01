@@ -9459,6 +9459,14 @@ const Reports = ({ data }) => {
                         </tr>
                       ))}
                     </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: "1px solid var(--border)" }}>
+                        <td colSpan={3} style={{ fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", fontSize: 11, letterSpacing: 0.5 }}>Period totals</td>
+                        <td style={{ textAlign: "right", fontWeight: 700, color: "var(--info)" }}>{topWalkIns.reduce((s, w) => s + w.visits, 0)}</td>
+                        <td style={{ textAlign: "right", fontWeight: 700, color: "var(--accent)" }}>{formatUGX(topWalkIns.reduce((s, w) => s + w.totalPaid, 0))}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               )}
@@ -9498,13 +9506,25 @@ const Reports = ({ data }) => {
                         </tr>
                       ))}
                     </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: "1px solid var(--border)" }}>
+                        <td colSpan={3} style={{ fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", fontSize: 11, letterSpacing: 0.5 }}>Period totals</td>
+                        <td style={{ textAlign: "right", fontWeight: 700, color: "var(--success)" }}>{topMembers.reduce((s, m) => s + m.payments, 0)}</td>
+                        <td style={{ textAlign: "right", fontWeight: 700, color: "var(--text)" }}>{topMembers.reduce((s, m) => s + m.visits, 0)}</td>
+                        <td style={{ textAlign: "right", fontWeight: 700, color: "var(--accent)" }}>{formatUGX(topMembers.reduce((s, m) => s + m.totalPaid, 0))}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Summary strip — quick aggregate context underneath. */}
+          {/* Summary strip — period-wide aggregates spanning ALL members &
+              walk-ins (not just the visible top 10). Payment sums sit
+              alongside the attendance counts so owners can see both halves
+              of the engagement picture at a glance. */}
           <div className="card" style={{ marginTop: 20 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16 }}>
               <div>
@@ -9522,6 +9542,14 @@ const Reports = ({ data }) => {
               <div>
                 <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Total Member Check-Ins</p>
                 <p style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", margin: "4px 0 0" }}>{memberStats.reduce((s, m) => s + m.visits, 0)}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Total Walk-In Payments</p>
+                <p style={{ fontSize: 22, fontWeight: 700, color: "var(--accent)", margin: "4px 0 0" }}>{formatUGX(Object.values(walkInGroups).reduce((s, w) => s + w.totalPaid, 0))}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Total Member Payments</p>
+                <p style={{ fontSize: 22, fontWeight: 700, color: "var(--accent)", margin: "4px 0 0" }}>{formatUGX(memberStats.reduce((s, m) => s + m.totalPaid, 0))}</p>
               </div>
             </div>
           </div>
