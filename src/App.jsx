@@ -1824,6 +1824,17 @@ const CheckIn = ({ data, setData, currentUser }) => {
     const isCheckedIn = isPaid; // Check-in only if paid
     const lockerToAssign = (isCheckedIn && walkinForm.locker) ? walkinForm.locker : null;
 
+    // Resolve the FIRST selected activity to its backend UUID. The form keeps
+    // legacy codes (e.g. "boxing") in `selectedActivities`; the adapter
+    // exposes the real DB UUID as `.uuid`. We can only store ONE activity on
+    // `walk_ins.activity_id`, so any second activity remains captured in
+    // notes (which the Attendance Log also surfaces).
+    const firstActCode = walkinForm.selectedActivities[0];
+    const firstAct = firstActCode
+      ? ACTIVITIES.find((a) => (a.id || a.code) === firstActCode)
+      : null;
+    const primaryActivityId = firstAct?.uuid || undefined;
+
     // Persist the walk-in to the backend.
     let savedWalkIn;
     try {
@@ -1834,6 +1845,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
         phone: walkinForm.phone,
         visitDate: today(),
         amount: total,
+        activityId: primaryActivityId,
         paymentStatus: walkinForm.paymentStatus,
         checkedIn: isCheckedIn,
         // Safety + demographic fields (persisted via migration 007).
@@ -2439,7 +2451,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
               gender:    m.gender || undefined,
               visitDate: today(),
               amount,
-              activityId: dailyAct?.id || dailyAct?.code,
+              activityId: dailyAct?.uuid || undefined,
               paymentStatus: "paid",
               checkedIn: true,
               // Propagate the member's emergency contacts onto the walk-in
@@ -2539,6 +2551,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
               phone: w.phone || undefined,
               visitDate: today(),
               amount,
+              activityId: dailyAct?.uuid || undefined,
               paymentStatus: "paid",
               checkedIn: true,
               // Carry the original visitor's safety info forward.
@@ -6084,9 +6097,29 @@ const Attendance = ({ data, setData }) => {
               const act = actId
                 ? ACTIVITIES.find((x) => x.uuid === actId || x.id === actId || x.code === actId)
                 : null;
+              // For walk-ins the form already writes the human-readable activity
+              // name(s) into notes — e.g. "Steam Bath" or
+              // "Bundle: Steam Bath + ABS Class (UGX 10,000 discount)". When the
+              // activity_id column wasn't populated, surface those names instead
+              // of the placeholder "Walk-In Visit".
+              const walkInActivityFromNotes = (() => {
+                const raw = (walkIn?.notes || "").trim();
+                if (!raw) return null;
+                // Strip "Bundle: " prefix and " (UGX … discount)" suffix.
+                const cleaned = raw
+                  .replace(/^Bundle:\s*/i, "")
+                  .replace(/\s*\(UGX[^)]*\)\s*$/i, "")
+                  .trim();
+                // Heuristic: only treat the notes as an activity description if
+                // it doesn't look like free-form text (no sentence punctuation).
+                if (!cleaned || /[.!?]/.test(cleaned)) return null;
+                return cleaned;
+              })();
               const activityLabel = act
                 ? act.name
-                : (actId ? "Unknown" : (walkIn ? "Walk-In Visit" : "—"));
+                : (actId
+                    ? "Unknown"
+                    : (walkInActivityFromNotes || (walkIn ? "Walk-In Visit" : "—")));
 
               // Locker — look up by ID from data.lockers to get the number + section.
               const lockerObj = a.lockerId ? data.lockers.find((l) => l.id === a.lockerId) : null;
