@@ -1403,16 +1403,28 @@ const Dashboard = ({ data }) => {
   // so a direct equality compare is safe here.
   const todayCheckins = data.attendance.filter((a) => a.date === todayYmd).length;
   // Active members who have NOT checked in today (missed attendance).
-  // Build a Set of memberIds present in today's attendance, then count active
-  // members whose id is not in that set. Walk-ins are excluded because we only
-  // care about subscribed members' adherence.
+  // Walk-ins are excluded — we only track subscribed members' adherence.
   const todayAttendedMemberIds = new Set(
     data.attendance
       .filter((a) => a.date === todayYmd && a.memberId)
       .map((a) => a.memberId)
   );
+  // Build the cohort expected to attend today: members whose membership is
+  // currently paid, not frozen, not expired (today within start–end window).
+  // Member-level `m.isActive` alone isn't enough because a member record can
+  // remain flagged active after their membership has lapsed.
+  const expectedAttendeeIds = new Set();
+  data.memberships.forEach((ms) => {
+    if (ms.status !== "active") return; // skip frozen / expired / cancelled
+    const start = dateToYMD(ms.startDate);
+    const end = dateToYMD(ms.endDate);
+    if (!start || !end) return;
+    if (start <= todayYmd && todayYmd <= end) {
+      expectedAttendeeIds.add(ms.memberId);
+    }
+  });
   const missedAttendanceToday = activeMembersList.filter(
-    (m) => !todayAttendedMemberIds.has(m.id)
+    (m) => expectedAttendeeIds.has(m.id) && !todayAttendedMemberIds.has(m.id)
   ).length;
   // Walk-ins: visitDate is NOT normalized by adaptWalkIn (legacy), so wrap it.
   const todayWalkIns = data.walkIns.filter((w) => dateToYMD(w.visitDate) === todayYmd).length;
