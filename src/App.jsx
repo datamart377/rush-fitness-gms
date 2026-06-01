@@ -7571,13 +7571,27 @@ const Expenses = ({ data, setData, currentUser }) => {
 };
 
 // ─── RECONCILIATION ─────────────────────────────────────────
-const Reconciliation = ({ data, setData }) => {
+const Reconciliation = ({ data, setData, currentUser }) => {
   const [modal, setModal] = useState(false);
   const [declaredCash, setDeclaredCash] = useState("");
-  // Date range — defaults to "today" so the page lands on the same view as
-  // before. Admins can shift the window to inspect any past day or span.
+  // Role-based access policy:
+  //   • Admins         → unrestricted date range; any past day or span.
+  //   • All others (Front Desk / receptionist / staff / manager / trainer)
+  //     → window capped to the most recent 7 days, inclusive of today.
+  //       Both the date inputs and the preset chips are clamped so the
+  //       user cannot reach data older than (today − 6 days).
   // Submission of a new reconciliation row is still gated to "viewing today"
   // since shift submission is a "now" workflow, not a historical one.
+  const isAdmin = currentUser?.role === "admin";
+  const minAllowedDate = isAdmin
+    ? ""
+    : dateToYMD(new Date(Date.now() - 6 * 86400000)); // today − 6 days
+  const clampToPolicy = (ymd) => {
+    if (!ymd) return today();
+    if (!isAdmin && ymd < minAllowedDate) return minAllowedDate;
+    if (ymd > today()) return today();
+    return ymd;
+  };
   const [dateFrom, setDateFrom] = useState(today());
   const [dateTo,   setDateTo]   = useState(today());
   const isViewingToday = dateFrom === today() && dateTo === today();
@@ -7596,6 +7610,8 @@ const Reconciliation = ({ data, setData }) => {
       setDateFrom(y); setDateTo(y);
     } else if (preset === "week")  { setDateFrom(dateToYMD(new Date(now.getTime() - 6 * 86400000))); setDateTo(t); }
     else if (preset === "month") {
+      // Admin-only: shifting to month-to-date can exceed the 7-day cap.
+      if (!isAdmin) return;
       const first = new Date(now.getFullYear(), now.getMonth(), 1);
       setDateFrom(dateToYMD(first)); setDateTo(t);
     }
@@ -7741,7 +7757,10 @@ const Reconciliation = ({ data, setData }) => {
         <p>Full end-of-shift financial summary — revenue, expenses & cash verification</p>
       </div>
 
-      {/* Date range picker — pick a single day or a span; defaults to today. */}
+      {/* Date range picker — pick a single day or a span; defaults to today.
+          Front Desk users are capped at the last 7 days via the input
+          `min` attribute + clampToPolicy() onChange guard; admins are
+          unrestricted. */}
       <div className="card" style={{ marginBottom: 16, padding: "12px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>
@@ -7752,8 +7771,9 @@ const Reconciliation = ({ data, setData }) => {
             <input
               type="date"
               value={dateFrom}
+              min={minAllowedDate || undefined}
               max={dateTo || today()}
-              onChange={(e) => setDateFrom(e.target.value || today())}
+              onChange={(e) => setDateFrom(clampToPolicy(e.target.value))}
               onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
               style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
             />
@@ -7761,9 +7781,9 @@ const Reconciliation = ({ data, setData }) => {
             <input
               type="date"
               value={dateTo}
-              min={dateFrom || undefined}
+              min={dateFrom || minAllowedDate || undefined}
               max={today()}
-              onChange={(e) => setDateTo(e.target.value || today())}
+              onChange={(e) => setDateTo(clampToPolicy(e.target.value))}
               onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
               style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
             />
@@ -7771,11 +7791,11 @@ const Reconciliation = ({ data, setData }) => {
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
           {[
-            ["today",     "Today"],
-            ["yesterday", "Yesterday"],
-            ["week",      "Last 7 days"],
-            ["month",     "This month"],
-          ].map(([key, label]) => (
+            ["today",     "Today",       true],
+            ["yesterday", "Yesterday",   true],
+            ["week",      "Last 7 days", true],
+            ["month",     "This month",  isAdmin], // admin-only: can span >7 days
+          ].filter(([, , show]) => show).map(([key, label]) => (
             <button
               key={key}
               type="button"
@@ -7785,6 +7805,11 @@ const Reconciliation = ({ data, setData }) => {
             >{label}</button>
           ))}
         </div>
+        {!isAdmin && (
+          <div style={{ marginTop: 10, padding: "8px 10px", background: "var(--info-dim)", borderLeft: "3px solid var(--info)", borderRadius: "var(--radius-sm)", fontSize: 11, color: "var(--text-dim)" }}>
+            <strong style={{ color: "var(--info)" }}>Front Desk access:</strong> Reconciliation records are limited to the most recent 7 days ({formatDate(minAllowedDate)} – {formatDate(today())}). Contact an administrator for older periods.
+          </div>
+        )}
       </div>
 
       {/* Top-level summary: Revenue vs Expenses vs Net */}
@@ -10450,7 +10475,7 @@ export default function App() {
       case "activities": return <ActivitiesAdmin data={data} setData={securedSetData} currentUser={currentUser} />;
       case "equipment": return <Equipment data={data} setData={securedSetData} currentUser={currentUser} />;
       case "discounts": return <Discounts data={data} setData={securedSetData} />;
-      case "reconciliation": return <Reconciliation data={data} setData={securedSetData} />;
+      case "reconciliation": return <Reconciliation data={data} setData={securedSetData} currentUser={currentUser} />;
       case "staff": return <StaffMgmt data={data} setData={securedSetData} currentUser={currentUser} />;
       case "lockers": return <Lockers data={data} setData={securedSetData} currentUser={currentUser} />;
       case "reports": return <Reports data={data} />;
