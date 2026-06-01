@@ -4488,10 +4488,15 @@ const Memberships = ({ data, setData, currentUser }) => {
                 // ── Status filter ──
                 // "default" preserves the legacy view (active + frozen + pending);
                 // explicit choices let staff drill into expired/cancelled history.
-                const todayYmd = today();
-                const endYmd = dateToYMD(ms.endDate);
-                const isExpiredByDate = endYmd && endYmd < todayYmd
-                  && ms.status !== "frozen" && ms.status !== "pending_payment" && ms.status !== "cancelled";
+                //
+                // IMPORTANT: must mirror the row's badge logic exactly, otherwise
+                // rows whose end_date equals today (badge says "Expired" because
+                // midnight-UTC < now) wouldn't be captured by Status:Expired.
+                const isExpiredByDate = ms.endDate
+                  && new Date(ms.endDate) < new Date()
+                  && ms.status !== "frozen"
+                  && ms.status !== "pending_payment"
+                  && ms.status !== "cancelled";
                 const effectiveStatus = ms.status === "cancelled"      ? "cancelled"
                                      : ms.status === "frozen"          ? "frozen"
                                      : ms.status === "pending_payment" ? "pending"
@@ -4529,12 +4534,12 @@ const Memberships = ({ data, setData, currentUser }) => {
                 if (actionFilter === "all") return true;
                 if (ms.status === "pending_payment") return true;
                 if (ms.status === "frozen") return true;
-                const todayYmd = today();
-                const endYmd = dateToYMD(ms.endDate);
-                if (endYmd) {
-                  if (endYmd < todayYmd) return true; // expired
-                  const sevenAhead = dateToYMD(new Date(Date.now() + 7 * 86400000));
-                  if (endYmd <= sevenAhead) return true; // expiring within 7d
+                if (ms.endDate) {
+                  // Use the same time-based comparison the row badge uses so
+                  // "Expired" rows are always captured here too.
+                  if (new Date(ms.endDate) < new Date()) return true; // expired (incl. ending today)
+                  const sevenAhead = new Date(Date.now() + 7 * 86400000);
+                  if (new Date(ms.endDate) <= sevenAhead) return true; // expiring within 7d
                 }
                 if (ms.plan === "prepaid") {
                   if ((ms.prepaidBalance || 0) < PLANS.prepaid.dailyRate) return true;
