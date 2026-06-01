@@ -4037,6 +4037,12 @@ const Memberships = ({ data, setData, currentUser }) => {
   // name (case-insensitive substring). The visible-status filter still gates
   // the list first (active/frozen/pending_payment); the search narrows within.
   const [search, setSearch] = useState("");
+  // ── Filter chips ──
+  // Status: "default" keeps the legacy behaviour (active + frozen + pending);
+  // any other value bypasses the legacy gate so admins can audit historical rows.
+  const [statusFilter, setStatusFilter]   = useState("default");
+  const [actionFilter, setActionFilter]   = useState("all");   // all | required
+  const [paymentFilter, setPaymentFilter] = useState("all");   // all | paid | partial | unpaid
 
   // Pull memberships + payments from backend; mirror into shared `data` state.
   const reloadMemberships = useCallback(async () => {
@@ -4406,7 +4412,7 @@ const Memberships = ({ data, setData, currentUser }) => {
         </div>
       )}
 
-      <div className="toolbar">
+      <div className="toolbar" style={{ flexWrap: "wrap", gap: 12 }}>
         <div className="search-bar" style={{ flex: 1, maxWidth: 360 }}>
           <Search />
           <input
@@ -4414,6 +4420,51 @@ const Memberships = ({ data, setData, currentUser }) => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            style={{ padding: "8px 10px", fontSize: 13 }}
+            title="Filter by status"
+          >
+            <option value="default">Status: Current (Active + Frozen + Pending)</option>
+            <option value="all">Status: All time</option>
+            <option value="active">Status: Active</option>
+            <option value="frozen">Status: Frozen</option>
+            <option value="pending">Status: Pending Payment</option>
+            <option value="expired">Status: Expired</option>
+            <option value="cancelled">Status: Cancelled</option>
+          </select>
+          <select
+            value={actionFilter}
+            onChange={(e) => setActionFilter(e.target.value)}
+            style={{ padding: "8px 10px", fontSize: 13 }}
+            title="Filter to rows that need staff follow-up"
+          >
+            <option value="all">Action: All</option>
+            <option value="required">Action: Required (needs follow-up)</option>
+          </select>
+          <select
+            value={paymentFilter}
+            onChange={(e) => setPaymentFilter(e.target.value)}
+            style={{ padding: "8px 10px", fontSize: 13 }}
+            title="Filter by payment progress"
+          >
+            <option value="all">Payment: All</option>
+            <option value="paid">Payment: Paid (100%)</option>
+            <option value="partial">Payment: Partial (1–99%)</option>
+            <option value="unpaid">Payment: Unpaid (0%)</option>
+          </select>
+          {(statusFilter !== "default" || actionFilter !== "all" || paymentFilter !== "all" || search) && (
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={() => { setStatusFilter("default"); setActionFilter("all"); setPaymentFilter("all"); setSearch(""); }}
+              title="Reset filters"
+            >
+              <RefreshCw size={12} /> Reset
+            </button>
+          )}
         </div>
         <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
       </div>
@@ -4433,7 +4484,66 @@ const Memberships = ({ data, setData, currentUser }) => {
           <thead><tr><th>Member</th><th>Plan</th><th>Start</th><th>End</th><th>Payment</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {data.memberships
-              .filter((ms) => ms.isActive || ms.status === "frozen" || ms.status === "pending_payment")
+              .filter((ms) => {
+                // ── Status filter ──
+                // "default" preserves the legacy view (active + frozen + pending);
+                // explicit choices let staff drill into expired/cancelled history.
+                const todayYmd = today();
+                const endYmd = dateToYMD(ms.endDate);
+                const isExpiredByDate = endYmd && endYmd < todayYmd
+                  && ms.status !== "frozen" && ms.status !== "pending_payment" && ms.status !== "cancelled";
+                const effectiveStatus = ms.status === "cancelled"      ? "cancelled"
+                                     : ms.status === "frozen"          ? "frozen"
+                                     : ms.status === "pending_payment" ? "pending"
+                                     : isExpiredByDate                  ? "expired"
+                                     : ms.status === "expired"          ? "expired"
+                                     : "active";
+                if (statusFilter === "default") {
+                  if (!(ms.isActive || ms.status === "frozen" || ms.status === "pending_payment")) return false;
+                } else if (statusFilter !== "all") {
+                  if (effectiveStatus !== statusFilter) return false;
+                }
+                return true;
+              })
+              .filter((ms) => {
+                // ── Payment filter ──
+                if (paymentFilter === "all") return true;
+                if (ms.plan === "prepaid") {
+                  // Prepaid memberships use a running balance — treat any
+                  // non-zero balance as "paid" for filter purposes.
+                  return paymentFilter === "paid" ? (ms.prepaidBalance || 0) > 0
+                       : paymentFilter === "unpaid" ? (ms.prepaidBalance || 0) <= 0
+                       : false; // prepaid has no "partial" concept
+                }
+                const bal = getMembershipBalance(ms, data.payments);
+                if (paymentFilter === "paid")    return bal.isPaidInFull;
+                if (paymentFilter === "unpaid")  return bal.totalPaid <= 0 && bal.totalDue > 0;
+                if (paymentFilter === "partial") return !bal.isPaidInFull && bal.totalPaid > 0;
+                return true;
+              })
+              .filter((ms) => {
+                // ── Action filter ──
+                // "Required" surfaces rows that need staff follow-up: pending
+                // payment, partial payment, frozen, expired or expiring within
+                // 7 days, or prepaid balance below one day's rate.
+                if (actionFilter === "all") return true;
+                if (ms.status === "pending_payment") return true;
+                if (ms.status === "frozen") return true;
+                const todayYmd = today();
+                const endYmd = dateToYMD(ms.endDate);
+                if (endYmd) {
+                  if (endYmd < todayYmd) return true; // expired
+                  const sevenAhead = dateToYMD(new Date(Date.now() + 7 * 86400000));
+                  if (endYmd <= sevenAhead) return true; // expiring within 7d
+                }
+                if (ms.plan === "prepaid") {
+                  if ((ms.prepaidBalance || 0) < PLANS.prepaid.dailyRate) return true;
+                  return false; // prepaid with healthy balance is fine
+                }
+                const bal = getMembershipBalance(ms, data.payments);
+                if (!bal.isPaidInFull && bal.totalDue > 0) return true;
+                return false;
+              })
               .filter((ms) => {
                 if (!search) return true;
                 const q = search.toLowerCase();
