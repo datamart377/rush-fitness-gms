@@ -7706,7 +7706,7 @@ const Expenses = ({ data, setData, currentUser }) => {
                 )}
               </tr>
             ))}
-            {filteredExpenses.length === 0 && <tr><td colSpan={isAdmin ? 7 : 6} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No expenses recorded for {filterMonth}</td></tr>}
+            {filteredExpenses.length === 0 && <tr><td colSpan={isAdmin ? 7 : 6} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No expenses recorded for {rangeLabel}</td></tr>}
           </tbody>
         </table>
       </div>
