@@ -9204,8 +9204,12 @@ const Reports = ({ data }) => {
     const nm = `${w.firstName || ""} ${w.lastName || w.name || ""}`.trim();
     if (nm && nm !== "(no name)") walkInGroups[key].name = nm;
   });
+  // Same customer-rewards principle as members: total UGX paid in the
+  // period is the primary criterion; visit count is a supplementary
+  // tiebreaker. Rewards high-spend walk-ins ahead of frequent low-spend
+  // ones.
   const topWalkIns = Object.values(walkInGroups)
-    .sort((a, b) => b.visits - a.visits || b.totalPaid - a.totalPaid)
+    .sort((a, b) => b.totalPaid - a.totalPaid || b.visits - a.visits)
     .slice(0, 10);
 
   // Per-member ranking driven by PAYMENT CONSISTENCY, not check-ins.
@@ -9228,12 +9232,18 @@ const Reports = ({ data }) => {
       .reduce((acc, a) => { const d = dateToYMD(a.date); return d > acc ? d : acc; }, "");
     return { id: m.id, name: fullName(m), phone: m.phone, payments, totalPaid, visits, lastVisit };
   });
-  // Cohort = members who have paid at least once in the window. Sort
-  // primary by # of payments (consistency), then by amount paid, then
-  // by visits as a final tiebreaker.
+  // Cohort = members who have paid at least once in the window.
+  //   Ranking (customer-rewards leaderboard):
+  //     1. totalPaid    — primary criterion (how much UGX they actually
+  //                       paid in the period; rewards loyal high-value
+  //                       customers)
+  //     2. payments     — secondary (number of payment events; rewards
+  //                       consistent, timely payers when totals tie)
+  //     3. visits       — supplementary attendance signal (final
+  //                       tiebreaker)
   const topMembers = memberStats
     .filter((m) => m.payments > 0)
-    .sort((a, b) => b.payments - a.payments || b.totalPaid - a.totalPaid || b.visits - a.visits)
+    .sort((a, b) => b.totalPaid - a.totalPaid || b.payments - a.payments || b.visits - a.visits)
     .slice(0, 10);
 
   // ── Trend Analysis bucketing ─────────────────────────────────────
@@ -9430,7 +9440,7 @@ const Reports = ({ data }) => {
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
                 <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>Top 10 Walk-In Regulars</h3>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Grouped by phone • paid visits • {attendanceRangeLabel}</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>By total paid • attendance as tiebreaker • {attendanceRangeLabel}</span>
               </div>
               {topWalkIns.length === 0 ? (
                 <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>No paid walk-in records yet.</p>
@@ -9475,7 +9485,7 @@ const Reports = ({ data }) => {
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
                 <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>Top 10 Member Regulars</h3>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>By payment consistency • {attendanceRangeLabel}</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>By total paid • attendance as tiebreaker • {attendanceRangeLabel}</span>
               </div>
               {topMembers.length === 0 ? (
                 <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>No member check-ins recorded yet.</p>
