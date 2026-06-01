@@ -9208,26 +9208,32 @@ const Reports = ({ data }) => {
     .sort((a, b) => b.visits - a.visits || b.totalPaid - a.totalPaid)
     .slice(0, 10);
 
-  // Per-member check-in count + total paid, restricted to active and
-  // archived members alike — we want true visit frequency, not status.
-  // Both visits and totalPaid are scoped to the selected window so the
-  // ranking reflects current-period regularity. lastVisit stays scoped
-  // too so a stale "last visit" doesn't leak into the filtered view.
+  // Per-member ranking driven by PAYMENT CONSISTENCY, not check-ins.
+  //   payments    = count of non-prepaid_visit payments in the window
+  //                (each renewal / top-up is one "consistent" event)
+  //   totalPaid   = sum of those same payments
+  //   visits      = retained as a secondary signal & tiebreaker
+  //   lastVisit   = most recent check-in date inside the window
+  // All four are scoped to the selected window so the ranking reflects
+  // current-period regularity rather than lifetime totals.
   const attendanceScoped = data.attendance.filter((a) => inAttendanceRange(a.date));
   const paymentsScoped   = data.payments.filter((p) => inAttendanceRange(dateToYMD(p.paidAt)));
   const memberStats = data.members.map((m) => {
-    const visits = attendanceScoped.filter((a) => a.memberId === m.id).length;
-    const totalPaid = paymentsScoped
-      .filter((p) => p.memberId === m.id && p.type !== "prepaid_visit")
-      .reduce((s, p) => s + p.amount, 0);
+    const memberPayments = paymentsScoped.filter((p) => p.memberId === m.id && p.type !== "prepaid_visit");
+    const payments  = memberPayments.length;
+    const totalPaid = memberPayments.reduce((s, p) => s + p.amount, 0);
+    const visits    = attendanceScoped.filter((a) => a.memberId === m.id).length;
     const lastVisit = attendanceScoped
       .filter((a) => a.memberId === m.id)
       .reduce((acc, a) => { const d = dateToYMD(a.date); return d > acc ? d : acc; }, "");
-    return { id: m.id, name: fullName(m), phone: m.phone, visits, totalPaid, lastVisit };
+    return { id: m.id, name: fullName(m), phone: m.phone, payments, totalPaid, visits, lastVisit };
   });
+  // Cohort = members who have paid at least once in the window. Sort
+  // primary by # of payments (consistency), then by amount paid, then
+  // by visits as a final tiebreaker.
   const topMembers = memberStats
-    .filter((m) => m.visits > 0)                       // ignore never-checked-in members
-    .sort((a, b) => b.visits - a.visits || b.totalPaid - a.totalPaid)
+    .filter((m) => m.payments > 0)
+    .sort((a, b) => b.payments - a.payments || b.totalPaid - a.totalPaid || b.visits - a.visits)
     .slice(0, 10);
 
   // ── Trend Analysis bucketing ─────────────────────────────────────
@@ -9461,7 +9467,7 @@ const Reports = ({ data }) => {
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
                 <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>Top 10 Member Regulars</h3>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>By check-in count • {attendanceRangeLabel}</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>By payment consistency • {attendanceRangeLabel}</span>
               </div>
               {topMembers.length === 0 ? (
                 <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>No member check-ins recorded yet.</p>
@@ -9473,6 +9479,7 @@ const Reports = ({ data }) => {
                         <th style={{ width: 36 }}>#</th>
                         <th>Member</th>
                         <th>Phone</th>
+                        <th style={{ textAlign: "right" }} title="Number of payment events in the selected window">Payments</th>
                         <th style={{ textAlign: "right" }}>Check-Ins</th>
                         <th style={{ textAlign: "right" }}>Total Paid</th>
                         <th>Last Visit</th>
@@ -9484,7 +9491,8 @@ const Reports = ({ data }) => {
                           <td style={{ color: "var(--text-muted)", fontWeight: 600 }}>{i + 1}</td>
                           <td style={{ color: "var(--text)", fontWeight: 500 }}>{m.name}</td>
                           <td style={{ fontSize: 12 }}>{m.phone}</td>
-                          <td style={{ textAlign: "right" }}><Badge variant="success">{m.visits}</Badge></td>
+                          <td style={{ textAlign: "right" }}><Badge variant="success">{m.payments}</Badge></td>
+                          <td style={{ textAlign: "right", color: "var(--text-dim)" }}>{m.visits}</td>
                           <td style={{ textAlign: "right", fontWeight: 600, color: "var(--accent)" }}>{formatUGX(m.totalPaid)}</td>
                           <td style={{ fontSize: 12, color: "var(--text-dim)" }}>{m.lastVisit ? formatDate(m.lastVisit) : "—"}</td>
                         </tr>
@@ -9504,8 +9512,8 @@ const Reports = ({ data }) => {
                 <p style={{ fontSize: 22, fontWeight: 700, color: "var(--info)", margin: "4px 0 0" }}>{Object.keys(walkInGroups).length}</p>
               </div>
               <div>
-                <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Active Member Regulars</p>
-                <p style={{ fontSize: 22, fontWeight: 700, color: "var(--success)", margin: "4px 0 0" }}>{memberStats.filter((m) => m.visits > 0).length}</p>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Paying Member Regulars</p>
+                <p style={{ fontSize: 22, fontWeight: 700, color: "var(--success)", margin: "4px 0 0" }}>{memberStats.filter((m) => m.payments > 0).length}</p>
               </div>
               <div>
                 <p style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", margin: 0 }}>Total Walk-In Visits</p>
