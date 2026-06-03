@@ -4087,6 +4087,12 @@ const Memberships = ({ data, setData, currentUser }) => {
   };
 
   const assign = async () => {
+    // Re-entry guard: if a save is already in flight, ignore subsequent clicks.
+    // The modal stays mounted until the round-trip to the backend completes
+    // (~1s when the API + DB are in different regions), and without this
+    // guard an impatient second click would create a duplicate membership +
+    // duplicate payment row.
+    if (busy) return;
     if (!form.memberId || !form.plan) return;
     setApiError("");
 
@@ -4650,7 +4656,7 @@ const Memberships = ({ data, setData, currentUser }) => {
 
       {/* ASSIGN PLAN MODAL */}
       {modal === "assign" && (
-        <Modal title="Assign Membership Plan" onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={assign}><Check size={14} /> Assign & Record Payment</button></>}>
+        <Modal title="Assign Membership Plan" onClose={() => { if (!busy) setModal(null); }} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)} disabled={busy}>Cancel</button><button className="btn btn-primary" onClick={assign} disabled={busy}>{busy ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Saving...</> : <><Check size={14} /> Assign & Record Payment</>}</button></>}>
           {(() => {
             const isGroup = form.plan?.startsWith("group_");
             const groupSize = isGroup ? (GROUP_PLANS[form.plan]?.size || 0) : 0;
