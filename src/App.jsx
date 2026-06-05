@@ -1447,8 +1447,34 @@ const Dashboard = ({ data }) => {
     return diff >= 0 && diff <= 3;
   });
 
-  const dayName = DAYS[new Date().getDay()];
-  const todayClasses = TIMETABLE.filter((t) => t.day === dayName);
+  // Recently expired memberships — last 30 days, most-recent first.
+  // Mirrors the badge-consistent expiry check used on the Memberships page:
+  // a time-based comparison (new Date(endDate) < new Date()) so a row whose
+  // endDate is "today" but already past midnight UTC is correctly counted
+  // as expired. Skips frozen / pending / cancelled (those aren't lapsed in
+  // the renew-me-now sense). Deduplicates by memberId so a member with
+  // multiple lapsed periods only appears once (with their latest expiry).
+  const recentlyExpired = (() => {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
+    const lapsed = (data.memberships || [])
+      .filter((ms) => {
+        if (!ms.endDate) return false;
+        if (ms.status === "frozen" || ms.status === "pending_payment" || ms.status === "cancelled") return false;
+        const end = new Date(ms.endDate);
+        return end < now && end >= thirtyDaysAgo;
+      })
+      .sort((a, b) => new Date(b.endDate) - new Date(a.endDate));
+    const seen = new Set();
+    const dedup = [];
+    for (const ms of lapsed) {
+      if (seen.has(ms.memberId)) continue;
+      seen.add(ms.memberId);
+      dedup.push(ms);
+      if (dedup.length >= 6) break;
+    }
+    return dedup;
+  })();
 
   return (
     <div>
@@ -1472,17 +1498,21 @@ const Dashboard = ({ data }) => {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 8 }}>
         <div className="card">
-          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Today's Classes</h3>
-          {todayClasses.length === 0 ? (
-            <p style={{ color: "var(--text-dim)", fontSize: 14 }}>No classes scheduled today.</p>
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, marginBottom: 16 }}>Recently Expired</h3>
+          {recentlyExpired.length === 0 ? (
+            <p style={{ color: "var(--text-dim)", fontSize: 14 }}>No memberships have expired in the last 30 days.</p>
           ) : (
-            todayClasses.map((c, i) => (
-              <div key={i} className="timetable-slot" style={{ marginBottom: i < todayClasses.length - 1 ? 10 : 0 }}>
-                <div className="slot-day">{c.day}</div>
-                <div className="slot-class">{c.class}</div>
-                <div className="slot-time">{c.time}</div>
-              </div>
-            ))
+            recentlyExpired.map((ms) => {
+              const member = data.members.find((m) => m.id === ms.memberId);
+              const daysAgo = Math.floor((new Date() - new Date(ms.endDate)) / 86400000);
+              const label = daysAgo <= 0 ? "Today" : daysAgo === 1 ? "1 day ago" : `${daysAgo} days ago`;
+              return (
+                <div key={ms.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
+                  <span style={{ color: "var(--text)" }}>{fullName(member)}</span>
+                  <Badge variant="danger">Expired {label}</Badge>
+                </div>
+              );
+            })
           )}
         </div>
 
