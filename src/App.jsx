@@ -2828,13 +2828,23 @@ const CheckIn = ({ data, setData, currentUser }) => {
             <table>
               <thead><tr><th>Date</th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>Activity</th><th>Amount</th><th>Payment</th><th>Check-In</th><th>Edit</th></tr></thead>
               <tbody>
-                {[...filteredWalkIns].reverse().map((w) => (
+                {[...filteredWalkIns].sort((a, b) => {
+                  // Sort by visit date DESC. Fall back to createdAt so rows
+                  // with identical visit dates keep insertion order (newest
+                  // record first). Without this explicit sort the table
+                  // mirrored whatever order the API returned, which made
+                  // recent walk-ins appear at the bottom.
+                  const da = new Date(a.visitDate || a.createdAt || 0).getTime();
+                  const db = new Date(b.visitDate || b.createdAt || 0).getTime();
+                  if (db !== da) return db - da;
+                  return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+                }).map((w) => (
                   <tr key={w.id}>
                     <td>{formatDate(w.visitDate)}</td>
                     <td style={{ color: "var(--text)", fontWeight: 500 }}>{w.lastName || w.name}</td>
                     <td>{w.firstName || ""}</td>
                     <td>{w.phone}</td>
-                    <td style={{ fontSize: 12 }}>{w.activities ? w.activities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name || id).join(", ") : ACTIVITIES.find((a) => a.id === w.activityId)?.name || w.activityId}</td>
+                    <td style={{ fontSize: 12 }}>{w.activities ? w.activities.map((id) => ACTIVITIES.find((a) => a.uuid === id || a.id === id || a.code === id)?.name || id).join(", ") : ACTIVITIES.find((a) => a.uuid === w.activityId || a.id === w.activityId || a.code === w.activityId)?.name || w.activityId}</td>
                     <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(Number(w.amountDue || w.amount || w.amountPaid || 0))}</td>
                     <td>
                       {(w.paymentStatus === "paid" || !w.paymentStatus) ? (
@@ -5769,13 +5779,23 @@ const WalkIns = ({ data, setData, currentUser }) => {
         <table>
           <thead><tr><th>Date</th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>Activity</th><th>Amount</th><th>Payment</th><th>Check-In</th>{isAdmin && <th>Actions</th>}</tr></thead>
           <tbody>
-            {[...data.walkIns].reverse().map((w) => (
+            {[...data.walkIns].sort((a, b) => {
+              // Sort by visit date DESC. Fall back to createdAt so rows
+              // with identical visit dates keep insertion order (newest
+              // record first). Without this explicit sort the table
+              // mirrored whatever order the API returned, which made
+              // recent walk-ins appear at the bottom.
+              const da = new Date(a.visitDate || a.createdAt || 0).getTime();
+              const db = new Date(b.visitDate || b.createdAt || 0).getTime();
+              if (db !== da) return db - da;
+              return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+            }).map((w) => (
               <tr key={w.id}>
                 <td>{formatDate(w.visitDate)}</td>
                 <td style={{ color: "var(--text)", fontWeight: 500 }}>{w.lastName || w.name}</td>
                 <td style={{ color: "var(--text)" }}>{w.firstName || ""}</td>
                 <td>{w.phone}</td>
-                <td style={{ fontSize: 12 }}>{w.activities ? w.activities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name || id).join(", ") : ACTIVITIES.find((a) => a.id === w.activityId)?.name || w.activityId}</td>
+                <td style={{ fontSize: 12 }}>{w.activities ? w.activities.map((id) => ACTIVITIES.find((a) => a.uuid === id || a.id === id || a.code === id)?.name || id).join(", ") : ACTIVITIES.find((a) => a.uuid === w.activityId || a.id === w.activityId || a.code === w.activityId)?.name || w.activityId}</td>
                 <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(w.amountDue || w.amountPaid)}</td>
                 <td>
                   {(w.paymentStatus === "paid" || !w.paymentStatus) ? (
