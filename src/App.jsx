@@ -1733,7 +1733,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
       });
       // Refresh attendance + lockers from backend so all browsers see the change.
       const [attRes, lockRes] = await Promise.all([
-        attendanceApi.list({ limit: 500 }),
+        attendanceApi.list({ limit: 10000 }),
         lockersApi.list({ limit: 200 }),
       ]);
       setData((d) => ({
@@ -1825,7 +1825,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const checkInWalkInGuest = async (w) => {
     try {
       await walkInsApi.checkIn(w.id);
-      const wiRes = await walkInsApi.list({ limit: 500 });
+      const wiRes = await walkInsApi.list({ limit: 10000 });
       setData((d) => ({ ...d, walkIns: (wiRes?.data || []).map(adaptWalkIn) }));
     } catch (err) {
       alert(err?.message || "Failed to check in walk-in");
@@ -1908,9 +1908,9 @@ const CheckIn = ({ data, setData, currentUser }) => {
     // Refresh the lists from the backend so other browsers see it too.
     try {
       const [wiRes, payRes, attRes, lockRes] = await Promise.all([
-        walkInsApi.list({ limit: 500 }),
-        paymentsApi.list({ limit: 500 }),
-        attendanceApi.list({ limit: 500 }),
+        walkInsApi.list({ limit: 10000 }),
+        paymentsApi.list({ limit: 10000 }),
+        attendanceApi.list({ limit: 10000 }),
         lockersApi.list({ limit: 200 }),
       ]);
       setData((d) => ({
@@ -2501,9 +2501,9 @@ const CheckIn = ({ data, setData, currentUser }) => {
               });
             } catch (e) { console.warn("Expired-member walk-in payment record failed:", e); }
             const [wiRes, payRes, attRes] = await Promise.all([
-              walkInsApi.list({ limit: 500 }),
-              paymentsApi.list({ limit: 500 }),
-              attendanceApi.list({ limit: 500 }),
+              walkInsApi.list({ limit: 10000 }),
+              paymentsApi.list({ limit: 10000 }),
+              attendanceApi.list({ limit: 10000 }),
             ]);
             setData((d) => ({
               ...d,
@@ -2601,9 +2601,9 @@ const CheckIn = ({ data, setData, currentUser }) => {
             } catch (e) { console.warn("Re-check-in payment record failed:", e); }
             // Refresh
             const [wiRes, payRes, attRes] = await Promise.all([
-              walkInsApi.list({ limit: 500 }),
-              paymentsApi.list({ limit: 500 }),
-              attendanceApi.list({ limit: 500 }),
+              walkInsApi.list({ limit: 10000 }),
+              paymentsApi.list({ limit: 10000 }),
+              attendanceApi.list({ limit: 10000 }),
             ]);
             setData((d) => ({
               ...d,
@@ -2844,7 +2844,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                             if (!confirm("Mark this walk-in as Pending?")) return;
                             try {
                               await walkInsApi.update(w.id, { paymentStatus: "pending" });
-                              const wiRes = await walkInsApi.list({ limit: 500 });
+                              const wiRes = await walkInsApi.list({ limit: 10000 });
                               setData((d) => ({ ...d, walkIns: (wiRes?.data || []).map(adaptWalkIn) }));
                             } catch (err) { alert(err?.message || "Failed"); }
                           }}>Revert</button>
@@ -2863,8 +2863,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
                                 notes: `Walk-in payment: ${w.firstName || w.name || ""} ${w.lastName || ""}`.trim(),
                               });
                               const [wiRes, payRes] = await Promise.all([
-                                walkInsApi.list({ limit: 500 }),
-                                paymentsApi.list({ limit: 500 }),
+                                walkInsApi.list({ limit: 10000 }),
+                                paymentsApi.list({ limit: 10000 }),
                               ]);
                               setData((d) => ({
                                 ...d,
@@ -2907,8 +2907,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
                                 // immediately (attendance rows cascade-delete
                                 // with the walk-in via FK).
                                 const [wiRes, attRes] = await Promise.all([
-                                  walkInsApi.list({ limit: 500 }),
-                                  attendanceApi.list({ limit: 500 }),
+                                  walkInsApi.list({ limit: 10000 }),
+                                  attendanceApi.list({ limit: 10000 }),
                                 ]);
                                 setData((d) => ({
                                   ...d,
@@ -3617,7 +3617,7 @@ const Members = ({ data, setData, currentUser }) => {
     setLoading(true);
     setApiError("");
     try {
-      const res = await membersApi.list({ limit: 500 });
+      const res = await membersApi.list({ limit: 10000 });
       const adapted = (res?.data || []).map(adaptMember);
       setData((d) => ({ ...d, members: adapted }));
     } catch (err) {
@@ -4094,8 +4094,8 @@ const Memberships = ({ data, setData, currentUser }) => {
     setApiError("");
     try {
       const [msRes, payRes] = await Promise.all([
-        membershipsApi.list({ limit: 500 }),
-        paymentsApi.list({ limit: 500 }),
+        membershipsApi.list({ limit: 10000 }),
+        paymentsApi.list({ limit: 10000 }),
       ]);
       setData((d) => ({
         ...d,
@@ -5632,7 +5632,7 @@ const WalkIns = ({ data, setData, currentUser }) => {
 
   const reload = useCallback(async () => {
     try {
-      const res = await walkInsApi.list({ limit: 500 });
+      const res = await walkInsApi.list({ limit: 10000 });
       setData((d) => ({ ...d, walkIns: (res?.data || []).map(adaptWalkIn) }));
     } catch (err) {
       setApiError(err?.message || "Failed to load walk-ins");
@@ -6175,7 +6175,7 @@ const Attendance = ({ data, setData }) => {
                     try {
                       await attendanceApi.checkOut(a.id);
                       const [attRes, lockRes] = await Promise.all([
-                        attendanceApi.list({ limit: 500 }),
+                        attendanceApi.list({ limit: 10000 }),
                         lockersApi.list({ limit: 200 }),
                       ]);
                       setData((d) => ({
@@ -7193,9 +7193,9 @@ const Shop = ({ data, setData, currentUser }) => {
   const reload = useCallback(async () => {
     try {
       const [pRes, payRes, salesRes] = await Promise.all([
-        productsApi.list({ limit: 500 }),
-        paymentsApi.list({ limit: 500 }),
-        productsApi.sales({ limit: 500 }).catch(() => ({ data: [] })),
+        productsApi.list({ limit: 10000 }),
+        paymentsApi.list({ limit: 10000 }),
+        productsApi.sales({ limit: 10000 }).catch(() => ({ data: [] })),
       ]);
       // Adapt sales rows to match the legacy productSales shape used by the UI:
       // { id, items: [{ productId, name, qty, price }], total, method, soldBy, soldAt, date }
@@ -7571,7 +7571,7 @@ const Expenses = ({ data, setData, currentUser }) => {
 
   const reload = useCallback(async () => {
     try {
-      const res = await expensesApi.list({ limit: 500 });
+      const res = await expensesApi.list({ limit: 10000 });
       setData((d) => ({ ...d, expenses: (res?.data || []).map(adaptExpense) }));
     } catch (err) {
       setApiError(err?.message || "Failed to load expenses");
@@ -7845,7 +7845,7 @@ const Reconciliation = ({ data, setData, currentUser }) => {
   // Load fresh shop sales so we can resolve product names for shop-payment rows
   // that pre-date the backend notes-injection fix.
   useEffect(() => {
-    productsApi.sales({ limit: 500 }).then((res) => {
+    productsApi.sales({ limit: 10000 }).then((res) => {
       const productSales = (res?.data || []).map((s) => {
         const ts = s.soldAt || s.createdAt || new Date().toISOString();
         return {
@@ -8546,7 +8546,7 @@ const Lockers = ({ data, setData, currentUser }) => {
 
   const reload = useCallback(async () => {
     try {
-      const res = await lockersApi.list({ limit: 500 });
+      const res = await lockersApi.list({ limit: 10000 });
       setData((d) => ({ ...d, lockers: (res?.data || []).map(adaptLocker) }));
     } catch (err) {
       setApiError(err?.message || "Failed to load lockers");
@@ -8791,7 +8791,7 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
   const persistSelfCheckIn = async (memberId) => {
     try {
       await attendanceApi.checkIn({ memberId, source: "self" });
-      const attRes = await attendanceApi.list({ limit: 500 });
+      const attRes = await attendanceApi.list({ limit: 10000 });
       setData((d) => ({ ...d, attendance: (attRes?.data || []).map(adaptAttendance) }));
       return true;
     } catch (err) {
@@ -10526,21 +10526,21 @@ export default function App() {
           actRes, salesRes,
         ] = await Promise.all([
           plansApi.list({ limit: 100 }),
-          membershipsApi.list({ limit: 500 }),
-          paymentsApi.list({ limit: 500 }),
-          membersApi.list({ limit: 500 }),
+          membershipsApi.list({ limit: 10000 }),
+          paymentsApi.list({ limit: 10000 }),
+          membersApi.list({ limit: 10000 }),
           trainersApi.list({ limit: 200 }),
           lockersApi.list({ limit: 200 }),
-          productsApi.list({ limit: 500 }),
+          productsApi.list({ limit: 10000 }),
           equipmentApi.list({ limit: 200 }),
-          walkInsApi.list({ limit: 500 }),
-          attendanceApi.list({ limit: 500 }),
+          walkInsApi.list({ limit: 10000 }),
+          attendanceApi.list({ limit: 10000 }),
           discountsApi.list({ limit: 200 }),
-          expensesApi.list({ limit: 500 }),
+          expensesApi.list({ limit: 10000 }),
           // Users API is admin-only — swallow 403 for non-admins
           (currentUser?.role === "admin" ? usersApi.list({ limit: 200 }) : Promise.resolve({ data: [] })).catch(() => ({ data: [] })),
           activitiesApi.list({ limit: 100 }),
-          productsApi.sales({ limit: 500 }).catch(() => ({ data: [] })),
+          productsApi.sales({ limit: 10000 }).catch(() => ({ data: [] })),
         ]);
         if (cancelled) return;
         const plans = (plansRes?.data || []);
