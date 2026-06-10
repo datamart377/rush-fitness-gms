@@ -3841,7 +3841,7 @@ const Members = ({ data, setData, currentUser }) => {
 
       <div className="table-wrapper">
         <table>
-          <thead><tr><th></th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>ID (NIN / Passport)</th><th>Gender</th><th>Membership</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th></th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>ID (NIN / Passport)</th><th>Gender</th><th>Membership</th><th>Status</th><th>Date Added</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((m) => {
               const ms = data.memberships.find((ms) => ms.memberId === m.id && ms.isActive);
@@ -3866,6 +3866,7 @@ const Members = ({ data, setData, currentUser }) => {
                   <td>{m.gender}</td>
                   <td>{ms ? <Badge variant={exp ? "danger" : ms.status === "frozen" ? "warning" : "success"}>{getPlanName(ms.plan)}</Badge> : <Badge variant="neutral">None</Badge>}</td>
                   <td>{m.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Inactive</Badge>}</td>
+                  <td style={{ color: "var(--text-dim)", fontSize: 13, whiteSpace: "nowrap" }}>{m.createdAt ? formatDate(m.createdAt) : "—"}</td>
                   <td>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button className="btn btn-icon btn-secondary" onClick={() => openView(m)}><Eye size={14} /></button>
