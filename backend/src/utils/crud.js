@@ -87,8 +87,17 @@ async function listRows(client, table, opts = {}) {
 }
 
 // Parse ?limit & ?offset query params with sane caps.
+//
+// IMPORTANT — the cap below must accommodate the frontend's actual usage.
+// The React app fetches whole tables in single calls with `limit: 500`,
+// so a cap any lower than that silently truncates the response. When the
+// cap was 200 and tables (attendance, payments, walk-ins) grew past 200,
+// older rows became invisible in the UI — the data was always safe in
+// Postgres, just not delivered to the client. Raised to 10000 so all
+// current tables fit in one round-trip; revisit when any table approaches
+// this number (then switch to iterated paginated fetches on the client).
 function parsePagination(req) {
-  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 10000);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
   return { limit, offset };
 }
