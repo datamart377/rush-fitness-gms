@@ -3712,7 +3712,57 @@ const Members = ({ data, setData, currentUser }) => {
     setModal("terms");
   };
 
+  // Look for an existing member that looks like a duplicate of the form data.
+  // Two signals are considered:
+  //   1. NIN match — strong signal (NINs are 14-char unique national IDs).
+  //   2. Surname + Other-Names + Phone all matching another row — strong signal
+  //      that someone is re-registering the same person. Phone alone is not
+  //      enough: families/spouses commonly share a single phone number, and
+  //      the prod data has multiple legitimate members on phone 0772410181.
+  // Returns the matched member object, or null if no duplicate found.
+  // We always exclude the row currently being edited (so re-saving an Edit
+  // doesn't flag the row as a duplicate of itself).
+  const findDuplicate = (f) => {
+    const nin = (f.nationalId || "").trim().toUpperCase();
+    const phone = (f.phone || "").trim();
+    const first = (f.firstName || "").trim().toLowerCase();
+    const last = (f.lastName || "").trim().toLowerCase();
+    const editingId = current?.id || null;
+    return (data.members || []).find((m) => {
+      if (editingId && m.id === editingId) return false;
+      if (nin && (m.nationalId || "").trim().toUpperCase() === nin) return true;
+      if (phone && first && last) {
+        const sameName =
+          (m.firstName || "").trim().toLowerCase() === first &&
+          (m.lastName || "").trim().toLowerCase() === last;
+        if (sameName && (m.phone || "").trim() === phone) return true;
+      }
+      return false;
+    }) || null;
+  };
+
   const save = async () => {
+    // Re-entry guard: this exact race produced the three "Nantongo Flavia"
+    // rows with identical NIN/phone seen in prod on 10 Jun 2026. While a
+    // create is already in flight, ignore any subsequent button clicks.
+    if (loading) return;
+    // Pre-create duplicate sniff — only on Add/Terms (Edit explicitly
+    // overwrites an existing row so it can never be a duplicate of itself
+    // after the exclusion in findDuplicate).
+    if (modal === "add" || modal === "terms") {
+      const dup = findDuplicate(form);
+      if (dup) {
+        const sig = (dup.nationalId && (dup.nationalId || "").trim().toUpperCase() === (form.nationalId || "").trim().toUpperCase())
+          ? `NIN ${dup.nationalId}`
+          : `name + phone ${dup.phone}`;
+        const ok = window.confirm(
+          `A member with the same ${sig} already exists:\n\n` +
+          `   ${fullName(dup) || "(no name)"} — added ${dup.createdAt ? new Date(dup.createdAt).toLocaleDateString("en-UG") : "earlier"}.\n\n` +
+          `Are you sure you want to register another record? Click Cancel and use Edit on the existing row if you meant to update them.`
+        );
+        if (!ok) return;
+      }
+    }
     setLoading(true);
     setApiError("");
     try {
@@ -3910,7 +3960,7 @@ const Members = ({ data, setData, currentUser }) => {
       )}
 
       {(modal === "add" || modal === "edit") && (
-        <Modal title={modal === "add" ? "Register New Member" : "Edit Member"} onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>{modal === "add" ? <button className="btn btn-primary" onClick={validateAndShowTerms}><ChevronRight size={14} /> Continue to T&C</button> : <button className="btn btn-primary" onClick={save}><Check size={14} /> Save Changes</button>}</>}>
+        <Modal title={modal === "add" ? "Register New Member" : "Edit Member"} onClose={() => { if (!loading) setModal(null); }} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)} disabled={loading}>Cancel</button>{modal === "add" ? <button className="btn btn-primary" onClick={validateAndShowTerms} disabled={loading}><ChevronRight size={14} /> Continue to T&C</button> : <button className="btn btn-primary" onClick={save} disabled={loading}>{loading ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Saving...</> : <><Check size={14} /> Save Changes</>}</button>}</>}>
           <div className="form-grid">
             <PhotoCapture
               photo={form.photo}
@@ -4000,13 +4050,13 @@ const Members = ({ data, setData, currentUser }) => {
 
       {/* TERMS & CONDITIONS MODAL */}
       {modal === "terms" && (
-        <Modal title="Terms & Conditions" onClose={() => setModal("add")} footer={
+        <Modal title="Terms & Conditions" onClose={() => { if (!loading) setModal("add"); }} footer={
           <>
-            <button className="btn btn-secondary" onClick={() => setModal("add")}>
+            <button className="btn btn-secondary" onClick={() => setModal("add")} disabled={loading}>
               <ArrowLeft size={14} /> Back to Form
             </button>
-            <button className="btn btn-primary" onClick={save} disabled={!termsAccepted} style={!termsAccepted ? { opacity: 0.4, cursor: "not-allowed" } : {}}>
-              <Check size={14} /> Accept & Register Member
+            <button className="btn btn-primary" onClick={save} disabled={!termsAccepted || loading} style={(!termsAccepted || loading) ? { opacity: 0.4, cursor: "not-allowed" } : {}}>
+              {loading ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Registering...</> : <><Check size={14} /> Accept & Register Member</>}
             </button>
           </>
         }>
