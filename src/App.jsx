@@ -7438,43 +7438,6 @@ const Discounts = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>End Date</label><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} onFocus={(e) => e.target.showPicker?.()} onClick={(e) => e.target.showPicker?.()} /></div>
             <div className="form-group"><label>Max Uses</label><input type="number" min="0" value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} placeholder="leave blank for unlimited" /></div>
 
-            {/* ── Scope: which plans this discount applies to ──
-                Empty selection = applies to ALL plans. That's the
-                back-compat behaviour for discounts created before
-                migration 010. Combines PLANS (individual) and
-                GROUP_PLANS (multi-person) into one toggle row, since
-                the backend stores both as a flat plan_codes TEXT[]. */}
-            <div className="form-group full">
-              <label>
-                Applies to plans
-                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 12, color: "var(--text-muted)" }}>
-                  {form.planCodes.length === 0 ? "(all plans)" : `(${form.planCodes.length} selected)`}
-                </span>
-              </label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {[
-                  ...Object.entries(PLANS).map(([code, p]) => ({ code, name: p.name })),
-                  ...Object.entries(GROUP_PLANS).map(([code, p]) => ({ code, name: p.name })),
-                ].map(({ code, name }) => {
-                  const isSel = form.planCodes.includes(code);
-                  return (
-                    <button
-                      key={code}
-                      type="button"
-                      className={`btn btn-sm ${isSel ? "btn-primary" : "btn-secondary"}`}
-                      onClick={() => setForm((f) => ({
-                        ...f,
-                        planCodes: isSel
-                          ? f.planCodes.filter((x) => x !== code)
-                          : [...f.planCodes, code],
-                      }))}
-                      disabled={busy}
-                    >{name}</button>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* ── Scope: which activities this discount applies to ──
                 Uses live data.activities (so newly-added activities show
                 up immediately) and falls back to the seed ACTIVITIES
