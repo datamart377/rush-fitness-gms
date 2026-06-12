@@ -218,6 +218,11 @@ const adaptDiscount = (d) => d ? ({
   usesCount: d.usesCount || 0,
   maxUses: d.maxUses || 0,
   name: d.code || d.name,
+  // validFrom / validTo come from the DB as date strings (YYYY-MM-DD).
+  // Expose them under the legacy startDate / endDate names used by the
+  // Discounts form so the existing inputs Just Work after migration 009.
+  startDate: d.validFrom ? dateToYMD(d.validFrom) : "",
+  endDate: d.validTo ? dateToYMD(d.validTo) : "",
 }) : null;
 const discountTypeToApi = (t) => t === "percentage" ? "percent" : t === "fixed" ? "flat" : t;
 
@@ -7207,6 +7212,17 @@ const Discounts = ({ data, setData, currentUser }) => {
     setBusy(true);
     setApiError("");
     try {
+      // Common payload shared by create + update. The crud helper
+      // converts camelCase → snake_case before INSERT/UPDATE, and unknown
+      // fields are silently dropped, so sending validFrom/validTo/maxUses
+      // here lines up with the columns added in migration 009. Empty
+      // strings are coerced to NULL by pickFields() in crud.js → that
+      // means "no limit" for the date window and the usage cap.
+      const datePayload = {
+        validFrom: form.startDate || null,
+        validTo:   form.endDate   || null,
+        maxUses:   form.maxUses === "" || form.maxUses == null ? null : Number(form.maxUses),
+      };
       if (modal === "edit" && current) {
         // Update: the displayed Name in the table is the discount's `code`
         // (per adaptDiscount), so updating only description would leave
@@ -7219,6 +7235,7 @@ const Discounts = ({ data, setData, currentUser }) => {
           description: form.name,
           type: discountTypeToApi(form.type),
           value: Number(form.value),
+          ...datePayload,
         });
       } else {
         await discountsApi.create({
@@ -7226,6 +7243,7 @@ const Discounts = ({ data, setData, currentUser }) => {
           description: form.name,
           type: discountTypeToApi(form.type),
           value: Number(form.value),
+          ...datePayload,
         });
       }
       await reload();
@@ -7295,9 +7313,17 @@ const Discounts = ({ data, setData, currentUser }) => {
             <div className="form-group full"><label>Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="form-group"><label>Type</label><select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}><option value="percentage">Percentage</option><option value="fixed">Fixed Amount</option></select></div>
             <div className="form-group"><label>Value</label><input type="number" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
-            <div className="form-group"><label>Start Date</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></div>
-            <div className="form-group"><label>End Date</label><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></div>
-            <div className="form-group"><label>Max Uses</label><input type="number" value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} /></div>
+            {/* Native <input type="date"> already renders a calendar
+                icon, but in some browsers (and many corporate-managed
+                Chrome installs) clicking the icon alone doesn't open
+                the picker — only typing in the input works. Calling
+                showPicker() on focus/click forces the picker open on
+                every browser that supports it. Older browsers without
+                showPicker() fall back to the default behaviour because
+                of the optional-chaining. */}
+            <div className="form-group"><label>Start Date</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} onFocus={(e) => e.target.showPicker?.()} onClick={(e) => e.target.showPicker?.()} /></div>
+            <div className="form-group"><label>End Date</label><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} onFocus={(e) => e.target.showPicker?.()} onClick={(e) => e.target.showPicker?.()} /></div>
+            <div className="form-group"><label>Max Uses</label><input type="number" min="0" value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} placeholder="leave blank for unlimited" /></div>
           </div>
         </Modal>
       )}
