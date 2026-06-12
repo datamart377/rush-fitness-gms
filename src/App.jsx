@@ -7437,41 +7437,6 @@ const Discounts = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Start Date</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} onFocus={(e) => e.target.showPicker?.()} onClick={(e) => e.target.showPicker?.()} /></div>
             <div className="form-group"><label>End Date</label><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} onFocus={(e) => e.target.showPicker?.()} onClick={(e) => e.target.showPicker?.()} /></div>
             <div className="form-group"><label>Max Uses</label><input type="number" min="0" value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} placeholder="leave blank for unlimited" /></div>
-
-            {/* ── Scope: which activities this discount applies to ──
-                Uses live data.activities (so newly-added activities show
-                up immediately) and falls back to the seed ACTIVITIES
-                list before initial load. Activity identifier is the
-                real DB UUID — same adapter pattern used by walk-ins
-                (uuid → id → code fallback). */}
-            <div className="form-group full">
-              <label>
-                Applies to activities
-                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 12, color: "var(--text-muted)" }}>
-                  {form.activityIds.length === 0 ? "(all activities)" : `(${form.activityIds.length} selected)`}
-                </span>
-              </label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {((data.activities && data.activities.length) ? data.activities : ACTIVITIES).map((act) => {
-                  const actId = act.uuid || act.id || act.code;
-                  const isSel = form.activityIds.includes(actId);
-                  return (
-                    <button
-                      key={actId}
-                      type="button"
-                      className={`btn btn-sm ${isSel ? "btn-primary" : "btn-secondary"}`}
-                      onClick={() => setForm((f) => ({
-                        ...f,
-                        activityIds: isSel
-                          ? f.activityIds.filter((x) => x !== actId)
-                          : [...f.activityIds, actId],
-                      }))}
-                      disabled={busy}
-                    >{act.name}</button>
-                  );
-                })}
-              </div>
-            </div>
           </div>
         </Modal>
       )}
