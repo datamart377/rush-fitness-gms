@@ -223,6 +223,11 @@ const adaptDiscount = (d) => d ? ({
   // Discounts form so the existing inputs Just Work after migration 009.
   startDate: d.validFrom ? dateToYMD(d.validFrom) : "",
   endDate: d.validTo ? dateToYMD(d.validTo) : "",
+  // Scope arrays from migration 010. crud.js camelizes activity_ids →
+  // activityIds and plan_codes → planCodes. Empty arrays mean "applies
+  // to everything" so old discounts without a scope keep their meaning.
+  activityIds: Array.isArray(d.activityIds) ? d.activityIds : [],
+  planCodes: Array.isArray(d.planCodes) ? d.planCodes : [],
 }) : null;
 const discountTypeToApi = (t) => t === "percentage" ? "percent" : t === "fixed" ? "flat" : t;
 
@@ -7170,7 +7175,7 @@ const Discounts = ({ data, setData, currentUser }) => {
   const isAdmin = currentUser?.role === "admin";
   const [modal, setModal] = useState(null); // 'add' | 'edit' | null
   const [current, setCurrent] = useState(null); // discount row being edited
-  const [form, setForm] = useState({ name: "", type: "percentage", value: 10, startDate: today(), endDate: "", maxUses: 100 });
+  const [form, setForm] = useState({ name: "", type: "percentage", value: 10, startDate: today(), endDate: "", maxUses: 100, activityIds: [], planCodes: [] });
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
 
@@ -7198,6 +7203,10 @@ const Discounts = ({ data, setData, currentUser }) => {
       startDate: d.startDate || today(),
       endDate: d.endDate || "",
       maxUses: d.maxUses ?? 100,
+      // Scope arrays — fall back to [] which the UI treats as
+      // "applies to everything" (the create-from-blank default).
+      activityIds: Array.isArray(d.activityIds) ? d.activityIds : [],
+      planCodes: Array.isArray(d.planCodes) ? d.planCodes : [],
     });
     setApiError("");
     setModal("edit");
@@ -7222,6 +7231,13 @@ const Discounts = ({ data, setData, currentUser }) => {
         validFrom: form.startDate || null,
         validTo:   form.endDate   || null,
         maxUses:   form.maxUses === "" || form.maxUses == null ? null : Number(form.maxUses),
+        // Scope arrays from migration 010. crud.js camelize→snake the keys
+        // into activity_ids / plan_codes (Postgres UUID[] / TEXT[]). Empty
+        // arrays are kept as [] (not null) — the backend semantics treat
+        // [] as "applies to every activity/plan" so this is correct for
+        // both blank-create and explicit clear-on-edit.
+        activityIds: Array.isArray(form.activityIds) ? form.activityIds : [],
+        planCodes:   Array.isArray(form.planCodes)   ? form.planCodes   : [],
       };
       if (modal === "edit" && current) {
         // Update: the displayed Name in the table is the discount's `code`
@@ -7270,7 +7286,7 @@ const Discounts = ({ data, setData, currentUser }) => {
       <div className="page-header"><h2>Discounts & Promos</h2><p>Manage promotional offers and coupon codes</p></div>
       <div className="toolbar">
         <div />
-        <button className="btn btn-primary" onClick={() => { setForm({ name: "", type: "percentage", value: 10, startDate: today(), endDate: "", maxUses: 100 }); setModal("add"); }}><Plus size={16} /> Create Discount</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ name: "", type: "percentage", value: 10, startDate: today(), endDate: "", maxUses: 100, activityIds: [], planCodes: [] }); setModal("add"); }}><Plus size={16} /> Create Discount</button>
       </div>
       <div className="table-wrapper">
         <table>
@@ -7324,6 +7340,78 @@ const Discounts = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Start Date</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} onFocus={(e) => e.target.showPicker?.()} onClick={(e) => e.target.showPicker?.()} /></div>
             <div className="form-group"><label>End Date</label><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} onFocus={(e) => e.target.showPicker?.()} onClick={(e) => e.target.showPicker?.()} /></div>
             <div className="form-group"><label>Max Uses</label><input type="number" min="0" value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} placeholder="leave blank for unlimited" /></div>
+
+            {/* ── Scope: which plans this discount applies to ──
+                Empty selection = applies to ALL plans. That's the
+                back-compat behaviour for discounts created before
+                migration 010. Combines PLANS (individual) and
+                GROUP_PLANS (multi-person) into one toggle row, since
+                the backend stores both as a flat plan_codes TEXT[]. */}
+            <div className="form-group full">
+              <label>
+                Applies to plans
+                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 12, color: "var(--text-muted)" }}>
+                  {form.planCodes.length === 0 ? "(all plans)" : `(${form.planCodes.length} selected)`}
+                </span>
+              </label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {[
+                  ...Object.entries(PLANS).map(([code, p]) => ({ code, name: p.name })),
+                  ...Object.entries(GROUP_PLANS).map(([code, p]) => ({ code, name: p.name })),
+                ].map(({ code, name }) => {
+                  const isSel = form.planCodes.includes(code);
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      className={`btn btn-sm ${isSel ? "btn-primary" : "btn-secondary"}`}
+                      onClick={() => setForm((f) => ({
+                        ...f,
+                        planCodes: isSel
+                          ? f.planCodes.filter((x) => x !== code)
+                          : [...f.planCodes, code],
+                      }))}
+                      disabled={busy}
+                    >{name}</button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ── Scope: which activities this discount applies to ──
+                Uses live data.activities (so newly-added activities show
+                up immediately) and falls back to the seed ACTIVITIES
+                list before initial load. Activity identifier is the
+                real DB UUID — same adapter pattern used by walk-ins
+                (uuid → id → code fallback). */}
+            <div className="form-group full">
+              <label>
+                Applies to activities
+                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 12, color: "var(--text-muted)" }}>
+                  {form.activityIds.length === 0 ? "(all activities)" : `(${form.activityIds.length} selected)`}
+                </span>
+              </label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {((data.activities && data.activities.length) ? data.activities : ACTIVITIES).map((act) => {
+                  const actId = act.uuid || act.id || act.code;
+                  const isSel = form.activityIds.includes(actId);
+                  return (
+                    <button
+                      key={actId}
+                      type="button"
+                      className={`btn btn-sm ${isSel ? "btn-primary" : "btn-secondary"}`}
+                      onClick={() => setForm((f) => ({
+                        ...f,
+                        activityIds: isSel
+                          ? f.activityIds.filter((x) => x !== actId)
+                          : [...f.activityIds, actId],
+                      }))}
+                      disabled={busy}
+                    >{act.name}</button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </Modal>
       )}
