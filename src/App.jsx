@@ -4238,7 +4238,7 @@ const getMembershipBalance = (ms /* , payments */) => {
 const Memberships = ({ data, setData, currentUser }) => {
   const isAdmin = currentUser?.role === "admin";
   const [modal, setModal] = useState(null); // 'assign' | 'pay' | null
-  const [form, setForm] = useState({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" });
+  const [form, setForm] = useState({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "", months: 1 });
   const [payTarget, setPayTarget] = useState(null); // membership for additional payment
   const [editTarget, setEditTarget] = useState(null); // admin: membership being edited
   const [editForm, setEditForm] = useState({ plan: "", startDate: "", endDate: "", totalDue: "", totalPaid: "" });
@@ -4391,7 +4391,11 @@ const Memberships = ({ data, setData, currentUser }) => {
       return;
     }
 
-    const price = planInfo.price;
+    // Months multiplier — applies to non-group monthly-length plans (30-day plans).
+    // Scales both price (totalDue) and duration (endDate). Other plan types stay at 1x.
+    const monthsMul = (planInfo.days === 30) ? Math.max(1, Number(form.months) || 1) : 1;
+    const price = planInfo.price * monthsMul;
+    const planDays = planInfo.days * monthsMul;
     const discount = form.discountId ? data.discounts.find((d) => d.id === form.discountId) : null;
     const discountAmt = discount
       ? (discount.type === "percentage" ? Math.round(price * discount.value / 100) : discount.value)
@@ -4405,13 +4409,25 @@ const Memberships = ({ data, setData, currentUser }) => {
     try {
       // 1. Create the membership.
       // Admins may supply a custom startDate (for record migration / backdating);
-      // the backend derives endDate from plan.duration_days when only startDate is given.
+      // the backend derives endDate from plan.duration_days when only startDate is given,
+      // but we need to override endDate ourselves when monthsMul > 1 so the plan ends
+      // N months out, not just 30 days out.
       const customStart = isAdmin && form.startDate ? form.startDate : undefined;
+      // Resolve the effective start (either the admin-supplied date or "today")
+      // and compute endDate when we have a multiplier. The backend accepts
+      // ISO endDate (validator on memberships.js line 75) and will use it as-is.
+      let customEnd;
+      if (monthsMul > 1) {
+        const startBase = customStart ? new Date(`${customStart}T12:00:00Z`) : new Date();
+        const endDate = new Date(startBase.getTime() + planDays * 86400000);
+        customEnd = dateToYMD(endDate);
+      }
       const ms = await membershipsApi.create({
         memberId: form.memberId,
         planId,
         totalDue,
         startDate: customStart,
+        endDate: customEnd,
       });
       // 2. Record the payment (backend auto-bumps membership.total_paid).
       // Use the custom start date as the paid_at timestamp too, so the financial
@@ -4419,6 +4435,7 @@ const Memberships = ({ data, setData, currentUser }) => {
       const paidAt = customStart
         ? new Date(`${customStart}T12:00:00Z`).toISOString()
         : undefined;
+      const monthsTag = monthsMul > 1 ? ` [${monthsMul} months]` : "";
       await paymentsApi.create({
         memberId: form.memberId,
         membershipId: ms.id,
@@ -4427,9 +4444,9 @@ const Memberships = ({ data, setData, currentUser }) => {
         type: "membership",
         discountAmount: discountAmt || undefined,
         paidAt,
-        notes: isPaidFull
+        notes: (isPaidFull
           ? (customStart ? `Full payment (backdated to ${customStart})` : "Full payment")
-          : `Partial payment (${Math.round(payAmount / totalDue * 100)}%)${customStart ? ` — backdated to ${customStart}` : ""}`,
+          : `Partial payment (${Math.round(payAmount / totalDue * 100)}%)${customStart ? ` — backdated to ${customStart}` : ""}`) + monthsTag,
       });
       // 3. Refresh local cache from backend so all browsers see the change
       await reloadMemberships();
@@ -4683,7 +4700,7 @@ const Memberships = ({ data, setData, currentUser }) => {
             </button>
           )}
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "" }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "", months: 1 }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
       </div>
 
       {apiError && (
@@ -5039,7 +5056,7 @@ const Memberships = ({ data, setData, currentUser }) => {
             )}
             <div className="form-group">
               <label>Plan</label>
-              <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value, paymentType: e.target.value === "prepaid" ? "full" : form.paymentType })}>
+              <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value, paymentType: e.target.value === "prepaid" ? "full" : form.paymentType, months: 1 })}>
                 <optgroup label="Gym Only">
                   {Object.entries(PLANS).filter(([, v]) => v.category === "gym").map(([k, v]) => <option key={k} value={k}>{v.name} — {formatUGX(v.price)}</option>)}
                 </optgroup>
@@ -5070,6 +5087,50 @@ const Memberships = ({ data, setData, currentUser }) => {
                 {data.discounts.filter((d) => d.isActive).map((d) => <option key={d.id} value={d.id}>{d.name} ({d.type === "percentage" ? `${d.value}%` : formatUGX(d.value)})</option>)}
               </select>
             </div>
+
+            {/* MONTHS MULTIPLIER — only shown for monthly-length plans
+                (any non-group plan whose duration is exactly 30 days, i.e.
+                gym_monthly and combo_monthly). Lets a member pay for N
+                months upfront. Price and end-date both scale with N.
+                Quick presets cover the common asks (1/2/3/6/12); the
+                number input lets you go to any value if needed. */}
+            {form.plan && !form.plan.startsWith("group_") && PLANS[form.plan]?.days === 30 && (
+              <div className="form-group full">
+                <label>Number of Months</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                  {[1, 2, 3, 6, 12].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`btn btn-sm ${Number(form.months) === n ? "btn-primary" : "btn-secondary"}`}
+                      onClick={() => setForm({ ...form, months: n })}
+                    >{n} month{n > 1 ? "s" : ""}</button>
+                  ))}
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={form.months}
+                    onChange={(e) => {
+                      // Clamp to a sane range. Allow the empty string
+                      // intermediate state so typing isn't blocked.
+                      const v = e.target.value === "" ? "" : Math.max(1, Math.min(60, Number(e.target.value) || 1));
+                      setForm({ ...form, months: v });
+                    }}
+                    onBlur={(e) => {
+                      // Snap empty/invalid back to 1 when the user leaves the field.
+                      if (e.target.value === "" || Number(e.target.value) < 1) setForm({ ...form, months: 1 });
+                    }}
+                    style={{ width: 80, marginLeft: 4 }}
+                  />
+                </div>
+                {Number(form.months) > 1 && (
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
+                    {Number(form.months)} × {PLANS[form.plan].name.replace(" (Gym)", "").replace(" (Gym+Steam)", "")} = {formatUGX((PLANS[form.plan].price || 0) * Number(form.months))} for {(PLANS[form.plan].days || 30) * Number(form.months)} days
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* ADMIN-ONLY: backdate the membership for record migration.
                 Manual entry — accepts DD/MM/YYYY (Ugandan/UK style) or
@@ -5144,7 +5205,12 @@ const Memberships = ({ data, setData, currentUser }) => {
                   )}
                   {isValid && (() => {
                     const planInfo = PLANS[form.plan];
-                    const days = planInfo?.days || 0;
+                    // Mirror the same multiplier rule used in the summary panel
+                    // so the backdate preview lines up with the saved end_date.
+                    const monthsMul = (planInfo?.days === 30 && !form.plan.startsWith("group_"))
+                      ? Math.max(1, Number(form.months) || 1)
+                      : 1;
+                    const days = (planInfo?.days || 0) * monthsMul;
                     const end = days ? dateToYMD(new Date(new Date(parsed).getTime() + days * 86400000)) : null;
                     return (
                       <p style={{ fontSize: 11, color: "var(--accent)", marginTop: 4 }}>
@@ -5236,10 +5302,16 @@ const Memberships = ({ data, setData, currentUser }) => {
               const isGroup = form.plan.startsWith("group_");
               const planInfo = isGroup ? GROUP_PLANS[form.plan] : PLANS[form.plan];
               if (!planInfo) return null;
+              // Months multiplier applies only to non-group monthly-length plans.
+              // For everything else (daily, weekly, annual, group, prepaid) the
+              // multiplier is forced to 1 so we never accidentally x-up other plans.
+              const monthsMul = (!isGroup && planInfo.days === 30) ? Math.max(1, Number(form.months) || 1) : 1;
+              const planPrice = planInfo.price * monthsMul;
+              const planDays  = planInfo.days  * monthsMul;
               const discount = form.discountId ? data.discounts.find((d) => d.id === form.discountId) : null;
               let discountAmt = 0;
-              if (discount) discountAmt = discount.type === "percentage" ? Math.round(planInfo.price * discount.value / 100) : discount.value;
-              const totalDue = planInfo.price - discountAmt;
+              if (discount) discountAmt = discount.type === "percentage" ? Math.round(planPrice * discount.value / 100) : discount.value;
+              const totalDue = planPrice - discountAmt;
               const payNow = form.paymentType === "full" ? totalDue : Math.min(Number(form.paymentAmount) || 0, totalDue);
               const remaining = totalDue - payNow;
 
@@ -5247,18 +5319,18 @@ const Memberships = ({ data, setData, currentUser }) => {
                 <div style={{ marginTop: 16, padding: 16, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                     <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Plan</span>
-                    <strong style={{ color: "var(--text)" }}>{planInfo.name}</strong>
+                    <strong style={{ color: "var(--text)" }}>{planInfo.name}{monthsMul > 1 ? ` × ${monthsMul} months` : ""}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                     <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Duration</span>
-                    <strong style={{ color: "var(--text)" }}>{planInfo.days} days</strong>
+                    <strong style={{ color: "var(--text)" }}>{planDays} days</strong>
                   </div>
                   {isGroup && <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ fontSize: 13, color: "var(--text-dim)" }}>Per person</span><strong style={{ color: "var(--text)" }}>{formatUGX(planInfo.perPerson)}</strong></div>}
                   {discountAmt > 0 && (
                     <>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                         <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Plan price</span>
-                        <span style={{ color: "var(--text-dim)", textDecoration: "line-through" }}>{formatUGX(planInfo.price)}</span>
+                        <span style={{ color: "var(--text-dim)", textDecoration: "line-through" }}>{formatUGX(planPrice)}</span>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                         <span style={{ fontSize: 13, color: "var(--success)" }}>Discount ({discount.name})</span>
