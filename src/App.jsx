@@ -1674,7 +1674,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const isAdmin = currentUser?.role === "admin";
 
   // Walk-in quick form
-  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null });
+  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null });
   const [walkinSearch, setWalkinSearch] = useState("");
   // Walk-in records filters (date range, payment status, check-in status)
   const [walkinFilter, setWalkinFilter] = useState({ from: "", to: "", paymentStatus: "all", checkedIn: "all", gender: "all", activity: "all", memberPlan: "all" });
@@ -1829,7 +1829,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
     }
   };
 
-  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null }); };
+  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null }); };
 
   // Quick walk-in check-in from the walk-ins panel
   const checkInWalkInGuest = async (w) => {
@@ -1858,8 +1858,23 @@ const CheckIn = ({ data, setData, currentUser }) => {
     if (walkinForm.selectedActivities.length === 0) { alert("Select at least one activity."); return; }
 
     const prices = walkinForm.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.standalone || 0);
-    const total = prices.reduce((s, p) => s + p, 0) - (walkinForm.selectedActivities.length > 1 ? 10000 : 0);
+    const baseTotal = prices.reduce((s, p) => s + p, 0) - (walkinForm.selectedActivities.length > 1 ? 10000 : 0);
+    // Apply selected discount, if any. Same math as the on-screen breakdown:
+    // percentage rounds to whole UGX, fixed is capped at baseTotal so a
+    // 50k flat coupon on a 30k bundle doesn't go negative.
+    const selDiscount = walkinForm.discountId
+      ? (data.discounts || []).find((d) => d.id === walkinForm.discountId)
+      : null;
+    const couponAmt = !selDiscount
+      ? 0
+      : selDiscount.type === "percentage"
+        ? Math.round(baseTotal * Number(selDiscount.value || 0) / 100)
+        : Math.min(baseTotal, Number(selDiscount.value || 0));
+    const total = Math.max(0, baseTotal - couponAmt);
     const actNames = walkinForm.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(" + ");
+    const discountTag = selDiscount
+      ? ` [Discount: ${selDiscount.name} -${formatUGX(couponAmt)}]`
+      : "";
     const isPaid = walkinForm.paymentStatus === "paid";
     const isCheckedIn = isPaid; // Check-in only if paid
     const lockerToAssign = (isCheckedIn && walkinForm.locker) ? walkinForm.locker : null;
@@ -1892,9 +1907,9 @@ const CheckIn = ({ data, setData, currentUser }) => {
         gender:          walkinForm.gender     || undefined,
         emergencyPhone:  walkinForm.emergency  || "",
         emergencyPhone2: walkinForm.emergency2 || "",
-        notes: walkinForm.selectedActivities.length > 1
+        notes: (walkinForm.selectedActivities.length > 1
           ? `Bundle: ${actNames} (UGX 10,000 discount)`
-          : actNames,
+          : actNames) + discountTag,
       });
     } catch (err) {
       alert("Failed to save walk-in: " + (err?.message || "unknown error"));
@@ -1908,8 +1923,18 @@ const CheckIn = ({ data, setData, currentUser }) => {
           amount: total,
           method: paymentMethodToApi(walkinForm.paymentMethod),
           type: "walk_in",
-          notes: `Walk-in: ${walkinForm.firstName} ${walkinForm.lastName} — ${actNames}`,
+          notes: `Walk-in: ${walkinForm.firstName} ${walkinForm.lastName} — ${actNames}${discountTag}`,
         });
+        // Bump the discount's usage counter so the "Uses" column in the
+        // Discounts admin reflects redemptions. Best-effort — a failure
+        // here shouldn't roll back the (successful) walk-in & payment.
+        if (selDiscount) {
+          try {
+            await discountsApi.update(selDiscount.id, {
+              usesCount: Number(selDiscount.usesCount || 0) + 1,
+            });
+          } catch (e) { console.warn("Failed to bump discount usesCount:", e); }
+        }
       } catch (err) {
         console.warn("Walk-in saved but payment record failed:", err);
       }
@@ -2048,6 +2073,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
               paymentMethod: "cash",
               paymentStatus: "paid",
               locker: null,
+              discountId: null,
             }))}
           />
 
@@ -2067,6 +2093,54 @@ const CheckIn = ({ data, setData, currentUser }) => {
               <select value={walkinForm.paymentMethod} onChange={(e) => setWalkinForm({ ...walkinForm, paymentMethod: e.target.value })}>
                 <option value="cash">Cash</option><option value="mobile_money_mtn">Mobile Money (MTN)</option><option value="mobile_money_airtel">Mobile Money (Airtel)</option><option value="card">Card</option>
               </select>
+            </div>
+            {/* Discount selector — sits in the empty right column next to
+                Payment Method. We filter the global discounts list down to
+                those that are: active, inside their validity window, not
+                exhausted, and either fully unscoped OR include at least one
+                of the currently-selected activities. Discounts scoped only
+                to membership plans (planCodes) are hidden here because a
+                walk-in doesn't buy a plan. */}
+            <div className="form-group"><label>Discount</label>
+              {(() => {
+                const list = (data.activities && data.activities.length) ? data.activities : ACTIVITIES;
+                // Map the form's legacy activity codes to their real UUIDs
+                // (the discount's activityIds column stores UUIDs). When the
+                // live list hasn't loaded yet, seed entries have no .uuid so
+                // scoped discounts will be filtered out — only fully-unscoped
+                // discounts will show. That's a safe default.
+                const selUuids = walkinForm.selectedActivities
+                  .map((id) => list.find((a) => (a.id || a.code) === id)?.uuid)
+                  .filter(Boolean);
+                const tStr = today();
+                const eligible = (data.discounts || []).filter((d) => {
+                  if (!d.isActive) return false;
+                  if (d.startDate && d.startDate > tStr) return false;
+                  if (d.endDate   && d.endDate   < tStr) return false;
+                  if (d.maxUses && Number(d.usesCount || 0) >= Number(d.maxUses)) return false;
+                  const noScope = (d.activityIds?.length || 0) === 0 && (d.planCodes?.length || 0) === 0;
+                  if (noScope) return true;
+                  if ((d.activityIds?.length || 0) > 0 && selUuids.some((u) => d.activityIds.includes(u))) return true;
+                  return false;
+                });
+                return (
+                  <select
+                    value={walkinForm.discountId || ""}
+                    onChange={(e) => setWalkinForm({ ...walkinForm, discountId: e.target.value || null })}
+                    disabled={walkinForm.selectedActivities.length === 0}
+                  >
+                    <option value="">None</option>
+                    {eligible.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} — {d.type === "percentage" ? `${d.value}%` : formatUGX(d.value)} off
+                      </option>
+                    ))}
+                  </select>
+                );
+              })()}
+              {walkinForm.selectedActivities.length === 0 && (
+                <p style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>Select activities first to see eligible discounts</p>
+              )}
             </div>
             <div className="form-group full"><label>Payment Status *</label>
               <div style={{ display: "flex", gap: 10 }}>
@@ -2103,18 +2177,41 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 );
               })}
             </div>
-            {walkinForm.selectedActivities.length > 0 && (
-              <div style={{ marginTop: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
-                {walkinForm.selectedActivities.map((actId) => {
-                  const act = ACTIVITIES.find((a) => a.id === actId);
-                  return (<div key={actId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}><span>{act.name}</span><span>{formatUGX(act.standalone)}</span></div>);
-                })}
-                {walkinForm.selectedActivities.length > 1 && (
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}><span>Bundle Discount</span><span>-{formatUGX(10000)}</span></div>
-                )}
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, color: "var(--accent)", borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}><span>Total</span><span>{formatUGX(walkinForm.selectedActivities.reduce((s, id) => s + (ACTIVITIES.find((a) => a.id === id)?.standalone || 0), 0) - (walkinForm.selectedActivities.length > 1 ? 10000 : 0))}</span></div>
-              </div>
-            )}
+            {walkinForm.selectedActivities.length > 0 && (() => {
+              const baseTotal =
+                walkinForm.selectedActivities.reduce((s, id) => s + (ACTIVITIES.find((a) => a.id === id)?.standalone || 0), 0)
+                - (walkinForm.selectedActivities.length > 1 ? 10000 : 0);
+              const sel = walkinForm.discountId
+                ? (data.discounts || []).find((d) => d.id === walkinForm.discountId)
+                : null;
+              // Percentage: round to the nearest UGX to avoid sub-shilling
+              // amounts on the payment record. Fixed: cap at baseTotal so a
+              // 50k coupon on a 30k bundle doesn't go negative.
+              const couponAmt = !sel
+                ? 0
+                : sel.type === "percentage"
+                  ? Math.round(baseTotal * Number(sel.value || 0) / 100)
+                  : Math.min(baseTotal, Number(sel.value || 0));
+              const finalTotal = Math.max(0, baseTotal - couponAmt);
+              return (
+                <div style={{ marginTop: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                  {walkinForm.selectedActivities.map((actId) => {
+                    const act = ACTIVITIES.find((a) => a.id === actId);
+                    return (<div key={actId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}><span>{act.name}</span><span>{formatUGX(act.standalone)}</span></div>);
+                  })}
+                  {walkinForm.selectedActivities.length > 1 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}><span>Bundle Discount</span><span>-{formatUGX(10000)}</span></div>
+                  )}
+                  {sel && couponAmt > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}>
+                      <span>Discount ({sel.name}{sel.type === "percentage" ? ` ${sel.value}%` : ""})</span>
+                      <span>-{formatUGX(couponAmt)}</span>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, color: "var(--accent)", borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}><span>Total</span><span>{formatUGX(finalTotal)}</span></div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* LOCKER ASSIGNMENT (only if paid) */}
