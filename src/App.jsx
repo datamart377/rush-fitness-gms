@@ -7161,8 +7161,10 @@ const Equipment = ({ data, setData, currentUser }) => {
 };
 
 // ─── DISCOUNTS ──────────────────────────────────────────────
-const Discounts = ({ data, setData }) => {
-  const [modal, setModal] = useState(null);
+const Discounts = ({ data, setData, currentUser }) => {
+  const isAdmin = currentUser?.role === "admin";
+  const [modal, setModal] = useState(null); // 'add' | 'edit' | null
+  const [current, setCurrent] = useState(null); // discount row being edited
   const [form, setForm] = useState({ name: "", type: "percentage", value: 10, startDate: today(), endDate: "", maxUses: 100 });
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
@@ -7177,19 +7179,58 @@ const Discounts = ({ data, setData }) => {
   }, [setData]);
   useEffect(() => { reload(); }, [reload]);
 
+  // Open the modal in edit mode, pre-populating the form from the chosen
+  // discount. We keep the local "name" field bound to the backend's `code`
+  // (which is the user-facing coupon string — what staff actually type at
+  // checkout). description mirrors name for backwards-compat with the
+  // existing create payload.
+  const openEdit = (d) => {
+    setCurrent(d);
+    setForm({
+      name: d.name || d.code || "",
+      type: d.type || "percentage",
+      value: Number(d.value || 0),
+      startDate: d.startDate || today(),
+      endDate: d.endDate || "",
+      maxUses: d.maxUses ?? 100,
+    });
+    setApiError("");
+    setModal("edit");
+  };
+
   const save = async () => {
     if (!form.name) return;
+    // Re-entry guard so a slow link doesn't allow a double-click to fire
+    // two writes (same pattern as the membership-assign and member
+    // registration fixes).
+    if (busy) return;
     setBusy(true);
     setApiError("");
     try {
-      await discountsApi.create({
-        code: form.name,
-        description: form.name,
-        type: discountTypeToApi(form.type),
-        value: Number(form.value),
-      });
+      if (modal === "edit" && current) {
+        // Update: the displayed Name in the table is the discount's `code`
+        // (per adaptDiscount), so updating only description would leave
+        // the table label stale. The backend update validator accepts
+        // `code` too — admin can rename to fix typos. Existing references
+        // in payments/memberships are by discount_id, not the code string,
+        // so a rename doesn't orphan anything.
+        await discountsApi.update(current.id, {
+          code: form.name,
+          description: form.name,
+          type: discountTypeToApi(form.type),
+          value: Number(form.value),
+        });
+      } else {
+        await discountsApi.create({
+          code: form.name,
+          description: form.name,
+          type: discountTypeToApi(form.type),
+          value: Number(form.value),
+        });
+      }
       await reload();
       setModal(null);
+      setCurrent(null);
     } catch (err) {
       setApiError(err?.message || "Failed to save discount");
     } finally {
@@ -7225,14 +7266,31 @@ const Discounts = ({ data, setData }) => {
                 <td>{d.endDate ? formatDate(d.endDate) : "No limit"}</td>
                 <td>{d.usesCount}/{d.maxUses}</td>
                 <td>{d.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="danger">Inactive</Badge>}</td>
-                <td><button className="btn btn-icon btn-danger" onClick={() => toggleActive(d)}>{d.isActive ? <Pause size={14} /> : <Play size={14} />}</button></td>
+                <td>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {/* Edit is admin-only — staff can still pause/resume but
+                        cannot change the discount amount or code. */}
+                    {isAdmin && (
+                      <button
+                        className="btn btn-icon btn-secondary"
+                        onClick={() => openEdit(d)}
+                        title="Edit discount (admin only)"
+                      ><Edit2 size={14} /></button>
+                    )}
+                    <button
+                      className="btn btn-icon btn-danger"
+                      onClick={() => toggleActive(d)}
+                      title={d.isActive ? "Pause discount" : "Activate discount"}
+                    >{d.isActive ? <Pause size={14} /> : <Play size={14} />}</button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       {modal && (
-        <Modal title="Create Discount" onClose={() => setModal(null)} footer={<><button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={save}>Save</button></>}>
+        <Modal title={modal === "edit" ? "Edit Discount" : "Create Discount"} onClose={() => { if (!busy) { setModal(null); setCurrent(null); } }} footer={<><button className="btn btn-secondary" onClick={() => { setModal(null); setCurrent(null); }} disabled={busy}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={busy}>{busy ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Saving...</> : <><Check size={14} /> {modal === "edit" ? "Save Changes" : "Create"}</>}</button></>}>
           <div className="form-grid">
             <div className="form-group full"><label>Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="form-group"><label>Type</label><select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}><option value="percentage">Percentage</option><option value="fixed">Fixed Amount</option></select></div>
@@ -10769,7 +10827,7 @@ export default function App() {
       case "trainers": return <Trainers data={data} setData={securedSetData} />;
       case "activities": return <ActivitiesAdmin data={data} setData={securedSetData} currentUser={currentUser} />;
       case "equipment": return <Equipment data={data} setData={securedSetData} currentUser={currentUser} />;
-      case "discounts": return <Discounts data={data} setData={securedSetData} />;
+      case "discounts": return <Discounts data={data} setData={securedSetData} currentUser={currentUser} />;
       case "reconciliation": return <Reconciliation data={data} setData={securedSetData} currentUser={currentUser} />;
       case "staff": return <StaffMgmt data={data} setData={securedSetData} currentUser={currentUser} />;
       case "lockers": return <Lockers data={data} setData={securedSetData} currentUser={currentUser} />;
