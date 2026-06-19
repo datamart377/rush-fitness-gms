@@ -6266,7 +6266,22 @@ const Attendance = ({ data, setData }) => {
       if (from && date < from) return false;
       if (to   && date > to)   return false;
       if (source !== "all" && (a.source || "staff") !== source) return false;
-      if (activityId !== "all" && a.activityId !== activityId) return false;
+      // Activity match — the dropdown emits the activity's "code" (legacy id like
+      // "kona_dance") while attendance rows from the API store the DB UUID. Build
+      // the set of acceptable identifiers for the chosen activity (uuid + id + code)
+      // and accept a hit on either the attendance row's activityId OR the linked
+      // walk-in's activityId (the walk-in is the source of truth for walk-in rows).
+      if (activityId !== "all") {
+        const act = ACTIVITIES.find((x) => x.uuid === activityId || x.id === activityId || x.code === activityId);
+        const candidateIds = act
+          ? [act.uuid, act.id, act.code].filter(Boolean)
+          : [activityId];
+        const wi = walkInForRow(a);
+        const rowIds = [a.activityId, wi?.activityId].filter(Boolean);
+        // a.activityId may contain bundled "uuid1+uuid2" walk-in selections — split.
+        const expanded = rowIds.flatMap((v) => String(v).split("+").filter(Boolean));
+        if (!expanded.some((v) => candidateIds.includes(v))) return false;
+      }
 
       const member = a.memberId ? data.members.find((m) => m.id === a.memberId) : null;
 
