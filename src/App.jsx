@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, UserX, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, EyeOff, Pause, Play, Hash, Receipt, TrendingUp, TrendingDown, ArrowLeft, Camera, RefreshCw, Star, Zap, Award, Upload } from "lucide-react";
+import { Search, UserPlus, LogIn, Users, CreditCard, BarChart3, Dumbbell, Calendar, Settings, ChevronRight, Check, X, AlertTriangle, Clock, Activity, Shield, UserCheck, UserX, DollarSign, Layers, Tag, ClipboardList, Wrench, ChevronDown, ChevronUp, Plus, Edit2, Trash2, Eye, EyeOff, Pause, Play, Hash, Receipt, TrendingUp, TrendingDown, ArrowLeft, Camera, RefreshCw, Star, Zap, Award, Upload, Printer } from "lucide-react";
 import {
   authApi, membersApi, plansApi, membershipsApi, paymentsApi, trainersApi,
   lockersApi, productsApi, equipmentApi, walkInsApi, attendanceApi,
@@ -5658,6 +5658,106 @@ const PAYMENT_TYPE_BADGE = {
   Other:      "neutral",
 };
 
+// Builds a printable HTML receipt for a single payment row and triggers the
+// browser print dialog. Opens in a small popup so it doesn't disturb the
+// main app state. The receipt window auto-prints on load and closes itself
+// after the user dismisses the print dialog.
+const printPaymentReceipt = (p, data) => {
+  const member = p.memberId ? (data.members || []).find((m) => m.id === p.memberId) : null;
+  const desc = describePayment(p, data);
+  const customerLabel = member
+    ? fullName(member)
+    : (desc.kind === "Walk-In" ? (p.payerPhone || "Walk-in guest") : "—");
+  const memberPhone = member?.phone || p.payerPhone || "";
+  const isRefund = p.status === "refunded";
+  const refNum = p.reference || (p.id ? p.id.slice(0, 8).toUpperCase() : "—");
+  const esc = (s) => String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const subtotal = Number(p.amount || 0) + Number(p.discountAmount || 0);
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Receipt ${esc(refNum)}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Courier New', monospace; max-width: 340px; margin: 16px auto; padding: 16px; color: #000; background: #fff; }
+    .brand { text-align: center; margin-bottom: 8px; }
+    .brand h1 { margin: 0; font-size: 22px; letter-spacing: 2px; font-weight: 900; }
+    .brand .tag { font-size: 11px; color: #444; margin-top: 2px; }
+    .meta { font-size: 12px; color: #333; text-align: center; margin: 6px 0 10px; }
+    .sep { border-top: 1px dashed #000; margin: 10px 0; }
+    .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; line-height: 1.4; }
+    .row .label { color: #555; }
+    .row .val { color: #000; font-weight: 600; text-align: right; max-width: 60%; word-wrap: break-word; }
+    .total { font-size: 15px; font-weight: 900; padding: 6px 0; }
+    .total .val { color: #000; }
+    .refund { text-align: center; color: #b91c1c; font-weight: 900; font-size: 13px; letter-spacing: 2px; padding: 6px; border: 2px solid #b91c1c; margin: 10px 0; }
+    .footer { text-align: center; font-size: 10px; color: #555; margin-top: 16px; line-height: 1.5; }
+    @media print {
+      body { margin: 0; padding: 8px; max-width: 100%; }
+      .no-print { display: none; }
+    }
+    .actions { text-align: center; margin-top: 12px; }
+    .actions button { padding: 8px 16px; margin: 0 4px; font-size: 12px; cursor: pointer; border: 1px solid #888; background: #f3f4f6; border-radius: 4px; }
+    .actions button.primary { background: #111; color: #fff; border-color: #111; }
+  </style>
+</head>
+<body>
+  <div class="brand">
+    <h1>RUSH FITNESS</h1>
+    <div class="tag">Centre &middot; Kampala, Uganda</div>
+  </div>
+  <div class="meta">
+    OFFICIAL PAYMENT RECEIPT<br/>
+    Receipt #${esc(refNum)}
+  </div>
+  <div class="sep"></div>
+  <div class="row"><span class="label">Date</span><span class="val">${esc(formatDate(p.paidAt))} ${esc(formatTime(p.paidAt))}</span></div>
+  <div class="row"><span class="label">Customer</span><span class="val">${esc(customerLabel)}</span></div>
+  ${memberPhone ? `<div class="row"><span class="label">Phone</span><span class="val">${esc(memberPhone)}</span></div>` : ""}
+  <div class="row"><span class="label">Type</span><span class="val">${esc(desc.kind)}</span></div>
+  ${desc.primary ? `<div class="row"><span class="label">Item</span><span class="val">${esc(desc.primary)}</span></div>` : ""}
+  ${desc.secondary ? `<div class="row"><span class="label">&nbsp;</span><span class="val" style="font-weight:normal;font-size:11px;">${esc(desc.secondary)}</span></div>` : ""}
+  <div class="row"><span class="label">Method</span><span class="val">${esc(formatPaymentMethod(p.method))}</span></div>
+  ${p.note && !desc.secondary ? `<div class="row"><span class="label">Note</span><span class="val" style="font-weight:normal;font-size:11px;">${esc(p.note)}</span></div>` : ""}
+  <div class="sep"></div>
+  ${Number(p.discountAmount || 0) > 0 ? `
+    <div class="row"><span class="label">Subtotal</span><span class="val">${esc(formatUGX(subtotal))}</span></div>
+    <div class="row"><span class="label">Discount</span><span class="val">- ${esc(formatUGX(p.discountAmount))}</span></div>
+  ` : ""}
+  <div class="row total"><span class="label">TOTAL</span><span class="val">${esc(formatUGX(p.amount))}</span></div>
+  ${isRefund ? `<div class="refund">*** REFUNDED ***</div>` : ""}
+  <div class="footer">
+    Thank you for choosing Rush Fitness!<br/>
+    Please retain this receipt for your records.<br/>
+    <br/>
+    Issued ${esc(new Date().toLocaleString("en-UG"))}
+  </div>
+  <div class="actions no-print">
+    <button class="primary" onclick="window.print()">Print</button>
+    <button onclick="window.close()">Close</button>
+  </div>
+  <script>
+    window.addEventListener('load', function () {
+      setTimeout(function () { try { window.print(); } catch (e) {} }, 200);
+    });
+  </script>
+</body>
+</html>`;
+
+  const w = window.open("", "_blank", "width=420,height=640,resizable=yes,scrollbars=yes");
+  if (!w) {
+    alert("Pop-up was blocked. Please allow pop-ups for this site to print receipts.");
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+};
+
 const Payments = ({ data }) => {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
@@ -5780,7 +5880,7 @@ const Payments = ({ data }) => {
       </div>
       <div className="table-wrapper">
         <table>
-          <thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Details</th><th>Method</th><th>Reference</th><th>Amount</th></tr></thead>
+          <thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Details</th><th>Method</th><th>Reference</th><th>Amount</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
           <tbody>
             {[...filtered].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)).map((p) => {
               const member = p.memberId ? data.members.find((m) => m.id === p.memberId) : null;
@@ -5806,10 +5906,22 @@ const Payments = ({ data }) => {
                     {isRefund && <span style={{ fontSize: 10, marginRight: 4 }}>(refunded)</span>}
                     {formatUGX(p.amount)}
                   </td>
+                  <td style={{ textAlign: "center" }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => printPaymentReceipt(p, data)}
+                      title="Generate and print receipt"
+                      style={{ padding: "4px 8px", display: "inline-flex", alignItems: "center", gap: 4 }}
+                    >
+                      <Printer size={12} />
+                      <span style={{ fontSize: 11 }}>Print</span>
+                    </button>
+                  </td>
                 </tr>
               );
             })}
-            {filtered.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No payments match your filter</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No payments match your filter</td></tr>}
           </tbody>
         </table>
       </div>
