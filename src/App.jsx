@@ -2476,10 +2476,22 @@ const CheckIn = ({ data, setData, currentUser }) => {
             if ((w.gender || "").toLowerCase() !== walkinFilter.gender.toLowerCase()) return false;
           }
           // Activity — walk-ins may carry either an `activities` array or a single
-          // `activityId`. Match if the selected activity appears in either shape.
+          // `activityId`. The dropdown emits the activity's "code" (legacy id like
+          // "kona_dance") while walk-in rows store the DB UUID, so we resolve the
+          // selected value to its activity record and accept any of its identifiers
+          // (uuid + id + code). Bundled values like "uuid1+uuid2" are split too.
           if (walkinFilter.activity !== "all") {
-            const acts = Array.isArray(w.activities) ? w.activities : (w.activityId ? [w.activityId] : []);
-            if (!acts.includes(walkinFilter.activity)) return false;
+            const actList = (data.activities && data.activities.length) ? data.activities : ACTIVITIES;
+            const sel = walkinFilter.activity;
+            const selAct = actList.find((x) => x.uuid === sel || x.id === sel || x.code === sel);
+            const candidateIds = selAct
+              ? [selAct.uuid, selAct.id, selAct.code].filter(Boolean)
+              : [sel];
+            const rawActs = Array.isArray(w.activities)
+              ? w.activities
+              : (w.activityId ? [w.activityId] : []);
+            const expanded = rawActs.flatMap((v) => String(v).split("+").filter(Boolean));
+            if (!expanded.some((v) => candidateIds.includes(v))) return false;
           }
           // Member plan — walk-ins themselves don't carry a plan, so we resolve
           // it through the visitor's member record (matched by phone) and that
