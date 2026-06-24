@@ -6747,8 +6747,14 @@ const Memberships = ({ data, setData, currentUser }) => {
                     <option value={1}>1 month</option>
                     <option value={2}>2 months</option>
                     <option value={3}>3 months</option>
+                    <option value={4}>4 months</option>
+                    <option value={5}>5 months</option>
                     <option value={6}>6 months</option>
+                    <option value={7}>7 months</option>
+                    <option value={8}>8 months</option>
                     <option value={9}>9 months</option>
+                    <option value={10}>10 months</option>
+                    <option value={11}>11 months</option>
                     <option value={12}>12 months (1 year)</option>
                     <option value={18}>18 months</option>
                     <option value={24}>24 months (2 years)</option>
