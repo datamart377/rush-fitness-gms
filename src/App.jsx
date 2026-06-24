@@ -4366,6 +4366,28 @@ const Memberships = ({ data, setData, currentUser }) => {
       const customStart = isAdmin && form.startDate ? form.startDate : undefined;
       const paidAt = customStart ? new Date(`${customStart}T12:00:00Z`).toISOString() : undefined;
 
+      // Pre-check: the backend rejects overlapping memberships per-member. If we
+      // ran the loop blindly and member #2 conflicted, member #1 would already
+      // have a fresh membership row — bad partial state. Catch known conflicts
+      // up-front so the operator can resolve them before any writes happen.
+      const proposedStart = customStart || today();
+      const proposedEnd = dateToYMD(new Date(new Date(`${proposedStart}T12:00:00Z`).getTime() + groupInfo.days * 86400000));
+      const conflicts = ids.flatMap((mid) => {
+        const member = data.members.find((m) => m.id === mid);
+        const memberName = member ? fullName(member) : mid.slice(0, 8);
+        const overlapping = (data.memberships || []).filter((ms) =>
+          ms.memberId === mid
+          && (ms.status === "active" || ms.status === "frozen")
+          && dateToYMD(ms.startDate) <= proposedEnd
+          && dateToYMD(ms.endDate) >= proposedStart
+        );
+        return overlapping.map((ms) => `${memberName}: ${getPlanName(ms.plan)} (${dateToYMD(ms.startDate)} → ${dateToYMD(ms.endDate)})`);
+      });
+      if (conflicts.length) {
+        setApiError(`Cannot assign — overlapping memberships found:\n• ${conflicts.join("\n• ")}\n\nCancel or wait for these to expire first.`);
+        return;
+      }
+
       setBusy(true);
       setApiError("");
       try {
@@ -4908,6 +4930,15 @@ const Memberships = ({ data, setData, currentUser }) => {
             };
             return (
           <>
+          {/* Inline error banner — the page-level apiError banner sits behind
+              the modal backdrop, so failed saves (e.g. overlap rejections from
+              the backend) appeared silent. Surface them here too. */}
+          {apiError && (
+            <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <AlertTriangle size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+              <span style={{ whiteSpace: "pre-wrap" }}>{apiError}</span>
+            </div>
+          )}
           <div className="form-grid">
             {/* Single-member picker (default) — searchable.
                 Reuses `_memberSearch` from form state and `filteredMembers`
