@@ -4303,7 +4303,13 @@ const Memberships = ({ data, setData, currentUser }) => {
     // guard an impatient second click would create a duplicate membership +
     // duplicate payment row.
     if (busy) return;
-    if (!form.memberId || !form.plan) return;
+    if (!form.plan) return;
+    // Group plans pick N members via form.groupMemberIds; the single-member
+    // form.memberId is only required for non-group flows. Without this check
+    // the group path used to silently return when memberId was empty, leaving
+    // the modal looking "hung" with no error surfaced.
+    const isGroupPlan = form.plan.startsWith("group_");
+    if (!isGroupPlan && !form.memberId) return;
     setApiError("");
 
     // PREPAID — backend has no prepaid_balance column yet, so keep this in-memory.
