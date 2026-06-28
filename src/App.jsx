@@ -1744,6 +1744,27 @@ const CheckIn = ({ data, setData, currentUser }) => {
   })();
   const insufficientPrepaid = isPrepaid && prepaidBalance < prepaidVisitCost;
 
+  // ── Pricing for "add-on after check-in" mode ─────────────────────────
+  // When a member is already checked in for today, they already paid the base
+  // entry fee. Adding extras now charges only the add-on cost (no base, no
+  // double-counting). 0 add-ons = 0 cost (button disabled). 2+ add-ons get
+  // the same bundle discount as a fresh check-in.
+  const prepaidAddonOnlyCost = (() => {
+    if (!isPrepaid || !addons.length) return 0;
+    const total = addonsStandaloneTotal();
+    return addons.length > 1 ? total - PREPAID_BUNDLE_DISCOUNT : total;
+  })();
+  const insufficientPrepaidAddon = isPrepaid && addons.length > 0 && prepaidBalance < prepaidAddonOnlyCost;
+  const nonPrepaidAddonOnlyCost = (() => {
+    if (isPrepaid || !addons.length) return 0;
+    const bundleDiscount = addons.length > 1 ? PREPAID_BUNDLE_DISCOUNT : 0;
+    const prices = addons.map((actId) => {
+      const act = ACTIVITIES.find((a) => a.id === actId);
+      return isDailyPlan ? act.standalone : act.addon;
+    });
+    return Math.max(0, prices.reduce((s, p) => s + p, 0) - bundleDiscount);
+  })();
+
   const memberBalance = membership ? getMembershipBalance(membership, data.payments) : null;
 
   const memberGender = selected?.gender;
@@ -1873,6 +1894,86 @@ const CheckIn = ({ data, setData, currentUser }) => {
         discountAmount: prepaidDeduction.discountAmount || undefined,
         notes: prepaidDeduction.note,
       }).catch((e) => console.warn("Pre-paid visit deduction persist failed:", e));
+    }
+  };
+
+  // Add an add-on (or bundle) to a visit the member already checked in for
+  // today. The attendance row stays untouched (it was created at the original
+  // check-in and the backend has no patch endpoint for activity_id); we only
+  // record the extra payment so the ledger and prepaid balance stay accurate.
+  const chargeAddons = async () => {
+    if (!alreadyCheckedIn || isExpired || isFrozen || isPendingPayment) return;
+    if (!addons.length) return;
+    if (isPrepaid && insufficientPrepaidAddon) return;
+
+    // ── PREPAID: deduct only the add-on cost (no base — that was paid at check-in).
+    let prepaidDeduction = null;
+    if (isPrepaid) {
+      const deductAmount = prepaidAddonOnlyCost;
+      const bundleDiscount = addons.length > 1 ? PREPAID_BUNDLE_DISCOUNT : 0;
+      const breakdown = addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ") +
+        (bundleDiscount ? ` (-${formatUGX(bundleDiscount)} bundle)` : "");
+      prepaidDeduction = {
+        id: generateId(), memberId: selected.id, membershipId: membership.id,
+        amount: deductAmount, method: "prepaid", paidAt: new Date().toISOString(),
+        type: "prepaid_visit", discountId: null,
+        discountAmount: bundleDiscount,
+        note: `Pre-paid visit (add-on): ${breakdown} = ${formatUGX(deductAmount)} (balance before: ${formatUGX(prepaidBalance)})`,
+      };
+    }
+
+    // ── NON-PREPAID: charge add-ons as cash. Daily plans pay standalone, monthly pay addon.
+    let newPayments = [];
+    if (!isPrepaid) {
+      const bundleDiscount = addons.length > 1 ? PREPAID_BUNDLE_DISCOUNT : 0;
+      const activityPrices = addons.map((actId) => {
+        const act = ACTIVITIES.find((a) => a.id === actId);
+        return isDailyPlan ? act.standalone : act.addon;
+      });
+      const totalAfterDiscount = activityPrices.reduce((s, p) => s + p, 0) - bundleDiscount;
+      newPayments = bundleDiscount > 0
+        ? [{ id: generateId(), memberId: selected.id, membershipId: null, amount: totalAfterDiscount, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: addons.join("+"), discountId: null, discountAmount: bundleDiscount, note: `Bundle (post check-in): ${addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ")} (${formatUGX(bundleDiscount)} discount)` }]
+        : addons.map((actId) => {
+            const act = ACTIVITIES.find((a) => a.id === actId);
+            const price = isDailyPlan ? act.standalone : act.addon;
+            return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0, note: `Add-on (post check-in): ${act.name}` };
+          });
+    }
+
+    // Optimistic state update
+    setData((d) => ({
+      ...d,
+      payments: [...d.payments, ...newPayments, ...(prepaidDeduction ? [prepaidDeduction] : [])],
+      memberships: isPrepaid
+        ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, prepaidBalance: prepaidBalance - (prepaidDeduction?.amount || 0) } : ms)
+        : d.memberships,
+    }));
+    setCheckedIn(true);
+
+    // Persist non-prepaid add-on payments
+    if (!isPrepaid && newPayments.length) {
+      Promise.all(newPayments.map((p) =>
+        paymentsApi.create({
+          memberId: p.memberId,
+          amount: p.amount,
+          method: paymentMethodToApi(p.method),
+          type: "addon",
+          discountAmount: p.discountAmount || undefined,
+          notes: p.note,
+        }).catch((e) => console.warn("Add-on payment persist failed:", e))
+      ));
+    }
+    // Persist prepaid debit (same "Pre-paid visit:" prefix derivePrepaidBalance picks up)
+    if (isPrepaid && prepaidDeduction) {
+      paymentsApi.create({
+        memberId: prepaidDeduction.memberId,
+        membershipId: prepaidDeduction.membershipId,
+        amount: prepaidDeduction.amount,
+        method: "cash",
+        type: "other",
+        discountAmount: prepaidDeduction.discountAmount || undefined,
+        notes: prepaidDeduction.note,
+      }).catch((e) => console.warn("Pre-paid add-on persist failed:", e));
     }
   };
 
@@ -2375,13 +2476,41 @@ const CheckIn = ({ data, setData, currentUser }) => {
             </div>
           )}
 
-          {alreadyCheckedIn && <p style={{ color: "var(--warning)", marginTop: 16, fontWeight: 600 }}>Already checked in today</p>}
+          {alreadyCheckedIn && (
+            <p style={{ color: "var(--warning)", marginTop: 16, fontWeight: 600 }}>
+              Already checked in today — use the section below to add an extra activity to this visit.
+            </p>
+          )}
 
-          {!isExpired && !isFrozen && !isPendingPayment && !alreadyCheckedIn && !insufficientPrepaid && (
+          {/* Prepaid balance summary for "add-on after check-in" mode.
+              The fresh-checkin version is rendered earlier (gated on !alreadyCheckedIn). */}
+          {isPrepaid && alreadyCheckedIn && !isExpired && (
+            <div style={{ marginTop: 16, padding: 16, background: insufficientPrepaidAddon ? "var(--danger-dim)" : "var(--accent-dim)", border: `1px solid ${insufficientPrepaidAddon ? "var(--danger)" : "var(--accent)"}`, borderRadius: "var(--radius-sm)", textAlign: "left" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Pre-Paid Balance</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: insufficientPrepaidAddon ? "var(--danger)" : "var(--accent)", fontFamily: "var(--font-display)" }}>{formatUGX(prepaidBalance)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: "var(--text-dim)" }}>
+                <span>Add-on charge ({addons.length === 0 ? "none selected" : `${addons.length} activit${addons.length === 1 ? "y" : "ies"}`})</span>
+                <span style={{ fontWeight: 600 }}>-{formatUGX(prepaidAddonOnlyCost)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 12, color: "var(--text-dim)" }}>
+                <span>Balance after charge</span>
+                <span style={{ fontWeight: 600, color: insufficientPrepaidAddon ? "var(--danger)" : "var(--success)" }}>{formatUGX(Math.max(0, prepaidBalance - prepaidAddonOnlyCost))}</span>
+              </div>
+              {insufficientPrepaidAddon && (
+                <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8, fontWeight: 600 }}>⚠ Insufficient balance for this add-on. Please top up via Memberships first.</p>
+              )}
+            </div>
+          )}
+
+          {!isExpired && !isFrozen && !isPendingPayment && !(insufficientPrepaid && !alreadyCheckedIn) && (
             <>
               <div style={{ marginTop: 20, textAlign: "left" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Add-on Activities</p>
+                  <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    {alreadyCheckedIn ? "Add Activity for Today's Visit" : "Add-on Activities"}
+                  </p>
                   <span style={{ fontSize: 11, color: addons.length >= MAX_ACTIVITIES ? "var(--warning)" : "var(--text-muted)" }}>
                     {addons.length}/{MAX_ACTIVITIES} selected
                   </span>
@@ -2436,40 +2565,57 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 )}
               </div>
 
-              {/* Locker Assignment (Optional) */}
-              <div style={{ marginTop: 20, textAlign: "left" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                    Assign Locker <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none" }}>— optional</span>
-                  </p>
-                  <span style={{ fontSize: 11, color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6" }}>
-                    {lockerSection === "ladies" ? "Ladies" : "Gents"} • {availableLockers.length} free
-                  </span>
-                </div>
-                {selectedLocker ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "var(--success-dim)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "var(--radius-sm)" }}>
-                    <div style={{ width: 36, height: 36, borderRadius: "var(--radius-xs)", background: lockerSection === "ladies" ? "rgba(236,72,153,0.15)" : "rgba(59,130,246,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6" }}>
-                      #{selectedLocker.number}
+              {/* Locker Assignment (Optional) — only at fresh check-in.
+                  Post-checkin add-on flow doesn't assign lockers; that happens
+                  once at entry and is finalised by check-out. */}
+              {!alreadyCheckedIn && (
+                <div style={{ marginTop: 20, textAlign: "left" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      Assign Locker <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none" }}>— optional</span>
+                    </p>
+                    <span style={{ fontSize: 11, color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6" }}>
+                      {lockerSection === "ladies" ? "Ladies" : "Gents"} • {availableLockers.length} free
+                    </span>
+                  </div>
+                  {selectedLocker ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "var(--success-dim)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "var(--radius-sm)" }}>
+                      <div style={{ width: 36, height: 36, borderRadius: "var(--radius-xs)", background: lockerSection === "ladies" ? "rgba(236,72,153,0.15)" : "rgba(59,130,246,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6" }}>
+                        #{selectedLocker.number}
+                      </div>
+                      <span style={{ flex: 1, fontSize: 13, color: "var(--success)" }}>Locker #{selectedLocker.number} ({lockerSection === "ladies" ? "Ladies" : "Gents"}) assigned</span>
+                      <button className="btn btn-sm btn-secondary" onClick={() => setSelectedLocker(null)} style={{ padding: "4px 10px", fontSize: 11 }}>Remove</button>
                     </div>
-                    <span style={{ flex: 1, fontSize: 13, color: "var(--success)" }}>Locker #{selectedLocker.number} ({lockerSection === "ladies" ? "Ladies" : "Gents"}) assigned</span>
-                    <button className="btn btn-sm btn-secondary" onClick={() => setSelectedLocker(null)} style={{ padding: "4px 10px", fontSize: 11 }}>Remove</button>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {availableLockers.slice(0, 10).map((l) => (
-                      <button key={l.id} className="btn btn-sm btn-secondary" onClick={() => setSelectedLocker(l)} style={{ padding: "6px 10px", minWidth: 44, fontSize: 13, fontWeight: 700, color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6" }}>
-                        #{l.number}
-                      </button>
-                    ))}
-                    {availableLockers.length > 10 && <span style={{ fontSize: 11, color: "var(--text-muted)", alignSelf: "center" }}>+{availableLockers.length - 10} more</span>}
-                    {availableLockers.length === 0 && <p style={{ fontSize: 12, color: "var(--danger)" }}>No {lockerSection} lockers available</p>}
-                  </div>
-                )}
-              </div>
+                  ) : (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {availableLockers.slice(0, 10).map((l) => (
+                        <button key={l.id} className="btn btn-sm btn-secondary" onClick={() => setSelectedLocker(l)} style={{ padding: "6px 10px", minWidth: 44, fontSize: 13, fontWeight: 700, color: lockerSection === "ladies" ? "#ec4899" : "#3b82f6" }}>
+                          #{l.number}
+                        </button>
+                      ))}
+                      {availableLockers.length > 10 && <span style={{ fontSize: 11, color: "var(--text-muted)", alignSelf: "center" }}>+{availableLockers.length - 10} more</span>}
+                      {availableLockers.length === 0 && <p style={{ fontSize: 12, color: "var(--danger)" }}>No {lockerSection} lockers available</p>}
+                    </div>
+                  )}
+                </div>
+              )}
 
-              <button className="btn btn-success" style={{ marginTop: 24, width: "100%", padding: "14px 24px", fontSize: 16, fontWeight: 700 }} onClick={handleCheckIn}>
-                <Check size={20} /> Check In{selectedLocker ? ` + Locker #${selectedLocker.number}` : ""}
-              </button>
+              {alreadyCheckedIn ? (
+                <button
+                  className="btn btn-success"
+                  style={{ marginTop: 24, width: "100%", padding: "14px 24px", fontSize: 16, fontWeight: 700, opacity: (addons.length === 0 || insufficientPrepaidAddon) ? 0.5 : 1, cursor: (addons.length === 0 || insufficientPrepaidAddon) ? "not-allowed" : "pointer" }}
+                  onClick={chargeAddons}
+                  disabled={addons.length === 0 || insufficientPrepaidAddon}
+                >
+                  <Plus size={20} /> {addons.length === 0
+                    ? "Select an activity to add"
+                    : `Charge Add-On (${formatUGX(isPrepaid ? prepaidAddonOnlyCost : nonPrepaidAddonOnlyCost)})`}
+                </button>
+              ) : (
+                <button className="btn btn-success" style={{ marginTop: 24, width: "100%", padding: "14px 24px", fontSize: 16, fontWeight: 700 }} onClick={handleCheckIn}>
+                  <Check size={20} /> Check In{selectedLocker ? ` + Locker #${selectedLocker.number}` : ""}
+                </button>
+              )}
             </>
           )}
         </div>
