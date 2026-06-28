@@ -51,6 +51,36 @@ const adaptMembership = (ms) => ms ? ({
   isActive: ms.status === "active" || ms.status === "frozen",
 }) : null;
 
+// Pre-paid memberships don't have a dedicated balance column on the backend.
+// The deposit is recorded as a normal membership-type payment, and each visit
+// records an "other"-type deduction with a "Pre-paid visit:" note prefix. We
+// reconstruct the remaining balance after every load by walking the payments
+// list for each prepaid membership.
+//
+//   balance = sum(deposit payments) - sum(visit deductions)
+//
+// Returns a NEW memberships array with prepaidBalance populated on prepaid
+// rows (and untouched on everything else).
+const derivePrepaidBalance = (memberships, payments) => {
+  return memberships.map((ms) => {
+    if (ms.plan !== "prepaid") return ms;
+    const linked = (payments || []).filter((p) => p.membershipId === ms.id && p.status !== "refunded");
+    let credits = 0;
+    let debits = 0;
+    for (const p of linked) {
+      const note = (p.note || p.notes || "").toLowerCase();
+      if (note.startsWith("pre-paid visit")) {
+        debits += Number(p.amount || 0);
+      } else {
+        // Deposits and top-ups — everything else linked to a prepaid
+        // membership is treated as a balance credit.
+        credits += Number(p.amount || 0);
+      }
+    }
+    return { ...ms, prepaidBalance: Math.max(0, credits - debits) };
+  });
+};
+
 // Map backend type values to the legacy frontend ones used by reports/filters.
 const adaptPaymentType = (t) => {
   if (t === "walk_in") return "walkin";
@@ -1826,6 +1856,23 @@ const CheckIn = ({ data, setData, currentUser }) => {
           notes: p.note,
         }).catch((e) => console.warn("Add-on payment persist failed:", e))
       ));
+    }
+
+    // Persist prepaid visit deduction so the balance survives a reload.
+    // The backend payment-type CHECK only allows (membership, addon, walk_in,
+    // product, other) — so we record the deduction as type="other" with a
+    // recognisable "Pre-paid visit:" note prefix that `derivePrepaidBalance`
+    // uses to identify these deductions when recomputing the balance.
+    if (isPrepaid && prepaidDeduction) {
+      paymentsApi.create({
+        memberId: prepaidDeduction.memberId,
+        membershipId: prepaidDeduction.membershipId,
+        amount: prepaidDeduction.amount,
+        method: "cash",
+        type: "other",
+        discountAmount: prepaidDeduction.discountAmount || undefined,
+        notes: prepaidDeduction.note,
+      }).catch((e) => console.warn("Pre-paid visit deduction persist failed:", e));
     }
   };
 
@@ -4276,10 +4323,12 @@ const Memberships = ({ data, setData, currentUser }) => {
         membershipsApi.list({ limit: 10000 }),
         paymentsApi.list({ limit: 10000 }),
       ]);
+      const memberships = (msRes?.data || []).map(adaptMembership);
+      const payments = (payRes?.data || []).map(adaptPayment);
       setData((d) => ({
         ...d,
-        memberships: (msRes?.data || []).map(adaptMembership),
-        payments: (payRes?.data || []).map(adaptPayment),
+        memberships: derivePrepaidBalance(memberships, payments),
+        payments,
       }));
     } catch (err) {
       setApiError(err?.message || "Failed to load memberships");
@@ -4312,36 +4361,50 @@ const Memberships = ({ data, setData, currentUser }) => {
     if (!isGroupPlan && !form.memberId) return;
     setApiError("");
 
-    // PREPAID — backend has no prepaid_balance column yet, so keep this in-memory.
-    // (The user can still assign prepaid plans, but they won't sync to other browsers.)
+    // PREPAID — persist to backend so it survives reloads and syncs across browsers.
+    // We use the existing "prepaid" plan row (seeded with code='prepaid', 365 days).
+    // The membership row carries totalDue = deposit, and the deposit itself is
+    // recorded as a real payment with type="membership". The "remaining balance"
+    // is later derived from payments (deposits + top-ups minus visit deductions)
+    // by `derivePrepaidBalance` invoked inside reloadMemberships.
     if (form.plan === "prepaid") {
       const deposit = Number(form.depositAmount) || 0;
       if (deposit < PLANS.prepaid.dailyRate) {
         alert(`Deposit must be at least UGX ${PLANS.prepaid.dailyRate.toLocaleString()} (one day's worth).`);
         return;
       }
-      console.warn("[memberships] prepaid plans are not yet persisted to the backend");
-      const start = new Date();
-      const end = new Date(start.getTime() + PLANS.prepaid.days * 86400000);
-      const newMs = {
-        id: generateId(), memberId: form.memberId, plan: "prepaid",
-        startDate: dateToYMD(start), endDate: dateToYMD(end),
-        isActive: true, frozenDays: 0, status: "active",
-        totalDue: deposit, prepaidBalance: deposit,
-        prepaidDeposits: [{ amount: deposit, date: new Date().toISOString(), method: form.method }],
-      };
-      const newPay = {
-        id: generateId(), memberId: form.memberId, membershipId: newMs.id,
-        amount: deposit, method: form.method, paidAt: new Date().toISOString(),
-        type: "prepaid_deposit", discountId: null, discountAmount: 0,
-        note: `Pre-paid deposit: ${formatUGX(deposit)} (LOCAL ONLY)`,
-      };
-      setData((d) => ({
-        ...d,
-        memberships: [...d.memberships.map((ms) => ms.memberId === form.memberId && ms.isActive ? { ...ms, isActive: false, status: "replaced" } : ms), newMs],
-        payments: [...d.payments, newPay],
-      }));
-      setModal(null);
+      const prepaidPlanId = resolvePlanId("prepaid");
+      if (!prepaidPlanId) { setApiError(`The "Pre-Paid Balance" plan is missing in the backend — has the seed run?`); return; }
+      const customStart = isAdmin && form.startDate ? form.startDate : undefined;
+      const paidAt = customStart ? new Date(`${customStart}T12:00:00Z`).toISOString() : undefined;
+
+      setBusy(true);
+      try {
+        const ms = await membershipsApi.create({
+          memberId: form.memberId,
+          planId: prepaidPlanId,
+          totalDue: deposit,
+          startDate: customStart,
+        });
+        await paymentsApi.create({
+          memberId: form.memberId,
+          membershipId: ms.id,
+          amount: deposit,
+          method: paymentMethodToApi(form.method),
+          type: "membership",
+          paidAt,
+          notes: `Pre-paid deposit: ${formatUGX(deposit)}`,
+        });
+        await reloadMemberships();
+        setModal(null);
+      } catch (err) {
+        const detail = Array.isArray(err?.details) && err.details.length
+          ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
+          : "";
+        setApiError([err?.message, detail].filter(Boolean).join(" – ") || "Failed to assign pre-paid plan");
+      } finally {
+        setBusy(false);
+      }
       return;
     }
 
@@ -4514,30 +4577,36 @@ const Memberships = ({ data, setData, currentUser }) => {
     setModal("topup");
   };
 
-  const topUp = () => {
+  const topUp = async () => {
     if (!payTarget) return;
     const amount = Number(form.paymentAmount) || 0;
     if (amount <= 0) { alert("Enter a valid top-up amount."); return; }
 
-    const newPay = {
-      id: generateId(), memberId: payTarget.memberId, membershipId: payTarget.id,
-      amount, method: form.method, paidAt: new Date().toISOString(),
-      type: "prepaid_deposit", discountId: null, discountAmount: 0,
-      note: `Pre-paid top-up: ${formatUGX(amount)} (new balance: ${formatUGX((payTarget.prepaidBalance || 0) + amount)})`,
-    };
-
-    setData((d) => ({
-      ...d,
-      payments: [...d.payments, newPay],
-      memberships: d.memberships.map((ms) => ms.id === payTarget.id ? {
-        ...ms,
-        prepaidBalance: (ms.prepaidBalance || 0) + amount,
-        totalDue: (ms.totalDue || 0) + amount,
-        prepaidDeposits: [...(ms.prepaidDeposits || []), { amount, date: new Date().toISOString(), method: form.method }],
-      } : ms),
-    }));
-    setModal(null);
-    setPayTarget(null);
+    setBusy(true);
+    setApiError("");
+    try {
+      // Persist as a real membership payment — derivePrepaidBalance will
+      // recognise this as a credit (no "Pre-paid visit:" prefix) and add it
+      // back to the balance on the next reload.
+      await paymentsApi.create({
+        memberId: payTarget.memberId,
+        membershipId: payTarget.id,
+        amount,
+        method: paymentMethodToApi(form.method),
+        type: "membership",
+        notes: `Pre-paid top-up: ${formatUGX(amount)}`,
+      });
+      await reloadMemberships();
+      setModal(null);
+      setPayTarget(null);
+    } catch (err) {
+      const detail = Array.isArray(err?.details) && err.details.length
+        ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
+        : "";
+      setApiError([err?.message, detail].filter(Boolean).join(" – ") || "Failed to record top-up");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const recordPayment = async () => {
@@ -11058,7 +11127,9 @@ export default function App() {
         });
         setData((d) => ({
           ...d,
-          plans, members, memberships, payments, trainers,
+          plans, members,
+          memberships: derivePrepaidBalance(memberships, payments),
+          payments, trainers,
           lockers, products, equipment, walkIns, attendance,
           discounts, expenses, productSales,
           activities: activities.length ? activities : d.activities,  // fallback to seed if API empty
