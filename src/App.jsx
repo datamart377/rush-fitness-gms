@@ -1709,6 +1709,10 @@ const CheckIn = ({ data, setData, currentUser }) => {
   // Walk-in records filters (date range, payment status, check-in status)
   const [walkinFilter, setWalkinFilter] = useState({ from: "", to: "", paymentStatus: "all", checkedIn: "all", gender: "all", activity: "all", memberPlan: "all" });
   const [editWalkin, setEditWalkin] = useState(null);
+  // Member check-in records — separate search + filter state so it doesn't
+  // collide with the walk-in records view.
+  const [memberHistorySearch, setMemberHistorySearch] = useState("");
+  const [memberHistoryFilter, setMemberHistoryFilter] = useState({ from: "", to: "", plan: "all", activity: "all", source: "all", checkedOut: "all" });
 
   const results = search.length >= 2 ? data.members.filter((m) => {
     const q = search.toLowerCase();
@@ -2131,6 +2135,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
           <button className={`tab ${mode === "member" ? "active" : ""}`} onClick={() => setMode("member")}>Member Check-In</button>
           <button className={`tab ${mode === "walkin" ? "active" : ""}`} onClick={() => setMode("walkin")}>Walk-In Guest</button>
           <button className={`tab ${mode === "history" ? "active" : ""}`} onClick={() => setMode("history")}>Walk-In Records ({data.walkIns.length})</button>
+          <button className={`tab ${mode === "memberHistory" ? "active" : ""}`} onClick={() => setMode("memberHistory")}>Member Check-Ins ({(data.attendance || []).filter((a) => a.memberId && !a.walkInId).length})</button>
         </div>
       )}
 
@@ -3250,6 +3255,203 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 {filteredWalkIns.length === 0 && (
                   <tr><td colSpan={9} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
                     {q ? "No walk-ins match your search." : "No walk-in records yet"}
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* MEMBER CHECK-INS RECORDS TAB ─────────────────────────────────────
+          Mirrors the Walk-In Records view but for attendance rows where a
+          member is set (i.e., excludes walk-in attendance). Filters: date
+          range, name/phone search, plan, activity, source, check-out state. */}
+      {!selected && !checkedIn && mode === "memberHistory" && (() => {
+        const q = memberHistorySearch.trim().toLowerCase();
+        const actList = (data.activities && data.activities.length) ? data.activities : ACTIVITIES;
+
+        // Resolve the member record (for phone + plan lookup) once per row.
+        const memberOf = (a) => (data.members || []).find((m) => m.id === a.memberId) || null;
+
+        // The member's plan at the time of the visit is recorded via
+        // attendance.membership_id (set at check-in). Resolve it through
+        // data.memberships and fall back to their currently-active plan
+        // if the historical membership was deleted/cleaned up.
+        const planForRow = (a) => {
+          const ms = (data.memberships || []).find((m) => m.id === a.membershipId);
+          if (ms) return ms.plan || ms.planCode || null;
+          const m = memberOf(a);
+          if (!m) return null;
+          const active = (data.memberships || []).find((x) => x.memberId === m.id && (x.isActive || x.status === "active"));
+          return active ? (active.plan || active.planCode) : null;
+        };
+
+        const filtered = (data.attendance || [])
+          // Only member check-ins — exclude walk-in attendance rows.
+          .filter((a) => a.memberId && !a.walkInId)
+          .filter((a) => {
+            const m = memberOf(a);
+            // Text search across first/last name and phone.
+            if (q) {
+              const fn = (a.memberFirstName || m?.firstName || "").toLowerCase();
+              const ln = (a.memberLastName  || m?.lastName  || "").toLowerCase();
+              const full = `${fn} ${ln}`.trim();
+              const ph = (m?.phone || "").toLowerCase();
+              if (!fn.includes(q) && !ln.includes(q) && !full.includes(q) && !ph.includes(q)) return false;
+            }
+            // Date range — use the attendance date (YYYY-MM-DD already normalized).
+            const day = (a.date || (a.checkIn ? a.checkIn.slice(0, 10) : "")).slice(0, 10);
+            if (memberHistoryFilter.from && day < memberHistoryFilter.from) return false;
+            if (memberHistoryFilter.to   && day > memberHistoryFilter.to)   return false;
+            // Plan filter (resolved via membershipId join, with current-plan fallback).
+            if (memberHistoryFilter.plan !== "all") {
+              if (planForRow(a) !== memberHistoryFilter.plan) return false;
+            }
+            // Activity — same UUID/code/bundled-id pattern used elsewhere so the
+            // filter actually returns results regardless of which identifier the
+            // attendance row stores.
+            if (memberHistoryFilter.activity !== "all") {
+              const sel = memberHistoryFilter.activity;
+              const selAct = actList.find((x) => x.uuid === sel || x.id === sel || x.code === sel);
+              const candidateIds = selAct ? [selAct.uuid, selAct.id, selAct.code].filter(Boolean) : [sel];
+              const raw = a.activityId ? [a.activityId] : [];
+              const expanded = raw.flatMap((v) => String(v).split("+").filter(Boolean));
+              if (!expanded.some((v) => candidateIds.includes(v))) return false;
+            }
+            // Source — staff / self / kiosk.
+            if (memberHistoryFilter.source !== "all" && (a.source || "staff") !== memberHistoryFilter.source) return false;
+            // Checked-out state
+            if (memberHistoryFilter.checkedOut === "yes" && !a.checkOut) return false;
+            if (memberHistoryFilter.checkedOut === "no"  &&  a.checkOut) return false;
+            return true;
+          });
+
+        const filtersActive = !!(memberHistoryFilter.from || memberHistoryFilter.to || memberHistoryFilter.plan !== "all" || memberHistoryFilter.activity !== "all" || memberHistoryFilter.source !== "all" || memberHistoryFilter.checkedOut !== "all");
+        const resetFilters = () => setMemberHistoryFilter({ from: "", to: "", plan: "all", activity: "all", source: "all", checkedOut: "all" });
+        const totalMember = (data.attendance || []).filter((a) => a.memberId && !a.walkInId).length;
+
+        return (
+        <div>
+          <div className="toolbar">
+            <div className="search-bar" style={{ flex: 1, maxWidth: 420 }}>
+              <Search />
+              <input
+                placeholder="Search by name or phone..."
+                value={memberHistorySearch}
+                onChange={(e) => setMemberHistorySearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <p style={{ fontSize: 12, color: "var(--text-dim)" }}>
+              {q || filtersActive
+                ? <>Showing {filtered.length} of {totalMember} records</>
+                : <>All member check-in records ({totalMember})</>}
+            </p>
+          </div>
+
+          {/* FILTER BAR */}
+          <div className="card" style={{ marginBottom: 16, padding: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, alignItems: "end" }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>From date</label>
+                <div style={{ position: "relative" }}>
+                  <Calendar size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--accent)", pointerEvents: "none" }} />
+                  <input type="date" value={memberHistoryFilter.from} onChange={(e) => setMemberHistoryFilter({ ...memberHistoryFilter, from: e.target.value })} onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }} style={{ paddingLeft: 28 }} />
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>To date</label>
+                <div style={{ position: "relative" }}>
+                  <Calendar size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--accent)", pointerEvents: "none" }} />
+                  <input type="date" value={memberHistoryFilter.to} min={memberHistoryFilter.from || undefined} onChange={(e) => setMemberHistoryFilter({ ...memberHistoryFilter, to: e.target.value })} onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }} style={{ paddingLeft: 28 }} />
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Quick range</label>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
+                    onClick={() => { const t = today(); setMemberHistoryFilter({ ...memberHistoryFilter, from: t, to: t }); }}>Today</button>
+                  <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
+                    onClick={() => { const d = new Date(); const day = d.getDay(); const monday = new Date(d); monday.setDate(d.getDate() - ((day + 6) % 7)); setMemberHistoryFilter({ ...memberHistoryFilter, from: dateToYMD(monday), to: today() }); }}>This week</button>
+                  <button className="btn btn-sm btn-secondary" style={{ padding: "4px 8px", fontSize: 11 }}
+                    onClick={() => { const d = new Date(); const first = new Date(d.getFullYear(), d.getMonth(), 1); setMemberHistoryFilter({ ...memberHistoryFilter, from: dateToYMD(first), to: today() }); }}>This month</button>
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Plan</label>
+                <select value={memberHistoryFilter.plan} onChange={(e) => setMemberHistoryFilter({ ...memberHistoryFilter, plan: e.target.value })}>
+                  <option value="all">All</option>
+                  {Object.entries(PLANS).map(([key, p]) => (
+                    <option key={key} value={key}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Activity</label>
+                <select value={memberHistoryFilter.activity} onChange={(e) => setMemberHistoryFilter({ ...memberHistoryFilter, activity: e.target.value })}>
+                  <option value="all">All</option>
+                  {actList.map((a) => (
+                    <option key={a.id || a.code} value={a.id || a.code}>{a.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Source</label>
+                <select value={memberHistoryFilter.source} onChange={(e) => setMemberHistoryFilter({ ...memberHistoryFilter, source: e.target.value })}>
+                  <option value="all">All</option>
+                  <option value="staff">Staff</option>
+                  <option value="self">Self-Service</option>
+                  <option value="kiosk">Kiosk</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: 11 }}>Checked out</label>
+                <select value={memberHistoryFilter.checkedOut} onChange={(e) => setMemberHistoryFilter({ ...memberHistoryFilter, checkedOut: e.target.value })}>
+                  <option value="all">All</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">Still in</option>
+                </select>
+              </div>
+              {filtersActive && (
+                <button className="btn btn-secondary" onClick={resetFilters}>
+                  <RefreshCw size={14} /> Clear filters
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="table-wrapper">
+            <table>
+              <thead><tr><th>Date</th><th>Time In</th><th>Time Out</th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>Plan</th><th>Activity</th><th>Source</th><th>Locker</th></tr></thead>
+              <tbody>
+                {[...filtered].sort((a, b) => {
+                  // Newest first — sort by check-in timestamp.
+                  return new Date(b.checkIn || b.date || 0).getTime() - new Date(a.checkIn || a.date || 0).getTime();
+                }).map((a) => {
+                  const m = memberOf(a);
+                  const plan = planForRow(a);
+                  const rawActs = a.activityId ? String(a.activityId).split("+").filter(Boolean) : [];
+                  const actNames = rawActs.map((v) => actList.find((x) => x.uuid === v || x.id === v || x.code === v)?.name || v).join(", ");
+                  return (
+                    <tr key={a.id}>
+                      <td>{formatDate(a.date)}</td>
+                      <td style={{ fontSize: 12 }}>{a.checkIn ? formatTime(a.checkIn) : "—"}</td>
+                      <td style={{ fontSize: 12, color: a.checkOut ? "var(--text)" : "var(--text-muted)" }}>{a.checkOut ? formatTime(a.checkOut) : "—"}</td>
+                      <td style={{ color: "var(--text)", fontWeight: 500 }}>{a.memberLastName || m?.lastName || ""}</td>
+                      <td>{a.memberFirstName || m?.firstName || ""}</td>
+                      <td>{m?.phone || ""}</td>
+                      <td style={{ fontSize: 12 }}>{plan ? getPlanName(plan) : "—"}</td>
+                      <td style={{ fontSize: 12 }}>{actNames || "—"}</td>
+                      <td style={{ fontSize: 12, textTransform: "capitalize" }}>{a.source || "staff"}</td>
+                      <td style={{ fontSize: 12 }}>{a.lockerId ? (data.lockers || []).find((l) => l.id === a.lockerId)?.number ? `#${(data.lockers || []).find((l) => l.id === a.lockerId).number}` : "—" : "—"}</td>
+                    </tr>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <tr><td colSpan={10} style={{ textAlign: "center", padding: 32, color: "var(--text-muted)" }}>
+                    {q || filtersActive ? "No records match the current filters." : "No member check-ins yet."}
                   </td></tr>
                 )}
               </tbody>
