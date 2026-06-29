@@ -2266,21 +2266,44 @@ const CheckIn = ({ data, setData, currentUser }) => {
                   .map((id) => list.find((a) => (a.id || a.code) === id)?.uuid)
                   .filter(Boolean);
                 const tStr = today();
-                const eligible = (data.discounts || []).filter((d) => {
+                // A discount is "currently valid" if it's active, in its date
+                // window, and hasn't hit its usage cap. We split the eligibility
+                // checks so we can tell the user *why* the dropdown looks light:
+                // either there are no configured discounts at all, or there are
+                // activity-scoped ones that need an activity selected first.
+                const currentlyValid = (data.discounts || []).filter((d) => {
                   if (!d.isActive) return false;
                   if (d.startDate && d.startDate > tStr) return false;
                   if (d.endDate   && d.endDate   < tStr) return false;
                   if (d.maxUses && Number(d.usesCount || 0) >= Number(d.maxUses)) return false;
+                  // Walk-ins don't buy plans, so plan-only discounts never apply here.
+                  const planOnly = (d.activityIds?.length || 0) === 0 && (d.planCodes?.length || 0) > 0;
+                  return !planOnly;
+                });
+                const eligible = currentlyValid.filter((d) => {
                   const noScope = (d.activityIds?.length || 0) === 0 && (d.planCodes?.length || 0) === 0;
                   if (noScope) return true;
                   if ((d.activityIds?.length || 0) > 0 && selUuids.some((u) => d.activityIds.includes(u))) return true;
                   return false;
                 });
+                // Stash counts on the closure for the helper-text block below.
+                walkinForm.__discountStats = {
+                  validTotal: currentlyValid.length,
+                  eligibleNow: eligible.length,
+                  activityScopedTotal: currentlyValid.filter((d) => (d.activityIds?.length || 0) > 0).length,
+                };
+                // If the user had picked a discount that's no longer eligible
+                // (e.g. they deselected its activity), the <select> will still
+                // try to render that ID. Show it as an "unavailable" option
+                // rather than silently falling back to "None" — staff can then
+                // explicitly drop it or re-select the matching activity.
+                const pickedButIneligible = walkinForm.discountId && !eligible.some((d) => d.id === walkinForm.discountId)
+                  ? (data.discounts || []).find((d) => d.id === walkinForm.discountId)
+                  : null;
                 return (
                   <select
                     value={walkinForm.discountId || ""}
                     onChange={(e) => setWalkinForm({ ...walkinForm, discountId: e.target.value || null })}
-                    disabled={walkinForm.selectedActivities.length === 0}
                   >
                     <option value="">None</option>
                     {eligible.map((d) => (
@@ -2288,12 +2311,32 @@ const CheckIn = ({ data, setData, currentUser }) => {
                         {d.name} — {d.type === "percentage" ? `${d.value}%` : formatUGX(d.value)} off
                       </option>
                     ))}
+                    {pickedButIneligible && (
+                      <option key={pickedButIneligible.id} value={pickedButIneligible.id}>
+                        {pickedButIneligible.name} (not currently eligible)
+                      </option>
+                    )}
                   </select>
                 );
               })()}
-              {walkinForm.selectedActivities.length === 0 && (
-                <p style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>Select activities first to see eligible discounts</p>
-              )}
+              {/* Contextual hint — only shown when something is actually limiting
+                  the list. If discounts exist but none are eligible yet because
+                  they're activity-scoped, tell the user to pick activities. If
+                  no discounts are configured at all, say so so they don't keep
+                  fishing for an option that isn't there. */}
+              {(() => {
+                const s = walkinForm.__discountStats || {};
+                if (s.validTotal === 0) {
+                  return <p style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>No active discounts configured. Set them up under Discounts.</p>;
+                }
+                if (s.eligibleNow === 0 && s.activityScopedTotal > 0 && walkinForm.selectedActivities.length === 0) {
+                  return <p style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>Select activities below to unlock activity-specific discounts.</p>;
+                }
+                if (walkinForm.selectedActivities.length === 0 && s.activityScopedTotal > 0) {
+                  return <p style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>More discounts may appear after you select activities below.</p>;
+                }
+                return null;
+              })()}
             </div>
             <div className="form-group full"><label>Payment Status *</label>
               <div style={{ display: "flex", gap: 10 }}>
