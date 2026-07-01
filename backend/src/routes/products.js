@@ -81,6 +81,34 @@ router.get(
   })
 );
 
+// ── PATCH /api/products/sales/:id/payment-method  { paymentMethod }
+// Updates ONLY the payment method for a past sale. Both admins and receptionists
+// can use this so front desk can fix data-entry mistakes without needing to
+// void/re-create the sale. The linked row in `payments` is what actually stores
+// the method (product_sales itself has no method column), so we update that.
+router.patch(
+  '/sales/:id/payment-method',
+  requireRole('admin', 'manager', 'receptionist'),
+  validate([
+    param('id').isUUID(),
+    body('paymentMethod').isIn(['cash', 'mpesa', 'mpesa_mtn', 'mpesa_airtel', 'card', 'bank_transfer']),
+  ]),
+  asyncHandler(async (req, res) => {
+    const r = await pool.query(
+      `UPDATE payments SET method = $1
+        WHERE product_sale_id = $2
+        RETURNING id, method, product_sale_id`,
+      [req.body.paymentMethod, req.params.id]
+    );
+    if (!r.rowCount) throw new ApiError(404, 'Sale or linked payment not found');
+    await audit(req, 'product.sale.payment_method_update', 'product_sales', req.params.id, {
+      paymentId: r.rows[0].id,
+      method: r.rows[0].method,
+    });
+    res.json(camelize(r.rows[0]));
+  })
+);
+
 router.get('/:id', validate([param('id').isUUID()]), asyncHandler(async (req, res) => {
   res.json(await getById(pool, TABLE, req.params.id));
 }));

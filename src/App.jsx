@@ -8122,6 +8122,15 @@ const Shop = ({ data, setData, currentUser }) => {
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
   const isAdmin = currentUser?.role === "admin";
+  // Admins AND front-desk (receptionist) — plus manager for parity with the
+  // /sell endpoint — can fix a past sale's payment method without needing to
+  // void and re-create the whole sale. This is a data-entry safety valve, not
+  // a way to alter amounts, so we only expose the Method column for editing.
+  const canEditSalePayment =
+    currentUser?.role === "admin" ||
+    currentUser?.role === "receptionist" ||
+    currentUser?.role === "manager";
+  const [savingMethodId, setSavingMethodId] = useState(null);
 
   const reload = useCallback(async () => {
     try {
@@ -8201,6 +8210,21 @@ const Shop = ({ data, setData, currentUser }) => {
       setApiError(err?.message || "Sale failed");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Fix the payment method on a past sale. Only ONLY the method changes — the
+  // sale's amount, items, member, and timestamp are all left alone.
+  const updateSaleMethod = async (saleId, nextMethod) => {
+    setSavingMethodId(saleId);
+    setApiError("");
+    try {
+      await productsApi.updateSalePaymentMethod(saleId, paymentMethodToApi(nextMethod));
+      await reload();
+    } catch (err) {
+      setApiError(err?.message || "Failed to update payment method");
+    } finally {
+      setSavingMethodId(null);
     }
   };
 
@@ -8435,7 +8459,26 @@ const Shop = ({ data, setData, currentUser }) => {
                   <tr key={sale.id}>
                     <td>{formatDate(sale.soldAt)} {formatTime(sale.soldAt)}</td>
                     <td style={{ color: "var(--text)", fontSize: 12 }}>{sale.items.map((i) => `${i.name} x${i.qty}`).join(", ")}</td>
-                    <td><Badge variant="neutral">{formatPaymentMethod(sale.method)}</Badge></td>
+                    <td>
+                      {canEditSalePayment ? (
+                        <select
+                          value={sale.method || "cash"}
+                          disabled={savingMethodId === sale.id}
+                          onChange={(e) => updateSaleMethod(sale.id, e.target.value)}
+                          style={{ padding: "4px 6px", fontSize: 12, borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)" }}
+                          title="Change payment method for this sale"
+                        >
+                          <option value="cash">Cash</option>
+                          <option value="mobile_money_mtn">Mobile Money (MTN)</option>
+                          <option value="mobile_money_airtel">Mobile Money (Airtel)</option>
+                          <option value="mobile_money">Mobile Money</option>
+                          <option value="card">Card</option>
+                          <option value="bank_transfer">Bank Transfer</option>
+                        </select>
+                      ) : (
+                        <Badge variant="neutral">{formatPaymentMethod(sale.method)}</Badge>
+                      )}
+                    </td>
                     <td style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(sale.total)}</td>
                     <td style={{ color: "var(--text-dim)" }}>{sale.soldBy}</td>
                   </tr>
