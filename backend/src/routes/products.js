@@ -82,13 +82,14 @@ router.get(
 );
 
 // ── PATCH /api/products/sales/:id/payment-method  { paymentMethod }
-// Updates ONLY the payment method for a past sale. Both admins and receptionists
-// can use this so front desk can fix data-entry mistakes without needing to
-// void/re-create the sale. The linked row in `payments` is what actually stores
-// the method (product_sales itself has no method column), so we update that.
+// Updates ONLY the payment method for a past sale. Restricted to admins so
+// corrections to sales records stay auditable to an admin account (front desk
+// and managers cannot invoke this endpoint even by crafting the request
+// directly). The linked row in `payments` is what actually stores the method
+// (product_sales itself has no method column), so we update that.
 router.patch(
   '/sales/:id/payment-method',
-  requireRole('admin', 'manager', 'receptionist'),
+  requireRole('admin'),
   validate([
     param('id').isUUID(),
     body('paymentMethod').isIn(['cash', 'mpesa', 'mpesa_mtn', 'mpesa_airtel', 'card', 'bank_transfer']),

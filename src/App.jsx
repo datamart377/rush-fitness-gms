@@ -8122,14 +8122,10 @@ const Shop = ({ data, setData, currentUser }) => {
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
   const isAdmin = currentUser?.role === "admin";
-  // Admins AND front-desk (receptionist) — plus manager for parity with the
-  // /sell endpoint — can fix a past sale's payment method without needing to
-  // void and re-create the whole sale. This is a data-entry safety valve, not
-  // a way to alter amounts, so we only expose the Method column for editing.
-  const canEditSalePayment =
-    currentUser?.role === "admin" ||
-    currentUser?.role === "receptionist" ||
-    currentUser?.role === "manager";
+  // Only administrators can fix a past sale's payment method. Front desk and
+  // managers see the read-only badge — this is a data-integrity safeguard so
+  // corrections stay auditable to admin accounts.
+  const canEditSalePayment = currentUser?.role === "admin";
   const [savingMethodId, setSavingMethodId] = useState(null);
 
   const reload = useCallback(async () => {
