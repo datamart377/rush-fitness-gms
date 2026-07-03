@@ -42,7 +42,7 @@ async function main() {
     ['combo_half',    'Half Year (Gym + Steam)',     'combo',  40000,  180, null, null],
     ['combo_annual',  'Annual (Gym + Steam)',        'combo',  75000,  365, null, null],
     ['prepaid',       'Pre-Paid Balance',            'prepaid',0,      365, null, 500],
-    ['postpaid',      'Post-Paid',                   'postpaid',0,     365, null, 500],
+    ['postpaid',      'Post-Paid',                   'postpaid',0,     365, null, 26000],
     ['group_2',       'Group of 2 (Monthly)',        'group',  10000,  30,  2,    null],
     ['group_3',       'Group of 3 (Monthly)',        'group',  14000,  30,  3,    null],
     ['group_5',       'Group of 5 (Monthly)',        'group',  22000,  30,  5,    null],

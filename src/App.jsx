@@ -380,7 +380,7 @@ const PLANS = {
   combo_half: { name: "Half Year (Gym+Steam)", price: 2000000, days: 180, category: "combo" },
   combo_annual: { name: "Annual (Gym+Steam)", price: 3800000, days: 365, category: "combo" },
   prepaid: { name: "Pre-Paid Balance", price: 0, days: 365, category: "prepaid", dailyRate: 20000, isPrepaid: true },
-  postpaid: { name: "Post-Paid", price: 0, days: 365, category: "postpaid", dailyRate: 20000, isPostpaid: true },
+  postpaid: { name: "Post-Paid", price: 0, days: 365, category: "postpaid", dailyRate: 26000, isPostpaid: true },
 };
 
 const GROUP_PLANS = {
