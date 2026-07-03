@@ -27,5 +27,5 @@ ALTER TABLE plans
   CHECK (category IN ('gym','combo','prepaid','postpaid','group'));
 
 INSERT INTO plans (code, name, category, price, duration_days, group_size, daily_rate)
-VALUES ('postpaid', 'Post-Paid', 'postpaid', 0, 365, NULL, 26000)
+VALUES ('postpaid', 'Post-Paid', 'postpaid', 0, 30, NULL, 26000)
 ON CONFLICT (code) DO NOTHING;

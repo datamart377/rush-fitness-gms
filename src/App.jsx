@@ -380,7 +380,7 @@ const PLANS = {
   combo_half: { name: "Half Year (Gym+Steam)", price: 2000000, days: 180, category: "combo" },
   combo_annual: { name: "Annual (Gym+Steam)", price: 3800000, days: 365, category: "combo" },
   prepaid: { name: "Pre-Paid Balance", price: 0, days: 365, category: "prepaid", dailyRate: 20000, isPrepaid: true },
-  postpaid: { name: "Post-Paid", price: 0, days: 365, category: "postpaid", dailyRate: 26000, isPostpaid: true },
+  postpaid: { name: "Post-Paid", price: 0, days: 30, category: "postpaid", dailyRate: 26000, isPostpaid: true },
 };
 
 const GROUP_PLANS = {
@@ -4924,9 +4924,10 @@ const Memberships = ({ data, setData, currentUser }) => {
     // first check-in. Accruals ("Post-paid visit:") and settlements
     // ("Post-paid settlement:") are recorded as separate payments later.
     if (form.plan === "postpaid") {
+      // Visits is optional now — blank/0 means "no target cap, just accrue".
+      // Per-visit price is still required so accruals have an amount.
       const visits = Math.max(0, Number(form.postpaidVisits) || 0);
       const perVisit = Math.max(0, Number(form.postpaidPerVisit) || 0);
-      if (visits < 1) { alert("Enter at least 1 visit."); return; }
       if (perVisit < 1) { alert("Enter a per-visit price greater than 0."); return; }
       const postpaidPlanId = resolvePlanId("postpaid");
       if (!postpaidPlanId) { setApiError(`The "Post-Paid" plan is missing in the backend — has the migration run?`); return; }
@@ -4951,7 +4952,9 @@ const Memberships = ({ data, setData, currentUser }) => {
           method: paymentMethodToApi(form.method),
           type: "other",
           paidAt,
-          notes: `Post-paid allocation: ${visits} visit(s) at ${formatUGX(perVisit)}/visit (cap ${formatUGX(cap)}) [visits=${visits} rate=${perVisit}]`,
+          notes: visits > 0
+            ? `Post-paid allocation: ${visits} visit(s) at ${formatUGX(perVisit)}/visit (cap ${formatUGX(cap)}) [visits=${visits} rate=${perVisit}]`
+            : `Post-paid allocation: open (no target cap) at ${formatUGX(perVisit)}/visit [visits=0 rate=${perVisit}]`,
         });
         await reloadMemberships();
         setModal(null);
@@ -5407,7 +5410,7 @@ const Memberships = ({ data, setData, currentUser }) => {
             </button>
           )}
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "", months: 1, postpaidVisits: "", postpaidPerVisit: PLANS.postpaid.dailyRate }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "", months: 1, postpaidVisits: "30", postpaidPerVisit: PLANS.postpaid.dailyRate }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
       </div>
 
       {apiError && (
@@ -5953,13 +5956,13 @@ const Memberships = ({ data, setData, currentUser }) => {
             {form.plan === "postpaid" && (
               <>
                 <div className="form-group">
-                  <label>Number of Visits *</label>
+                  <label>Number of Visits (optional)</label>
                   <input
                     type="number"
-                    min="1"
+                    min="0"
                     value={form.postpaidVisits}
                     onChange={(e) => setForm({ ...form, postpaidVisits: e.target.value })}
-                    placeholder="e.g. 10"
+                    placeholder="Leave blank for open — accrues per visit"
                   />
                 </div>
                 <div className="form-group">
@@ -6010,7 +6013,7 @@ const Memberships = ({ data, setData, currentUser }) => {
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                       <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Allocated Visits</span>
-                      <strong style={{ color: "var(--text)" }}>{visits} visit{visits !== 1 ? "s" : ""}</strong>
+                      <strong style={{ color: "var(--text)" }}>{visits > 0 ? `${visits} visit${visits !== 1 ? "s" : ""}` : "Open (no target)"}</strong>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                       <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Validity</span>
@@ -6018,8 +6021,8 @@ const Memberships = ({ data, setData, currentUser }) => {
                     </div>
                     <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 8 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>Cap (if all visits used)</span>
-                        <span style={{ fontSize: 16, fontWeight: 700, color: "var(--warning)" }}>{formatUGX(cap)}</span>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{visits > 0 ? "Cap (if all visits used)" : "Target cap"}</span>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: "var(--warning)" }}>{visits > 0 ? formatUGX(cap) : "No cap — accrues per visit"}</span>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between" }}>
                         <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Due at settlement</span>
