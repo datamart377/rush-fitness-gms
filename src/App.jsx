@@ -2100,22 +2100,30 @@ const CheckIn = ({ data, setData, currentUser }) => {
     if (!walkinForm.firstName || !walkinForm.lastName || !walkinForm.phone) { alert("Please fill in surname, other name(s), and phone."); return; }
     // Members-only-when-expired rule: if the phone belongs to an existing
     // member who still has a currently-usable membership (active, not
-    // frozen/pending, not past its end date), refuse the walk-in and steer
-    // staff to the Member Check-In tab. Members with only expired/no plans
+    // frozen/pending/cancelled, and end date is strictly in the future),
+    // refuse the walk-in and steer staff to the Member Check-In tab.
+    // Members with expired plans (including expiring TODAY) or no plans
     // are allowed through — that's exactly what walk-in exists for when a
-    // plan has lapsed.
+    // plan has lapsed. YYYY-MM-DD string comparison matches the rest of
+    // the app (see `isCurrentlyValid` near line 2964) and sidesteps the
+    // Uganda-vs-UTC midnight boundary that mis-classifies same-day
+    // end-dates when done with `new Date(...)`.
     {
       const phoneNorm = String(walkinForm.phone || "").trim();
       const matchedMember = phoneNorm
         ? (data.members || []).find((m) => String(m.phone || "").trim() === phoneNorm)
         : null;
       if (matchedMember) {
-        const now = new Date();
+        const todayYmd = today();
         const activeMs = (data.memberships || []).find((ms) => {
           if (ms.memberId !== matchedMember.id) return false;
           if (!ms.isActive) return false;
           if (ms.status && ms.status !== "active") return false;
-          if (ms.endDate && new Date(ms.endDate) < now) return false;
+          const endYmd = dateToYMD(ms.endDate);
+          // Treat "expires today" as expired for walk-in purposes: the
+          // Expired badge fires as soon as the end date is reached, so
+          // the walk-in path must let those members through.
+          if (!endYmd || endYmd <= todayYmd) return false;
           return true;
         });
         if (activeMs) {
@@ -2364,17 +2372,20 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 // number belongs to an active member (walk-in will be blocked
                 // on submit) or gently confirm when it maps to a member whose
                 // plan has already lapsed (walk-in allowed — that's the intent).
+                // Uses YMD string comparison so a plan expiring TODAY is treated
+                // as lapsed (matches the Expired badge and the submit-time guard).
                 const phoneNorm = String(walkinForm.phone || "").trim();
                 if (!phoneNorm) return null;
                 const m = (data.members || []).find((mm) => String(mm.phone || "").trim() === phoneNorm);
                 if (!m) return null;
-                const now = new Date();
-                const activeMs = (data.memberships || []).find((ms) =>
-                  ms.memberId === m.id
-                  && ms.isActive
-                  && (!ms.status || ms.status === "active")
-                  && (!ms.endDate || new Date(ms.endDate) >= now)
-                );
+                const todayYmd = today();
+                const activeMs = (data.memberships || []).find((ms) => {
+                  if (ms.memberId !== m.id) return false;
+                  if (!ms.isActive) return false;
+                  if (ms.status && ms.status !== "active") return false;
+                  const endYmd = dateToYMD(ms.endDate);
+                  return endYmd && endYmd > todayYmd;
+                });
                 if (activeMs) {
                   return (
                     <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 4 }}>
