@@ -2098,6 +2098,36 @@ const CheckIn = ({ data, setData, currentUser }) => {
 
   const handleQuickWalkIn = async () => {
     if (!walkinForm.firstName || !walkinForm.lastName || !walkinForm.phone) { alert("Please fill in surname, other name(s), and phone."); return; }
+    // Members-only-when-expired rule: if the phone belongs to an existing
+    // member who still has a currently-usable membership (active, not
+    // frozen/pending, not past its end date), refuse the walk-in and steer
+    // staff to the Member Check-In tab. Members with only expired/no plans
+    // are allowed through — that's exactly what walk-in exists for when a
+    // plan has lapsed.
+    {
+      const phoneNorm = String(walkinForm.phone || "").trim();
+      const matchedMember = phoneNorm
+        ? (data.members || []).find((m) => String(m.phone || "").trim() === phoneNorm)
+        : null;
+      if (matchedMember) {
+        const now = new Date();
+        const activeMs = (data.memberships || []).find((ms) => {
+          if (ms.memberId !== matchedMember.id) return false;
+          if (!ms.isActive) return false;
+          if (ms.status && ms.status !== "active") return false;
+          if (ms.endDate && new Date(ms.endDate) < now) return false;
+          return true;
+        });
+        if (activeMs) {
+          alert(
+            `${fullName(matchedMember)} is an active member on the "${getPlanName(activeMs.plan)}" plan.\n\n` +
+            `Members with an active membership cannot be checked in as walk-ins. ` +
+            `Switch to the Member Check-In tab instead.`
+          );
+          return;
+        }
+      }
+    }
     if (!walkinForm.emergency) { alert("Emergency contact is required."); return; }
     if (walkinForm.selectedActivities.length === 0) { alert("Select at least one activity."); return; }
 
@@ -2326,7 +2356,39 @@ const CheckIn = ({ data, setData, currentUser }) => {
           <div className="form-grid">
             <div className="form-group"><label>Surname *</label><input value={walkinForm.lastName} onChange={(e) => setWalkinForm({ ...walkinForm, lastName: e.target.value })} placeholder="e.g. Kamya" /></div>
             <div className="form-group"><label>Other Name(s) *</label><input value={walkinForm.firstName} onChange={(e) => setWalkinForm({ ...walkinForm, firstName: e.target.value })} placeholder="e.g. John" /></div>
-            <div className="form-group"><label>Phone *</label><input value={walkinForm.phone} onChange={(e) => setWalkinForm({ ...walkinForm, phone: e.target.value })} placeholder="e.g. 0771234567" /></div>
+            <div className="form-group">
+              <label>Phone *</label>
+              <input value={walkinForm.phone} onChange={(e) => setWalkinForm({ ...walkinForm, phone: e.target.value })} placeholder="e.g. 0771234567" />
+              {(() => {
+                // Live match against the members list. Warn immediately if the
+                // number belongs to an active member (walk-in will be blocked
+                // on submit) or gently confirm when it maps to a member whose
+                // plan has already lapsed (walk-in allowed — that's the intent).
+                const phoneNorm = String(walkinForm.phone || "").trim();
+                if (!phoneNorm) return null;
+                const m = (data.members || []).find((mm) => String(mm.phone || "").trim() === phoneNorm);
+                if (!m) return null;
+                const now = new Date();
+                const activeMs = (data.memberships || []).find((ms) =>
+                  ms.memberId === m.id
+                  && ms.isActive
+                  && (!ms.status || ms.status === "active")
+                  && (!ms.endDate || new Date(ms.endDate) >= now)
+                );
+                if (activeMs) {
+                  return (
+                    <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 4 }}>
+                      ⚠ {fullName(m)} is an active member ({getPlanName(activeMs.plan)}). Use the Member Check-In tab instead.
+                    </p>
+                  );
+                }
+                return (
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                    ℹ Matches existing member {fullName(m)} — no active membership, walk-in allowed.
+                  </p>
+                );
+              })()}
+            </div>
             <div className="form-group"><label>Gender</label>
               <select value={walkinForm.gender} onChange={(e) => setWalkinForm({ ...walkinForm, gender: e.target.value, locker: null })}>
                 <option>Male</option><option>Female</option>
