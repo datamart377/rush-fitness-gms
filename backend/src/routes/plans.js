@@ -10,7 +10,7 @@ module.exports = makeCrudRouter({
   createValidations: [
     body('code').isString().trim().notEmpty(),
     body('name').isString().trim().notEmpty(),
-    body('category').isIn(['gym', 'combo', 'prepaid', 'group']),
+    body('category').isIn(['gym', 'combo', 'prepaid', 'postpaid', 'group']),
     body('price').isFloat({ min: 0 }),
     body('durationDays').isInt({ min: 1 }),
     body('groupSize').optional({ checkFalsy: true }).isInt({ min: 1 }),

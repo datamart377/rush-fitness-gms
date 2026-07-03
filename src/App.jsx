@@ -81,6 +81,52 @@ const derivePrepaidBalance = (memberships, payments) => {
   });
 };
 
+// Post-paid works the OPPOSITE way to prepaid: the member gets a fixed number
+// of visits at a per-visit rate on credit, and each check-in ACCRUES an amount
+// owed. Settlement payments reduce the outstanding tab. The plan carries the
+// visit count via `totalDue = visits * perVisit` and `perVisit = daily_rate`.
+// Ledger convention:
+//   • Accruals   → payment.notes starts with "Post-paid visit"      (debit)
+//   • Settlements → payment.notes starts with "Post-paid settlement" (credit)
+// Every other linked payment (e.g. an initial "Post-paid allocation" note)
+// is treated as informational-only and doesn't affect outstanding.
+const derivePostpaidOutstanding = (memberships, payments) => {
+  return memberships.map((ms) => {
+    if (ms.plan !== "postpaid") return ms;
+    const linked = (payments || []).filter((p) => p.membershipId === ms.id && p.status !== "refunded");
+    let accrued = 0;
+    let settled = 0;
+    let visitsUsed = 0;
+    let visitsAllocated = 0;
+    let perVisit = 0;
+    for (const p of linked) {
+      const rawNote = p.note || p.notes || "";
+      const note = rawNote.toLowerCase();
+      if (note.startsWith("post-paid visit")) {
+        accrued += Number(p.amount || 0);
+        visitsUsed += 1;
+      } else if (note.startsWith("post-paid settlement")) {
+        settled += Number(p.amount || 0);
+      } else if (note.startsWith("post-paid allocation")) {
+        // Deterministic tail parse — the allocation note ends with
+        // "[visits=<N> rate=<UGX>]" so both fields are captured verbatim.
+        const m = rawNote.match(/\[visits=(\d+)\s+rate=(\d+)\]/i);
+        if (m) {
+          visitsAllocated = Number(m[1]);
+          perVisit = Number(m[2]);
+        }
+      }
+    }
+    return {
+      ...ms,
+      postpaidOutstanding: Math.max(0, accrued - settled),
+      postpaidVisitsUsed: visitsUsed,
+      postpaidVisitsAllocated: visitsAllocated,
+      postpaidPerVisit: perVisit,
+    };
+  });
+};
+
 // Map backend type values to the legacy frontend ones used by reports/filters.
 const adaptPaymentType = (t) => {
   if (t === "walk_in") return "walkin";
@@ -334,6 +380,7 @@ const PLANS = {
   combo_half: { name: "Half Year (Gym+Steam)", price: 2000000, days: 180, category: "combo" },
   combo_annual: { name: "Annual (Gym+Steam)", price: 3800000, days: 365, category: "combo" },
   prepaid: { name: "Pre-Paid Balance", price: 0, days: 365, category: "prepaid", dailyRate: 20000, isPrepaid: true },
+  postpaid: { name: "Post-Paid", price: 0, days: 365, category: "postpaid", dailyRate: 20000, isPostpaid: true },
 };
 
 const GROUP_PLANS = {
@@ -1731,6 +1778,15 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const isDailyPlan = membership?.plan === "gym_daily" || membership?.plan === "combo_session";
   const isPrepaid = membership?.plan === "prepaid";
   const prepaidBalance = membership?.prepaidBalance || 0;
+  // ── Post-paid check-in accrual ──
+  // Uncapped by policy: check-in is never blocked. `postpaidPerVisit` was
+  // captured at plan assignment (see derivePostpaidOutstanding).
+  const isPostpaid = membership?.plan === "postpaid";
+  const postpaidOutstanding = membership?.postpaidOutstanding || 0;
+  const postpaidPerVisit = membership?.postpaidPerVisit || PLANS.postpaid.dailyRate;
+  const postpaidVisitsUsed = membership?.postpaidVisitsUsed || 0;
+  const postpaidVisitsAllocated = membership?.postpaidVisitsAllocated || 0;
+  const postpaidOverAllocation = isPostpaid && postpaidVisitsAllocated > 0 && postpaidVisitsUsed >= postpaidVisitsAllocated;
 
   // ── Pricing helpers (Option C — prepaid uses actual activity prices) ──
   // Base gym access fee (used when no add-ons are selected)
@@ -1838,6 +1894,21 @@ const CheckIn = ({ data, setData, currentUser }) => {
       };
     }
 
+    // ── POST-PAID: accrue this visit to the outstanding tab. Amount = per-visit
+    //    price captured at plan assignment (parsed from the allocation note).
+    //    Add-ons are NOT included in the post-paid accrual — they're still
+    //    charged as separate cash payments below by the non-prepaid branch so
+    //    the "outstanding tab" stays a clean count of base check-ins × rate.
+    let postpaidAccrual = null;
+    if (isPostpaid) {
+      postpaidAccrual = {
+        id: generateId(), memberId: selected.id, membershipId: membership.id,
+        amount: postpaidPerVisit, method: "postpaid", paidAt: new Date().toISOString(),
+        type: "postpaid_visit", discountId: null, discountAmount: 0,
+        note: `Post-paid visit: base access = ${formatUGX(postpaidPerVisit)} (outstanding before: ${formatUGX(postpaidOutstanding)})`,
+      };
+    }
+
     // ── NON-PREPAID: charge add-ons separately (cash payment).
     //    Daily plans pay standalone prices, monthly memberships pay addon prices.
     let newPayments = [];
@@ -1862,10 +1933,17 @@ const CheckIn = ({ data, setData, currentUser }) => {
     // Locally append non-persisted bits: prepaid balance change, addon payments.
     setData((d) => ({
       ...d,
-      payments: [...d.payments, ...newPayments, ...(prepaidDeduction ? [prepaidDeduction] : [])],
+      payments: [
+        ...d.payments,
+        ...newPayments,
+        ...(prepaidDeduction ? [prepaidDeduction] : []),
+        ...(postpaidAccrual ? [postpaidAccrual] : []),
+      ],
       memberships: isPrepaid
         ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, prepaidBalance: prepaidBalance - prepaidVisitCost } : ms)
-        : d.memberships,
+        : isPostpaid
+          ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, postpaidOutstanding: postpaidOutstanding + postpaidPerVisit, postpaidVisitsUsed: postpaidVisitsUsed + 1 } : ms)
+          : d.memberships,
     }));
     setCheckedIn(true);
 
@@ -1898,6 +1976,20 @@ const CheckIn = ({ data, setData, currentUser }) => {
         discountAmount: prepaidDeduction.discountAmount || undefined,
         notes: prepaidDeduction.note,
       }).catch((e) => console.warn("Pre-paid visit deduction persist failed:", e));
+    }
+
+    // Persist post-paid visit accrual so the outstanding tab survives a reload.
+    // Same "type=other" trick as prepaid — the "Post-paid visit:" note prefix
+    // is what derivePostpaidOutstanding pattern-matches to identify accruals.
+    if (isPostpaid && postpaidAccrual) {
+      paymentsApi.create({
+        memberId: postpaidAccrual.memberId,
+        membershipId: postpaidAccrual.membershipId,
+        amount: postpaidAccrual.amount,
+        method: "cash",
+        type: "other",
+        notes: postpaidAccrual.note,
+      }).catch((e) => console.warn("Post-paid visit accrual persist failed:", e));
     }
   };
 
@@ -2467,8 +2559,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
           <p style={{ color: "var(--text-dim)", marginTop: 4 }}>{selected.phone}</p>
           {membership && (
             <div style={{ marginTop: 12 }}>
-              <Badge variant={isExpired ? "danger" : isFrozen ? "warning" : isPendingPayment ? "warning" : insufficientPrepaid ? "danger" : "success"}>
-                {getPlanName(membership.plan)} • {isExpired ? "EXPIRED" : isFrozen ? "FROZEN" : isPendingPayment ? "PENDING PAYMENT" : insufficientPrepaid ? "INSUFFICIENT BALANCE" : isPrepaid ? `Balance: ${formatUGX(prepaidBalance)}` : `Expires ${formatDate(membership.endDate)}`}
+              <Badge variant={isExpired ? "danger" : isFrozen ? "warning" : isPendingPayment ? "warning" : insufficientPrepaid ? "danger" : (isPostpaid && postpaidOutstanding > 0) ? "warning" : "success"}>
+                {getPlanName(membership.plan)} • {isExpired ? "EXPIRED" : isFrozen ? "FROZEN" : isPendingPayment ? "PENDING PAYMENT" : insufficientPrepaid ? "INSUFFICIENT BALANCE" : isPrepaid ? `Balance: ${formatUGX(prepaidBalance)}` : isPostpaid ? `Outstanding: ${formatUGX(postpaidOutstanding)}` : `Expires ${formatDate(membership.endDate)}`}
               </Badge>
             </div>
           )}
@@ -2498,6 +2590,32 @@ const CheckIn = ({ data, setData, currentUser }) => {
               )}
               {!insufficientPrepaid && prepaidBalance < prepaidVisitCost * 3 && (
                 <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 8 }}>⚠ Low balance — consider topping up soon.</p>
+              )}
+            </div>
+          )}
+
+          {/* POST-PAID outstanding tab display — informational only,
+              check-in is never blocked by an unpaid balance. */}
+          {isPostpaid && !isExpired && !alreadyCheckedIn && (
+            <div style={{ marginTop: 16, padding: 16, background: postpaidOutstanding > 0 ? "var(--warning-dim, rgba(234,179,8,0.12))" : "var(--accent-dim)", border: `1px solid ${postpaidOutstanding > 0 ? "var(--warning)" : "var(--accent)"}`, borderRadius: "var(--radius-sm)", textAlign: "left" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Post-Paid Outstanding</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: postpaidOutstanding > 0 ? "var(--warning)" : "var(--accent)", fontFamily: "var(--font-display)" }}>{formatUGX(postpaidOutstanding)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: "var(--text-dim)" }}>
+                <span>This visit accrual</span>
+                <span style={{ fontWeight: 600 }}>+{formatUGX(postpaidPerVisit)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 12, color: "var(--text-dim)" }}>
+                <span>Outstanding after check-in</span>
+                <span style={{ fontWeight: 600, color: "var(--warning)" }}>{formatUGX(postpaidOutstanding + postpaidPerVisit)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 11, color: "var(--text-muted)" }}>
+                <span>Visits used</span>
+                <span>{postpaidVisitsUsed}{postpaidVisitsAllocated ? ` / ${postpaidVisitsAllocated}` : ""}</span>
+              </div>
+              {postpaidOverAllocation && (
+                <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 8 }}>⚠ Member has exceeded their allocated visit count. Check-in still allowed — accrual continues.</p>
               )}
             </div>
           )}
@@ -4718,7 +4836,7 @@ const Memberships = ({ data, setData, currentUser }) => {
       const payments = (payRes?.data || []).map(adaptPayment);
       setData((d) => ({
         ...d,
-        memberships: derivePrepaidBalance(memberships, payments),
+        memberships: derivePostpaidOutstanding(derivePrepaidBalance(memberships, payments), payments),
         payments,
       }));
     } catch (err) {
@@ -4793,6 +4911,55 @@ const Memberships = ({ data, setData, currentUser }) => {
           ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
           : "";
         setApiError([err?.message, detail].filter(Boolean).join(" – ") || "Failed to assign pre-paid plan");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    // POST-PAID — mirrors the prepaid path but with NO upfront payment.
+    // Membership carries totalDue = allocated visits × per-visit price (the
+    // "cap"), and an informational "Post-paid allocation" note captures the
+    // terms so the accrual + settle flows have a paper trail even before the
+    // first check-in. Accruals ("Post-paid visit:") and settlements
+    // ("Post-paid settlement:") are recorded as separate payments later.
+    if (form.plan === "postpaid") {
+      const visits = Math.max(0, Number(form.postpaidVisits) || 0);
+      const perVisit = Math.max(0, Number(form.postpaidPerVisit) || 0);
+      if (visits < 1) { alert("Enter at least 1 visit."); return; }
+      if (perVisit < 1) { alert("Enter a per-visit price greater than 0."); return; }
+      const postpaidPlanId = resolvePlanId("postpaid");
+      if (!postpaidPlanId) { setApiError(`The "Post-Paid" plan is missing in the backend — has the migration run?`); return; }
+      const customStart = isAdmin && form.startDate ? form.startDate : undefined;
+      const paidAt = customStart ? new Date(`${customStart}T12:00:00Z`).toISOString() : undefined;
+      const cap = visits * perVisit;
+
+      setBusy(true);
+      try {
+        const ms = await membershipsApi.create({
+          memberId: form.memberId,
+          planId: postpaidPlanId,
+          totalDue: cap,
+          startDate: customStart,
+        });
+        // Zero-amount informational marker so the ledger records the terms
+        // (visits + per-visit price). Backend requires amount ≥ 0.
+        await paymentsApi.create({
+          memberId: form.memberId,
+          membershipId: ms.id,
+          amount: 0,
+          method: paymentMethodToApi(form.method),
+          type: "other",
+          paidAt,
+          notes: `Post-paid allocation: ${visits} visit(s) at ${formatUGX(perVisit)}/visit (cap ${formatUGX(cap)}) [visits=${visits} rate=${perVisit}]`,
+        });
+        await reloadMemberships();
+        setModal(null);
+      } catch (err) {
+        const detail = Array.isArray(err?.details) && err.details.length
+          ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
+          : "";
+        setApiError([err?.message, detail].filter(Boolean).join(" – ") || "Failed to assign post-paid plan");
       } finally {
         setBusy(false);
       }
@@ -4968,6 +5135,14 @@ const Memberships = ({ data, setData, currentUser }) => {
     setModal("topup");
   };
 
+  const openSettle = (ms) => {
+    setPayTarget(ms);
+    // Per policy, post-paid settles the FULL outstanding — the amount is
+    // fixed here (not editable in the modal) so partials can't slip through.
+    setForm((f) => ({ ...f, method: "cash", paymentAmount: String(ms.postpaidOutstanding || 0) }));
+    setModal("settle");
+  };
+
   const topUp = async () => {
     if (!payTarget) return;
     const amount = Number(form.paymentAmount) || 0;
@@ -4995,6 +5170,38 @@ const Memberships = ({ data, setData, currentUser }) => {
         ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
         : "";
       setApiError([err?.message, detail].filter(Boolean).join(" – ") || "Failed to record top-up");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const settle = async () => {
+    if (!payTarget) return;
+    const amount = Number(payTarget.postpaidOutstanding || 0);
+    if (amount <= 0) { setModal(null); setPayTarget(null); return; }
+
+    setBusy(true);
+    setApiError("");
+    try {
+      // Full-settlement policy: we always post the exact outstanding amount.
+      // Note prefix "Post-paid settlement:" is what derivePostpaidOutstanding
+      // pattern-matches to zero out the tab on the next reload.
+      await paymentsApi.create({
+        memberId: payTarget.memberId,
+        membershipId: payTarget.id,
+        amount,
+        method: paymentMethodToApi(form.method),
+        type: "membership",
+        notes: `Post-paid settlement: ${formatUGX(amount)} (full)`,
+      });
+      await reloadMemberships();
+      setModal(null);
+      setPayTarget(null);
+    } catch (err) {
+      const detail = Array.isArray(err?.details) && err.details.length
+        ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
+        : "";
+      setApiError([err?.message, detail].filter(Boolean).join(" – ") || "Failed to record settlement");
     } finally {
       setBusy(false);
     }
@@ -5200,7 +5407,7 @@ const Memberships = ({ data, setData, currentUser }) => {
             </button>
           )}
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "", months: 1 }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
+        <button className="btn btn-primary" onClick={() => { setForm({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "", months: 1, postpaidVisits: "", postpaidPerVisit: PLANS.postpaid.dailyRate }); setApiError(""); setModal("assign"); }}><Plus size={16} /> Assign Plan</button>
       </div>
 
       {apiError && (
@@ -5299,6 +5506,11 @@ const Memberships = ({ data, setData, currentUser }) => {
               const isPending = ms.status === "pending_payment";
               const isPrepaidMs = ms.plan === "prepaid";
               const prepaidBal = ms.prepaidBalance || 0;
+              const isPostpaidMs = ms.plan === "postpaid";
+              const postpaidOut = ms.postpaidOutstanding || 0;
+              const postpaidUsed = ms.postpaidVisitsUsed || 0;
+              const postpaidAlloc = ms.postpaidVisitsAllocated || 0;
+              const postpaidRate = ms.postpaidPerVisit || PLANS.postpaid.dailyRate;
               // Status-aware colour for the Payment cell.
               //   Active + paid       → green  (success — happy path)
               //   Active + partial    → amber  (warning — needs follow-up)
@@ -5317,7 +5529,7 @@ const Memberships = ({ data, setData, currentUser }) => {
               return (
                 <tr key={ms.id} style={isPending ? { background: "rgba(249,115,22,0.04)" } : undefined}>
                   <td style={{ color: "var(--text)", fontWeight: 500 }}>{fullName(member)}</td>
-                  <td>{getPlanName(ms.plan)}{isPrepaidMs && <span style={{ fontSize: 10, color: "var(--accent)", marginLeft: 4 }}>(Pre-Paid)</span>}</td>
+                  <td>{getPlanName(ms.plan)}{isPrepaidMs && <span style={{ fontSize: 10, color: "var(--accent)", marginLeft: 4 }}>(Pre-Paid)</span>}{isPostpaidMs && <span style={{ fontSize: 10, color: "var(--warning)", marginLeft: 4 }}>(Post-Paid)</span>}</td>
                   <td>{formatDate(ms.startDate)}</td>
                   <td>{formatDate(ms.endDate)}</td>
                   <td>
@@ -5328,6 +5540,16 @@ const Memberships = ({ data, setData, currentUser }) => {
                           <span style={{ fontWeight: 700, color: prepaidBal < PLANS.prepaid.dailyRate ? "var(--danger)" : prepaidBal < PLANS.prepaid.dailyRate * 3 ? "var(--warning)" : "var(--success)", fontSize: 13 }}>{formatUGX(prepaidBal)}</span>
                         </div>
                         <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{Math.floor(prepaidBal / PLANS.prepaid.dailyRate)} visits left</div>
+                      </div>
+                    ) : isPostpaidMs ? (
+                      <div style={{ minWidth: 150 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
+                          <span style={{ color: "var(--text-dim)" }}>Outstanding</span>
+                          <span style={{ fontWeight: 700, color: postpaidOut > 0 ? "var(--warning)" : "var(--success)", fontSize: 13 }}>{formatUGX(postpaidOut)}</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                          {postpaidUsed}{postpaidAlloc ? ` / ${postpaidAlloc}` : ""} visit{postpaidUsed !== 1 ? "s" : ""} used · {formatUGX(postpaidRate)}/visit
+                        </div>
                       </div>
                     ) : bal.totalDue > 0 ? (
                       <div style={{ minWidth: 150 }}>
@@ -5349,17 +5571,18 @@ const Memberships = ({ data, setData, currentUser }) => {
                     )}
                   </td>
                   <td>
-                    {isPending ? <Badge variant="warning">Pending Payment</Badge> : ms.status === "frozen" ? <Badge variant="warning">Frozen</Badge> : exp ? <Badge variant="danger">Expired</Badge> : isPrepaidMs && prepaidBal < PLANS.prepaid.dailyRate ? <Badge variant="danger">Low Balance</Badge> : <Badge variant="success">Active</Badge>}
+                    {isPending ? <Badge variant="warning">Pending Payment</Badge> : ms.status === "frozen" ? <Badge variant="warning">Frozen</Badge> : exp ? <Badge variant="danger">Expired</Badge> : isPrepaidMs && prepaidBal < PLANS.prepaid.dailyRate ? <Badge variant="danger">Low Balance</Badge> : isPostpaidMs && postpaidOut > 0 ? <Badge variant="warning">Owes {formatUGX(postpaidOut)}</Badge> : <Badge variant="success">Active</Badge>}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {isPrepaidMs && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openTopUp(ms)}><Plus size={12} /> Top Up</button>}
-                      {!isPrepaidMs && isPending && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
-                      {!isPrepaidMs && !isPending && !bal.isPaidInFull && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
-                      {isAdmin && !isPrepaidMs && ms.status === "active" && !exp && <button className="btn btn-sm btn-secondary" onClick={() => freeze(ms)}><Pause size={12} /> Freeze</button>}
+                      {isPostpaidMs && ms.status === "active" && postpaidOut > 0 && <button className="btn btn-sm btn-primary" onClick={() => openSettle(ms)}><DollarSign size={12} /> Settle</button>}
+                      {!isPrepaidMs && !isPostpaidMs && isPending && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
+                      {!isPrepaidMs && !isPostpaidMs && !isPending && !bal.isPaidInFull && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
+                      {isAdmin && !isPrepaidMs && !isPostpaidMs && ms.status === "active" && !exp && <button className="btn btn-sm btn-secondary" onClick={() => freeze(ms)}><Pause size={12} /> Freeze</button>}
                       {isAdmin && ms.status === "frozen" && <button className="btn btn-sm btn-secondary" onClick={() => unfreeze(ms)}><Play size={12} /> Unfreeze</button>}
-                      {isAdmin && !isPrepaidMs && <button className="btn btn-sm btn-secondary" onClick={() => openEdit(ms)} title="Edit membership (admin only)"><Edit2 size={12} /> Edit</button>}
-                      {isAdmin && !isPrepaidMs && <button className="btn btn-sm btn-danger" onClick={() => deleteMembership(ms)} title="Delete membership (admin only)"><Trash2 size={12} /> Delete</button>}
+                      {isAdmin && !isPrepaidMs && !isPostpaidMs && <button className="btn btn-sm btn-secondary" onClick={() => openEdit(ms)} title="Edit membership (admin only)"><Edit2 size={12} /> Edit</button>}
+                      {isAdmin && !isPrepaidMs && !isPostpaidMs && <button className="btn btn-sm btn-danger" onClick={() => deleteMembership(ms)} title="Delete membership (admin only)"><Trash2 size={12} /> Delete</button>}
                     </div>
                   </td>
                 </tr>
@@ -5565,7 +5788,7 @@ const Memberships = ({ data, setData, currentUser }) => {
             )}
             <div className="form-group">
               <label>Plan</label>
-              <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value, paymentType: e.target.value === "prepaid" ? "full" : form.paymentType, months: 1 })}>
+              <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value, paymentType: (e.target.value === "prepaid" || e.target.value === "postpaid") ? "full" : form.paymentType, months: 1 })}>
                 <optgroup label="Gym Only">
                   {Object.entries(PLANS).filter(([, v]) => v.category === "gym").map(([k, v]) => <option key={k} value={k}>{v.name} — {formatUGX(v.price)}</option>)}
                 </optgroup>
@@ -5577,6 +5800,9 @@ const Memberships = ({ data, setData, currentUser }) => {
                 </optgroup>
                 <optgroup label="Pre-Paid (Pay-as-you-go)">
                   <option value="prepaid">Pre-Paid Balance — variable deposit, deducts UGX {(PLANS.prepaid.dailyRate).toLocaleString()}/visit</option>
+                </optgroup>
+                <optgroup label="Post-Paid (Pay-later)">
+                  <option value="postpaid">Post-Paid — N visits at a per-visit rate, member settles later</option>
                 </optgroup>
               </select>
             </div>
@@ -5721,6 +5947,39 @@ const Memberships = ({ data, setData, currentUser }) => {
               </div>
             )}
 
+            {/* POST-PAID FIELDS: # of visits × per-visit price. No deposit —
+                member is billed at settlement. Cap is informational only:
+                check-in is never blocked (per operator policy). */}
+            {form.plan === "postpaid" && (
+              <>
+                <div className="form-group">
+                  <label>Number of Visits *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={form.postpaidVisits}
+                    onChange={(e) => setForm({ ...form, postpaidVisits: e.target.value })}
+                    placeholder="e.g. 10"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Per-Visit Price (UGX) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.postpaidPerVisit}
+                    onChange={(e) => setForm({ ...form, postpaidPerVisit: e.target.value })}
+                    placeholder="e.g. 20000"
+                  />
+                </div>
+                <div className="form-group full">
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 0 }}>
+                    Each check-in accrues UGX {(Number(form.postpaidPerVisit) || 0).toLocaleString()} to the member's outstanding tab. Check-in is never blocked — visits continue to accrue even past the allocated count. Settlement is full-amount only (no partial payments).
+                  </p>
+                </div>
+              </>
+            )}
+
             {form.paymentType === "partial" && (
               <div className="form-group full">
                 <label>Amount Paying Now (UGX)</label>
@@ -5734,6 +5993,43 @@ const Memberships = ({ data, setData, currentUser }) => {
 
           {form.plan && (
             (() => {
+              // POST-PAID SUMMARY
+              if (form.plan === "postpaid") {
+                const visits = Math.max(0, Number(form.postpaidVisits) || 0);
+                const perVisit = Math.max(0, Number(form.postpaidPerVisit) || 0);
+                const cap = visits * perVisit;
+                return (
+                  <div style={{ marginTop: 16, padding: 16, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Plan</span>
+                      <strong style={{ color: "var(--text)" }}>{PLANS.postpaid.name}</strong>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Per-Visit Price</span>
+                      <strong style={{ color: "var(--text)" }}>{formatUGX(perVisit)}/visit</strong>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Allocated Visits</span>
+                      <strong style={{ color: "var(--text)" }}>{visits} visit{visits !== 1 ? "s" : ""}</strong>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Validity</span>
+                      <strong style={{ color: "var(--text)" }}>{PLANS.postpaid.days} days</strong>
+                    </div>
+                    <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>Cap (if all visits used)</span>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: "var(--warning)" }}>{formatUGX(cap)}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Due at settlement</span>
+                        <span style={{ fontWeight: 600, color: "var(--text-dim)" }}>Accrues per check-in</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
               // PREPAID SUMMARY
               if (form.plan === "prepaid") {
                 const deposit = Number(form.depositAmount) || 0;
@@ -5986,11 +6282,66 @@ const Memberships = ({ data, setData, currentUser }) => {
         })()
       )}
 
+      {/* SETTLE POST-PAID MODAL — full settlement only, amount is fixed */}
+      {modal === "settle" && payTarget && (
+        (() => {
+          const member = data.members.find((m) => m.id === payTarget.memberId);
+          const outstanding = Number(payTarget.postpaidOutstanding || 0);
+          const visitsUsed = payTarget.postpaidVisitsUsed || 0;
+          const visitsAlloc = payTarget.postpaidVisitsAllocated || 0;
+          const perVisit = payTarget.postpaidPerVisit || PLANS.postpaid.dailyRate;
+          return (
+            <Modal title="Settle Post-Paid Tab" onClose={() => { if (!busy) { setModal(null); setPayTarget(null); } }} footer={
+              <>
+                <button className="btn btn-secondary" onClick={() => { setModal(null); setPayTarget(null); }} disabled={busy}>Cancel</button>
+                <button className="btn btn-primary" onClick={settle} disabled={busy || outstanding <= 0}>
+                  {busy ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Recording...</> : <><Check size={14} /> Settle {formatUGX(outstanding)}</>}
+                </button>
+              </>
+            }>
+              <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>{fullName(member)}</h3>
+                <p style={{ color: "var(--text-dim)", marginTop: 2 }}>Post-Paid Account</p>
+              </div>
+
+              <div style={{ background: "var(--warning-dim, rgba(234,179,8,0.12))", border: "1px solid var(--warning)", borderRadius: "var(--radius-sm)", padding: 16, marginBottom: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Outstanding</span>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: "var(--warning)", fontFamily: "var(--font-display)" }}>{formatUGX(outstanding)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: "var(--text-muted)" }}>
+                  <span>Visits used</span>
+                  <span style={{ fontWeight: 600 }}>{visitsUsed}{visitsAlloc ? ` / ${visitsAlloc}` : ""}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 12, color: "var(--text-muted)" }}>
+                  <span>Per-visit rate</span>
+                  <span>{formatUGX(perVisit)}/visit</span>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Payment Method</label>
+                <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
+                  <option value="cash">Cash</option>
+                  <option value="mobile_money_mtn">Mobile Money (MTN)</option>
+                  <option value="mobile_money_airtel">Mobile Money (Airtel)</option>
+                  <option value="card">Card</option>
+                </select>
+              </div>
+
+              <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+                Full settlement only — the entire outstanding amount will be recorded as cleared. Partial payments are not supported on post-paid tabs.
+              </p>
+            </Modal>
+          );
+        })()
+      )}
+
       {/* EDIT MEMBERSHIP MODAL — admin only, for fixing migrated/legacy rows */}
       {modal === "edit" && editTarget && isAdmin && (
         (() => {
           const member = data.members.find((m) => m.id === editTarget.memberId);
-          const eligiblePlanCodes = Object.keys(PLANS).filter((k) => k !== "prepaid");
+          const eligiblePlanCodes = Object.keys(PLANS).filter((k) => k !== "prepaid" && k !== "postpaid");
           return (
             <Modal title="Edit Membership (Admin)" onClose={() => { setModal(null); setEditTarget(null); }} footer={
               <>
@@ -11558,7 +11909,7 @@ export default function App() {
         setData((d) => ({
           ...d,
           plans, members,
-          memberships: derivePrepaidBalance(memberships, payments),
+          memberships: derivePostpaidOutstanding(derivePrepaidBalance(memberships, payments), payments),
           payments, trainers,
           lockers, products, equipment, walkIns, attendance,
           discounts, expenses, productSales,

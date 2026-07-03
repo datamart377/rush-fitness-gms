@@ -102,11 +102,11 @@ CREATE TABLE plans (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code          TEXT UNIQUE NOT NULL,                  -- e.g. gym_monthly
   name          TEXT NOT NULL,                         -- e.g. "Monthly (Gym)"
-  category      TEXT NOT NULL CHECK (category IN ('gym','combo','prepaid','group')),
+  category      TEXT NOT NULL CHECK (category IN ('gym','combo','prepaid','postpaid','group')),
   price         NUMERIC(12,2) NOT NULL CHECK (price >= 0),
   duration_days INTEGER NOT NULL CHECK (duration_days > 0),
   group_size    INTEGER,                               -- only for group plans
-  daily_rate    NUMERIC(12,2),                         -- only for prepaid
+  daily_rate    NUMERIC(12,2),                         -- prepaid & postpaid per-visit rate
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
