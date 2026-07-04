@@ -6,9 +6,21 @@
 #   • the React static site
 # The service URLs are predictable from the names below.
 
+# The Postgres instance was migrated from Oregon (free) to Frankfurt to
+# reduce round-trip latency to Uganda. Name + region MUST match the
+# existing dashboard entry exactly so Blueprint adopts it instead of
+# trying to create a duplicate:
+#
+#   Dashboard name → rush-fitness-db-fra   (region: frankfurt)
+#
+# If future syncs still fail with a plan-mismatch error, update `plan:`
+# below to match whatever tier the DB is actually on in the dashboard
+# (Settings → Instance Type). Free tier is Ohio-only, so a Frankfurt DB
+# is always on a paid plan — most likely basic-256mb.
 databases:
-  - name: rush-fitness-db
-    plan: free                    # Start free; upgrade in the Render dashboard for production
+  - name: rush-fitness-db-fra
+    region: frankfurt
+    plan: basic-256mb             # ⚠ Verify against the dashboard before pushing.
     databaseName: rush_fitness_gms
     user: rush_fitness
     postgresMajorVersion: 16
@@ -19,8 +31,11 @@ services:
     name: rush-fitness-api
     runtime: node
     plan: starter                 # $7/mo — always-on, no cold starts
-    # Region omitted so the API lands in the same region as the free Postgres
-    # database (otherwise internal DNS can't resolve across regions).
+    # Must be co-located with rush-fitness-db-fra so the internal DNS
+    # (postgres.render-internal) resolves — Render's private network only
+    # spans a single region. The API itself was migrated to Frankfurt
+    # alongside the DB.
+    region: frankfurt
     rootDir: backend
     buildCommand: npm install
     # Run migrations + seed before every deploy. Seed is idempotent.
@@ -47,7 +62,7 @@ services:
         value: Africa/Kampala
       - key: DATABASE_URL
         fromDatabase:
-          name: rush-fitness-db
+          name: rush-fitness-db-fra
           property: connectionString
       - key: JWT_SECRET
         generateValue: true       # Render generates a 256-bit random value
