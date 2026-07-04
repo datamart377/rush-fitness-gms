@@ -18,6 +18,9 @@ const FIELDS = [
   'first_name', 'last_name', 'phone', 'email', 'gender', 'dob',
   'national_id', 'passport_number', 'emergency_name', 'emergency_phone',
   'emergency_phone_2', 'photo_url', 'notes', 'is_active', 'member_code', 'joined_on',
+  // Optional free-text org name — used to cluster post-paid members that
+  // share an employer / corporate account for batched invoicing.
+  'organisation',
 ];
 
 // Either a NIN or a passport number is required (not both, not neither).
@@ -82,6 +85,7 @@ router.get(
       `SELECT id, member_code, first_name, last_name, phone, email, gender, dob,
               national_id, passport_number, emergency_name, emergency_phone,
               emergency_phone_2, photo_url, notes, is_active, joined_on,
+              organisation,
               created_at, updated_at
          FROM ${TABLE} ${where}
          ORDER BY created_at DESC
@@ -120,6 +124,7 @@ router.post(
     body('dob').optional({ checkFalsy: true }).isISO8601(),
     body('nationalId').optional({ checkFalsy: true }).isString().trim(),
     body('passportNumber').optional({ checkFalsy: true }).isString().trim(),
+    body('organisation').optional({ checkFalsy: true }).isString().trim().isLength({ max: 120 }),
     body('pin').optional({ checkFalsy: true }).isString().isLength({ min: 4, max: 12 }),
   ]),
   // NIN or Passport no longer required at the API layer — supports record migration
@@ -166,6 +171,9 @@ router.patch(
     body('dob').optional({ checkFalsy: true }).isISO8601(),
     body('nationalId').optional({ checkFalsy: false }).isString().trim(),
     body('passportNumber').optional({ checkFalsy: false }).isString().trim(),
+    // checkFalsy:false so admin/receptionist can PATCH organisation to "" to
+    // remove an incorrectly recorded org without having to send NULL.
+    body('organisation').optional({ checkFalsy: false }).isString().trim().isLength({ max: 120 }),
     body('pin').optional({ checkFalsy: true }).isString().isLength({ min: 4, max: 12 }),
   ]),
   asyncHandler(async (req, res) => {

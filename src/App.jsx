@@ -4341,6 +4341,9 @@ const adaptMember = (m) => m ? ({
   emergency2: m.emergencyPhone2 || "",
   photo: m.photoUrl || null,
   passportNumber: m.passportNumber || "",
+  // Optional free-text org name (see migration 013). Coerce NULL → "" so
+  // the input control stays "controlled" and the edit form doesn't warn.
+  organisation: m.organisation || "",
 }) : null;
 
 // Inverse: take frontend form → API body.
@@ -4360,6 +4363,9 @@ const memberFormToApi = (f) => ({
   emergencyPhone:  f.emergency  ?? "",
   emergencyPhone2: f.emergency2 ?? "",
   photoUrl: f.photo || undefined,
+  // Send an empty string (not undefined) so PATCH can *clear* an org name
+  // the front desk typed in error. Same pattern as the emergency phones.
+  organisation: (f.organisation ?? "").trim(),
   pin: f.pin || undefined,
 });
 
@@ -4374,7 +4380,7 @@ const Members = ({ data, setData, currentUser }) => {
   const [filterStatus, setFilterStatus] = useState("all");
   const [modal, setModal] = useState(null); // 'add' | 'edit' | 'view' | 'terms' | null
   const [current, setCurrent] = useState(null);
-  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", passportNumber: "", pin: "", photo: null });
+  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", passportNumber: "", organisation: "", pin: "", photo: null });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsScrolled, setTermsScrolled] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -4435,8 +4441,8 @@ const Members = ({ data, setData, currentUser }) => {
     return true;
   });
 
-  const openAdd = () => { setForm({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", passportNumber: "", pin: Math.floor(1000 + Math.random() * 9000).toString(), photo: null }); setTermsAccepted(false); setTermsScrolled(false); setApiError(""); setModal("add"); };
-  const openEdit = (m) => { setCurrent(m); setForm({ ...m, emergency: m.emergency || "", emergency2: m.emergency2 || "" }); setApiError(""); setModal("edit"); };
+  const openAdd = () => { setForm({ firstName: "", lastName: "", phone: "", email: "", gender: "Male", dob: "", emergency: "", emergency2: "", nationalId: "", passportNumber: "", organisation: "", pin: Math.floor(1000 + Math.random() * 9000).toString(), photo: null }); setTermsAccepted(false); setTermsScrolled(false); setApiError(""); setModal("add"); };
+  const openEdit = (m) => { setCurrent(m); setForm({ ...m, emergency: m.emergency || "", emergency2: m.emergency2 || "", organisation: m.organisation || "" }); setApiError(""); setModal("edit"); };
   const openView = (m) => { setCurrent(m); setModal("view"); };
 
   const handleTermsScroll = () => {
@@ -4803,6 +4809,23 @@ const Members = ({ data, setData, currentUser }) => {
             <div className="form-group"><label>Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Optional" /></div>
             <div className="form-group"><label>Emergency Contact 1</label><input value={form.emergency} onChange={(e) => setForm({ ...form, emergency: e.target.value })} placeholder="e.g. 0701111222" /></div>
             <div className="form-group"><label>Emergency Contact 2</label><input value={form.emergency2 || ""} onChange={(e) => setForm({ ...form, emergency2: e.target.value })} placeholder="Optional" /></div>
+            {/* Optional free-text organisation — used to cluster post-paid
+                members that share an employer / corporate account so a single
+                invoice can be issued at billing time. Left blank for individuals. */}
+            <div className="form-group full">
+              <label>
+                Organisation <span style={{ fontSize: 10, color: "var(--text-muted)" }}>— optional, for group billing</span>
+              </label>
+              <input
+                value={form.organisation || ""}
+                onChange={(e) => setForm({ ...form, organisation: e.target.value.slice(0, 120) })}
+                placeholder="e.g. Stanbic Bank, MTN Uganda, Makerere University"
+                maxLength={120}
+              />
+              <p style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+                Leave blank for individual members. When set, post-paid balances for members sharing the same organisation can be billed together.
+              </p>
+            </div>
             <div className="form-group"><label>Check-in PIN</label><input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} maxLength={4} placeholder="4 digits" /></div>
           </div>
         </Modal>
