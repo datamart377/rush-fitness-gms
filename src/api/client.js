@@ -122,6 +122,11 @@ export const membershipsApi = { ...resource('/memberships'),
   freeze:   (id, days) => api.post(`/memberships/${id}/freeze`, { days }),
   unfreeze: (id)       => api.post(`/memberships/${id}/unfreeze`),
   cancel:   (id)       => api.post(`/memberships/${id}/cancel`),
+  // Monthly (and other duration-based) top-up: extends end_date by whole
+  // months and records the top-up payment in one transaction. Backend
+  // rejects prepaid/postpaid/cancelled and guards overlaps against other
+  // active/frozen memberships for the same member.
+  extend:   (id, payload) => api.post(`/memberships/${id}/extend`, payload),
 };
 export const paymentsApi    = { ...resource('/payments'),
   refund: (id) => api.post(`/payments/${id}/refund`),

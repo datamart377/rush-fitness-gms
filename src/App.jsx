@@ -4903,6 +4903,16 @@ const Memberships = ({ data, setData, currentUser }) => {
   const [editMethodMs, setEditMethodMs] = useState(null);
   const [editMethodTargetId, setEditMethodTargetId] = useState("");
   const [editMethodNew, setEditMethodNew] = useState("cash");
+  // ── Monthly-style Top-Up (Extend) flow ──
+  //   Adds N whole calendar months to a non-prepaid / non-postpaid membership's
+  //   end_date and records the payment atomically via POST /memberships/:id/extend.
+  //   `extendMs` doubles as the modal-open flag (null = closed). `extendMonths`
+  //   is 1..24, `extendMethod` uses the FRONTEND vocabulary (mobile_money*),
+  //   translated to mpesa* by paymentMethodToApi() before the API call.
+  const [extendMs, setExtendMs] = useState(null);
+  const [extendMonths, setExtendMonths] = useState(1);
+  const [extendMethod, setExtendMethod] = useState("cash");
+  const [extendAmount, setExtendAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
   // Search box on the Memberships table — matches member name, phone, or plan
@@ -5453,6 +5463,73 @@ const Memberships = ({ data, setData, currentUser }) => {
     }
   };
 
+  // ── Top-Up (Extend) handlers ──
+  // Suggests a sensible default amount: for 30-day-cycle plans (monthly,
+  // combo_monthly, etc.) that's `plan.price * months`. For plans with a
+  // non-monthly cadence (7 days, 180, 365, session) we fall back to the
+  // plan's list price × months as a starting hint — the field is editable
+  // so the cashier can override.
+  const openExtend = (ms) => {
+    const plan = PLANS[ms.plan];
+    const suggested = plan ? Number(plan.price || 0) : 0;
+    setExtendMs(ms);
+    setExtendMonths(1);
+    setExtendMethod("cash");
+    setExtendAmount(suggested > 0 ? String(suggested) : "");
+    setApiError("");
+  };
+
+  const closeExtend = () => {
+    if (busy) return;
+    setExtendMs(null);
+    setExtendMonths(1);
+    setExtendMethod("cash");
+    setExtendAmount("");
+  };
+
+  // Add N whole calendar months to a starting date, clamping month-end
+  // overflows so "Jan 31 + 1 month" resolves to Feb 28/29 rather than Mar 3.
+  // Same logic as the Quick Set Duration in the Edit modal so admin/receptionist
+  // see identical arithmetic in both flows.
+  const addMonthsClamped = (isoStart, months) => {
+    const d = new Date(isoStart);
+    const targetMonth = d.getMonth() + Number(months);
+    d.setMonth(targetMonth);
+    const wrapped = ((targetMonth % 12) + 12) % 12;
+    if (d.getMonth() !== wrapped) d.setDate(0);
+    return dateToYMD(d);
+  };
+
+  const saveExtend = async () => {
+    if (!extendMs) return;
+    const months = Math.max(1, Math.min(24, Number(extendMonths) || 0));
+    const amount = Number(extendAmount) || 0;
+    if (amount <= 0) { setApiError("Enter a top-up amount greater than zero."); return; }
+    const newEndDate = addMonthsClamped(extendMs.endDate, months);
+    setBusy(true);
+    setApiError("");
+    try {
+      await membershipsApi.extend(extendMs.id, {
+        newEndDate,
+        amount,
+        method: paymentMethodToApi(extendMethod),
+        notes: `Top-up: extend ${months} month${months !== 1 ? "s" : ""} (${dateToYMD(extendMs.endDate)} → ${newEndDate})`,
+      });
+      await reloadMemberships();
+      setExtendMs(null);
+      setExtendAmount("");
+      setExtendMonths(1);
+      setExtendMethod("cash");
+    } catch (err) {
+      const detail = Array.isArray(err?.details) && err.details.length
+        ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
+        : "";
+      setApiError([err?.message, detail].filter(Boolean).join(" – ") || "Failed to extend membership");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Admin-only: hard-delete a membership row. FKs on payments / attendance use
   // ON DELETE SET NULL, so historical records are preserved (just unlinked).
   const deleteMembership = async (ms) => {
@@ -5716,6 +5793,16 @@ const Memberships = ({ data, setData, currentUser }) => {
                       {isPostpaidMs && ms.status === "active" && postpaidOut > 0 && <button className="btn btn-sm btn-primary" onClick={() => openSettle(ms)}><DollarSign size={12} /> Settle</button>}
                       {!isPrepaidMs && !isPostpaidMs && isPending && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
                       {!isPrepaidMs && !isPostpaidMs && !isPending && !bal.isPaidInFull && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
+                      {/* Monthly-style Top Up: extend end_date by N months + record
+                          the payment atomically. Visible for non-prepaid/non-postpaid
+                          plans that are active or expired (expired auto-revives to
+                          active on extend). Skipped for frozen (unfreeze first) and
+                          pending_payment (settle the initial balance via Pay Balance
+                          first, then top up). Roles: admin/manager/receptionist —
+                          enforced server-side. */}
+                      {!isPrepaidMs && !isPostpaidMs && !isPending && (ms.status === "active" || ms.status === "expired") && (
+                        <button className="btn btn-sm btn-primary" onClick={() => openExtend(ms)} title="Extend this membership by N months and record a top-up payment"><Plus size={12} /> Top Up</button>
+                      )}
                       {isAdmin && !isPrepaidMs && !isPostpaidMs && ms.status === "active" && !exp && <button className="btn btn-sm btn-secondary" onClick={() => freeze(ms)}><Pause size={12} /> Freeze</button>}
                       {isAdmin && ms.status === "frozen" && <button className="btn btn-sm btn-secondary" onClick={() => unfreeze(ms)}><Play size={12} /> Unfreeze</button>}
                       {isAdmin && !isPrepaidMs && !isPostpaidMs && <button className="btn btn-sm btn-secondary" onClick={() => openEdit(ms)} title="Edit membership (admin only)"><Edit2 size={12} /> Edit</button>}
@@ -6595,6 +6682,117 @@ const Memberships = ({ data, setData, currentUser }) => {
               <div style={{ marginTop: 14, padding: "8px 10px", background: "var(--warning-dim, #3a2a10)", border: "1px solid var(--warning)", borderRadius: "var(--radius-xs)", fontSize: 11, color: "var(--warning)" }}>
                 <AlertTriangle size={12} style={{ display: "inline", marginRight: 4, verticalAlign: "-2px" }} />
                 Changing dates that overlap another active/frozen membership for this member will be rejected. Resolve the other one first.
+              </div>
+            </Modal>
+          );
+        })()
+      )}
+
+      {/* TOP UP (EXTEND) MODAL — extend a monthly-style membership by N months
+          and record the top-up payment in one round-trip. Mirrors the Assign
+          modal's Quick-Set duration math (calendar months, with month-end
+          clamp). Skips prepaid (which has its own Top Up flow) and postpaid
+          (which uses Settle instead) — the backend rejects those too. */}
+      {extendMs && (
+        (() => {
+          const member = data.members.find((m) => m.id === extendMs.memberId);
+          const months = Math.max(1, Math.min(24, Number(extendMonths) || 0));
+          const newEnd = addMonthsClamped(extendMs.endDate, months);
+          const amount = Number(extendAmount) || 0;
+          const wasExpired = extendMs.status === "expired";
+          return (
+            <Modal
+              title="Top Up Monthly Membership"
+              onClose={closeExtend}
+              footer={
+                <>
+                  <button className="btn btn-secondary" onClick={closeExtend} disabled={busy}>Cancel</button>
+                  <button className="btn btn-primary" onClick={saveExtend} disabled={busy || amount <= 0 || months < 1}>
+                    {busy ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Recording...</> : <><Plus size={14} /> Extend {months} mo{months !== 1 ? "s" : ""} {amount > 0 ? `· ${formatUGX(amount)}` : ""}</>}
+                  </button>
+                </>
+              }
+            >
+              <div style={{ textAlign: "center", marginBottom: 16 }}>
+                <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>{fullName(member)}</h3>
+                <p style={{ color: "var(--text-dim)", marginTop: 2 }}>{getPlanName(extendMs.plan)}</p>
+              </div>
+
+              {apiError && (
+                <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
+                  <AlertTriangle size={14} /> {apiError}
+                </div>
+              )}
+
+              <div style={{ background: "var(--accent-dim)", border: "1px solid var(--accent)", borderRadius: "var(--radius-sm)", padding: 16, marginBottom: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Current end date</span>
+                  <span style={{ fontWeight: 700, color: "var(--text)", fontFamily: "var(--font-display)", fontSize: 15 }}>{formatDate(extendMs.endDate)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, alignItems: "center" }}>
+                  <span style={{ color: "var(--text-dim)", fontSize: 13 }}>New end date</span>
+                  <span style={{ fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-display)", fontSize: 16 }}>{formatDate(newEnd)}</span>
+                </div>
+                {wasExpired && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: "var(--warning)", display: "flex", alignItems: "center", gap: 4 }}>
+                    <AlertTriangle size={12} /> Currently expired — will auto-revive to Active after top-up.
+                  </div>
+                )}
+              </div>
+
+              <div className="form-grid">
+                <div className="form-group">
+                  <label>Extend by *</label>
+                  <select value={extendMonths} onChange={(e) => setExtendMonths(Number(e.target.value))}>
+                    <option value={1}>1 month</option>
+                    <option value={2}>2 months</option>
+                    <option value={3}>3 months</option>
+                    <option value={6}>6 months</option>
+                    <option value={9}>9 months</option>
+                    <option value={12}>12 months (1 year)</option>
+                    <option value={18}>18 months</option>
+                    <option value={24}>24 months (2 years)</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Payment Method *</label>
+                  <select value={extendMethod} onChange={(e) => setExtendMethod(e.target.value)}>
+                    <option value="cash">Cash</option>
+                    <option value="mobile_money_mtn">Mobile Money (MTN)</option>
+                    <option value="mobile_money_airtel">Mobile Money (Airtel)</option>
+                    <option value="card">Card</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                  </select>
+                </div>
+                <div className="form-group full">
+                  <label>Top-up Amount (UGX) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={extendAmount}
+                    onChange={(e) => setExtendAmount(e.target.value)}
+                    placeholder="e.g. 300000"
+                    autoFocus
+                  />
+                  {PLANS[extendMs.plan]?.price > 0 && (
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                      Plan list price: {formatUGX(PLANS[extendMs.plan].price)} · {months}× = {formatUGX(PLANS[extendMs.plan].price * months)}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                {PLANS[extendMs.plan]?.price > 0 && (
+                  <>
+                    <button type="button" className="btn btn-sm btn-secondary" onClick={() => setExtendAmount(String(PLANS[extendMs.plan].price))} style={{ padding: "4px 10px" }}>1× {formatUGX(PLANS[extendMs.plan].price)}</button>
+                    <button type="button" className="btn btn-sm btn-secondary" onClick={() => setExtendAmount(String(PLANS[extendMs.plan].price * months))} style={{ padding: "4px 10px" }}>{months}× {formatUGX(PLANS[extendMs.plan].price * months)}</button>
+                  </>
+                )}
+              </div>
+
+              <div style={{ marginTop: 16, padding: "10px 12px", background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", fontSize: 12, color: "var(--text-dim)" }}>
+                Records a <strong style={{ color: "var(--text)" }}>membership</strong>-type payment linked to this membership and moves <strong style={{ color: "var(--text)" }}>end date</strong> to {formatDate(newEnd)}. The transaction is all-or-nothing on the server.
               </div>
             </Modal>
           );

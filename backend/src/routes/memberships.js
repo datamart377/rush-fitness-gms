@@ -282,6 +282,130 @@ router.post(
   })
 );
 
+// EXTEND — "Top Up" for a monthly-style membership. Pushes end_date out to
+// `newEndDate`, bumps total_due + total_paid by `amount`, and inserts a linked
+// payment row in the SAME transaction so we can't end up with money recorded
+// but the date not extended (or vice versa).
+//
+// Deliberately not usable on prepaid/postpaid plans — those already have
+// dedicated top-up / settle flows on the /payments side. Allowed for
+// receptionists because members top up at the front desk; the PATCH endpoint
+// on this same route stays admin-only for arbitrary edits.
+router.post(
+  '/:id/extend',
+  requireRole('admin', 'manager', 'receptionist'),
+  validate([
+    param('id').isUUID(),
+    body('newEndDate').isISO8601(),
+    body('amount').isFloat({ min: 0 }),
+    body('method').isIn(['cash', 'mpesa', 'mpesa_mtn', 'mpesa_airtel', 'card', 'bank_transfer']),
+    body('notes').optional({ checkFalsy: true }).isString().isLength({ max: 500 }),
+  ]),
+  asyncHandler(async (req, res) => {
+    const fmtDate = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
+
+    const result = await withTx(async (client) => {
+      // Lock the membership row so concurrent extends don't stomp on each other.
+      const curR = await client.query(
+        `SELECT m.*, p.code AS plan_code, p.name AS plan_name
+           FROM ${TABLE} m
+           JOIN plans p ON p.id = m.plan_id
+          WHERE m.id = $1 FOR UPDATE`,
+        [req.params.id]
+      );
+      if (!curR.rowCount) throw new ApiError(404, 'Membership not found');
+      const cur = curR.rows[0];
+
+      // Prepaid uses a running balance and postpaid uses per-visit charges;
+      // neither is what "extend by N months" means. Reject early with a
+      // clear message so the frontend can route the user to the right flow.
+      if (cur.plan_code === 'prepaid') {
+        throw new ApiError(409, 'Prepaid memberships use the balance top-up flow instead of Extend.');
+      }
+      if (cur.plan_code === 'postpaid') {
+        throw new ApiError(409, 'Post-paid memberships use the Settle flow instead of Extend.');
+      }
+      if (cur.status === 'cancelled') {
+        throw new ApiError(409, 'Cancelled memberships cannot be extended. Assign a new one instead.');
+      }
+
+      const newEnd = fmtDate(new Date(req.body.newEndDate));
+      const curEnd = fmtDate(cur.end_date);
+      if (newEnd <= curEnd) {
+        throw new ApiError(400, `New end date (${newEnd}) must be after current end date (${curEnd}).`);
+      }
+
+      // Overlap guard — the extended window mustn't collide with a DIFFERENT
+      // active/frozen membership for this same member.
+      const dup = await client.query(
+        `SELECT m.id, m.start_date, m.end_date, p.name AS plan_name
+           FROM ${TABLE} m
+           JOIN plans p ON p.id = m.plan_id
+          WHERE m.member_id = $1
+            AND m.id <> $2
+            AND m.status IN ('active','frozen')
+            AND m.start_date <= $4::date
+            AND m.end_date   >= $3::date
+          ORDER BY m.created_at DESC
+          LIMIT 1
+          FOR UPDATE`,
+        [cur.member_id, cur.id, curEnd, newEnd]
+      );
+      if (dup.rowCount) {
+        const d = dup.rows[0];
+        throw new ApiError(
+          409,
+          `Extended window overlaps another membership for this member (${d.plan_name}, ${fmtDate(d.start_date)} → ${fmtDate(d.end_date)}). Resolve that one first.`
+        );
+      }
+
+      const amount = Number(req.body.amount || 0);
+
+      // Extend end date + bump totals. total_paid is bumped explicitly here
+      // (not via the /payments POST auto-increment) because we're inserting
+      // the payment directly below within the same transaction.
+      const upd = await client.query(
+        `UPDATE ${TABLE}
+            SET end_date = $1::date,
+                total_due = total_due + $2,
+                total_paid = total_paid + $2,
+                status = CASE WHEN status = 'expired' THEN 'active' ELSE status END
+          WHERE id = $3
+          RETURNING *`,
+        [newEnd, amount, cur.id]
+      );
+
+      // Record the payment. Same shape as the /payments POST route so
+      // reconciliation and reports pick it up identically.
+      const payR = await client.query(
+        `INSERT INTO payments
+           (member_id, membership_id, amount, currency, method, type, notes, created_by)
+         VALUES ($1, $2, $3, $4, $5, 'membership', $6, $7)
+         RETURNING *`,
+        [
+          cur.member_id,
+          cur.id,
+          amount,
+          process.env.CURRENCY || 'UGX',
+          req.body.method,
+          req.body.notes || `Extension: ${curEnd} → ${newEnd}`,
+          req.user.id,
+        ]
+      );
+
+      return { membership: camelize(upd.rows[0]), payment: camelize(payR.rows[0]) };
+    });
+
+    await audit(req, 'membership.extend', TABLE, req.params.id, {
+      newEndDate: result.membership.endDate,
+      amount: result.payment.amount,
+      method: result.payment.method,
+      paymentId: result.payment.id,
+    });
+    res.json(result);
+  })
+);
+
 router.delete('/:id', requireRole('admin'), validate([param('id').isUUID()]), asyncHandler(async (req, res) => {
   await deleteById(pool, TABLE, req.params.id);
   await audit(req, 'membership.delete', TABLE, req.params.id);
