@@ -32,6 +32,19 @@ services:
         value: production
       - key: PORT
         value: 4000
+      # Timezone — the gym operates in East Africa Time (EAT, UTC+3, no DST).
+      # TZ pins the Node runtime clock so `new Date()` / `Date.now()` and any
+      # log timestamps land in EAT. PGTZ tells the `pg` client to `SET TIME
+      # ZONE` on connection, so CURRENT_DATE / NOW()::date in queries (e.g.
+      # backend/src/routes/dashboard.js) evaluate against the local calendar
+      # date instead of UTC — otherwise the dashboard shows the previous
+      # day's numbers between 00:00 and 02:59 EAT.
+      # Africa/Kampala and Africa/Nairobi share the same offset; both are
+      # equivalent for our purposes.
+      - key: TZ
+        value: Africa/Kampala
+      - key: PGTZ
+        value: Africa/Kampala
       - key: DATABASE_URL
         fromDatabase:
           name: rush-fitness-db
