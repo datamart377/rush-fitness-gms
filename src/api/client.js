@@ -125,6 +125,11 @@ export const membershipsApi = { ...resource('/memberships'),
 };
 export const paymentsApi    = { ...resource('/payments'),
   refund: (id) => api.post(`/payments/${id}/refund`),
+  // Admin-only correction for a wrongly-recorded payment method. Mirrors the
+  // shape of productsApi.updateSalePaymentMethod; backend enforces the admin
+  // role and writes an audit row with old + new method.
+  updatePaymentMethod: (id, paymentMethod) =>
+    api.patch(`/payments/${id}/payment-method`, { paymentMethod }),
 };
 export const lockersApi     = { ...resource('/lockers'),
   assign:  (id, memberId) => api.post(`/lockers/${id}/assign`, { memberId }),

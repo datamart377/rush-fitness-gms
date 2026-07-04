@@ -114,4 +114,40 @@ router.post(
   })
 );
 
+// ── PATCH /api/payments/:id/payment-method  { paymentMethod }
+// Admin-only correction path for a wrong method entry on an existing
+// payment (e.g. receptionist ticked "Cash" but the customer paid via
+// MTN). Deliberately narrow — only touches the `method` column and
+// leaves amount/status/type alone so this can't be used to slip an
+// unrelated edit through. Audit-logged with old + new so the trail
+// mirrors `product.sale.payment_method_update`.
+router.patch(
+  '/:id/payment-method',
+  requireRole('admin'),
+  validate([
+    param('id').isUUID(),
+    body('paymentMethod').isIn(['cash', 'mpesa', 'mpesa_mtn', 'mpesa_airtel', 'card', 'bank_transfer']),
+  ]),
+  asyncHandler(async (req, res) => {
+    // Capture the old value first so the audit row preserves both sides.
+    const before = await pool.query(
+      `SELECT id, method, membership_id FROM ${TABLE} WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!before.rowCount) throw new ApiError(404, 'Payment not found');
+    const oldMethod = before.rows[0].method;
+
+    const r = await pool.query(
+      `UPDATE ${TABLE} SET method = $1 WHERE id = $2 RETURNING *`,
+      [req.body.paymentMethod, req.params.id]
+    );
+    await audit(req, 'payment.method_update', TABLE, req.params.id, {
+      oldMethod,
+      newMethod: r.rows[0].method,
+      membershipId: r.rows[0].membership_id,
+    });
+    res.json(camelize(r.rows[0]));
+  })
+);
+
 module.exports = router;

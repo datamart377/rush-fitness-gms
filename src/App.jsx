@@ -4895,6 +4895,14 @@ const Memberships = ({ data, setData, currentUser }) => {
   const [payTarget, setPayTarget] = useState(null); // membership for additional payment
   const [editTarget, setEditTarget] = useState(null); // admin: membership being edited
   const [editForm, setEditForm] = useState({ plan: "", startDate: "", endDate: "", totalDue: "", totalPaid: "" });
+  // ── Admin-only "Edit Payment Method" flow ──
+  //   `editMethodMs`      — membership whose payments we're editing (null = modal closed).
+  //   `editMethodTargetId` — selected payment row's id (user picks which one to fix).
+  //   `editMethodNew`     — new method value in the FRONTEND vocabulary (mobile_money*),
+  //                          translated to mpesa* via paymentMethodToApi() before PATCH.
+  const [editMethodMs, setEditMethodMs] = useState(null);
+  const [editMethodTargetId, setEditMethodTargetId] = useState("");
+  const [editMethodNew, setEditMethodNew] = useState("cash");
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
   // Search box on the Memberships table — matches member name, phone, or plan
@@ -5404,6 +5412,47 @@ const Memberships = ({ data, setData, currentUser }) => {
     }
   };
 
+  // Admin-only: open the "Edit Payment Method" modal for a specific membership.
+  // Pre-selects the most recent linked payment (which is nearly always the one
+  // the admin wants to fix — the one just created by the Assign modal).
+  const openEditMethod = (ms) => {
+    const linked = (data.payments || [])
+      .filter((p) => p.membershipId === ms.id)
+      .sort((a, b) => new Date(b.paidAt || 0) - new Date(a.paidAt || 0));
+    setEditMethodMs(ms);
+    setEditMethodTargetId(linked[0]?.id || "");
+    setEditMethodNew(linked[0]?.method || "cash");
+    setApiError("");
+  };
+
+  const closeEditMethod = () => {
+    if (busy) return;
+    setEditMethodMs(null);
+    setEditMethodTargetId("");
+    setEditMethodNew("cash");
+  };
+
+  const saveEditMethod = async () => {
+    if (!editMethodTargetId) return;
+    setBusy(true);
+    setApiError("");
+    try {
+      // Backend enum uses mpesa* keys — translate before PATCH.
+      await paymentsApi.updatePaymentMethod(editMethodTargetId, paymentMethodToApi(editMethodNew));
+      // Re-pull payments so the UI reflects the change everywhere it renders.
+      const payRes = await paymentsApi.list({ limit: 10000 });
+      const payments = (payRes?.data || []).map(adaptPayment);
+      setData((d) => ({ ...d, payments }));
+      setEditMethodMs(null);
+      setEditMethodTargetId("");
+      setEditMethodNew("cash");
+    } catch (err) {
+      setApiError(err?.message || "Failed to update payment method");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Admin-only: hard-delete a membership row. FKs on payments / attendance use
   // ON DELETE SET NULL, so historical records are preserved (just unlinked).
   const deleteMembership = async (ms) => {
@@ -5670,6 +5719,12 @@ const Memberships = ({ data, setData, currentUser }) => {
                       {isAdmin && !isPrepaidMs && !isPostpaidMs && ms.status === "active" && !exp && <button className="btn btn-sm btn-secondary" onClick={() => freeze(ms)}><Pause size={12} /> Freeze</button>}
                       {isAdmin && ms.status === "frozen" && <button className="btn btn-sm btn-secondary" onClick={() => unfreeze(ms)}><Play size={12} /> Unfreeze</button>}
                       {isAdmin && !isPrepaidMs && !isPostpaidMs && <button className="btn btn-sm btn-secondary" onClick={() => openEdit(ms)} title="Edit membership (admin only)"><Edit2 size={12} /> Edit</button>}
+                      {/* Admin-only: correct a wrongly-recorded payment method
+                          on any payment tied to this membership. Enabled only
+                          when at least one payment row is linked. */}
+                      {isAdmin && (data.payments || []).some((p) => p.membershipId === ms.id) && (
+                        <button className="btn btn-sm btn-secondary" onClick={() => openEditMethod(ms)} title="Edit payment method (admin only)"><CreditCard size={12} /> Edit Payment</button>
+                      )}
                       {isAdmin && !isPrepaidMs && !isPostpaidMs && <button className="btn btn-sm btn-danger" onClick={() => deleteMembership(ms)} title="Delete membership (admin only)"><Trash2 size={12} /> Delete</button>}
                     </div>
                   </td>
@@ -6541,6 +6596,106 @@ const Memberships = ({ data, setData, currentUser }) => {
                 <AlertTriangle size={12} style={{ display: "inline", marginRight: 4, verticalAlign: "-2px" }} />
                 Changing dates that overlap another active/frozen membership for this member will be rejected. Resolve the other one first.
               </div>
+            </Modal>
+          );
+        })()
+      )}
+
+      {/* EDIT PAYMENT METHOD MODAL — admin only.
+          Lists every payment tied to the selected membership (newest first)
+          so admin can pick a specific row and correct its method. Only the
+          `method` column is touched; amount/status/type are left alone. */}
+      {editMethodMs && isAdmin && (
+        (() => {
+          const member = data.members.find((m) => m.id === editMethodMs.memberId);
+          const linkedPayments = (data.payments || [])
+            .filter((p) => p.membershipId === editMethodMs.id)
+            .sort((a, b) => new Date(b.paidAt || 0) - new Date(a.paidAt || 0));
+          const targetPayment = linkedPayments.find((p) => p.id === editMethodTargetId);
+          const unchanged = targetPayment && targetPayment.method === editMethodNew;
+          return (
+            <Modal
+              title="Edit Payment Method (Admin)"
+              onClose={closeEditMethod}
+              footer={
+                <>
+                  <button className="btn btn-secondary" onClick={closeEditMethod} disabled={busy}>Cancel</button>
+                  <button className="btn btn-primary" onClick={saveEditMethod} disabled={busy || !editMethodTargetId || unchanged}>
+                    {busy ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Saving...</> : <><Check size={14} /> Save Method</>}
+                  </button>
+                </>
+              }
+            >
+              <div style={{ marginBottom: 14, padding: "8px 10px", background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: "var(--radius-xs)", fontSize: 12, color: "var(--text-dim)" }}>
+                <strong style={{ color: "var(--text)" }}>{fullName(member)}</strong>
+                {" — "}{getPlanName(editMethodMs.plan)} ({formatDate(editMethodMs.startDate)} → {formatDate(editMethodMs.endDate)}). Pick a payment below to correct its recorded method. The change is audit-logged.
+              </div>
+
+              {apiError && (
+                <div style={{ background: "var(--danger-dim)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-xs)", padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
+                  <AlertTriangle size={14} /> {apiError}
+                </div>
+              )}
+
+              {linkedPayments.length === 0 ? (
+                <p style={{ color: "var(--text-muted)", fontSize: 13 }}>No payments linked to this membership.</p>
+              ) : (
+                <>
+                  <div className="form-group">
+                    <label>Payment</label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto" }}>
+                      {linkedPayments.map((p) => {
+                        const selected = p.id === editMethodTargetId;
+                        return (
+                          <label key={p.id} style={{
+                            display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                            background: selected ? "var(--accent-dim, rgba(255,165,0,0.08))" : "var(--bg-input)",
+                            border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                            borderRadius: "var(--radius-xs)", cursor: "pointer", fontSize: 12,
+                          }}>
+                            <input
+                              type="radio"
+                              name="editMethodTarget"
+                              checked={selected}
+                              onChange={() => {
+                                setEditMethodTargetId(p.id);
+                                setEditMethodNew(p.method || "cash");
+                              }}
+                            />
+                            <span style={{ fontWeight: 600, color: "var(--text)", minWidth: 90 }}>{formatUGX(p.amount)}</span>
+                            <span style={{ color: "var(--text-dim)", minWidth: 130 }}>{formatPaymentMethod(p.method)}</span>
+                            <span style={{ color: "var(--text-muted)", fontSize: 11, flex: 1, textAlign: "right" }}>{formatDate(p.paidAt)}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>New Payment Method</label>
+                    <select value={editMethodNew} onChange={(e) => setEditMethodNew(e.target.value)}>
+                      <option value="cash">Cash</option>
+                      <option value="mobile_money_mtn">Mobile Money (MTN)</option>
+                      <option value="mobile_money_airtel">Mobile Money (Airtel)</option>
+                      <option value="mobile_money">Mobile Money (unspecified)</option>
+                      <option value="card">Card</option>
+                      <option value="bank_transfer">Bank Transfer</option>
+                    </select>
+                    {targetPayment && (
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
+                        Current: <strong style={{ color: "var(--text-dim)" }}>{formatPaymentMethod(targetPayment.method)}</strong>
+                        {!unchanged && <> → <strong style={{ color: "var(--accent)" }}>{formatPaymentMethod(editMethodNew)}</strong></>}
+                        {unchanged && <span style={{ color: "var(--warning)", marginLeft: 6 }}>(no change)</span>}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ marginTop: 4, padding: "8px 10px", background: "var(--warning-dim, #3a2a10)", border: "1px solid var(--warning)", borderRadius: "var(--radius-xs)", fontSize: 11, color: "var(--warning)" }}>
+                    <AlertTriangle size={12} style={{ display: "inline", marginRight: 4, verticalAlign: "-2px" }} />
+                    Only the payment method is updated. Amount, date, status and type are preserved. The change is recorded in the audit log with your username and the old/new values.
+                  </div>
+                </>
+              )}
             </Modal>
           );
         })()
