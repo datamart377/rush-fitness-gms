@@ -2894,8 +2894,16 @@ const CheckIn = ({ data, setData, currentUser }) => {
             const ph = (w.phone || "").toLowerCase();
             if (!fn.includes(q) && !ln.includes(q) && !nm.includes(q) && !ph.includes(q)) return false;
           }
-          // Date range
-          const visitDay = (w.visitDate || "").slice(0, 10);
+          // Date range.
+          //
+          // MUST use dateToYMD() — NOT `visitDate.slice(0, 10)` — because the
+          // backend ships `visitDate` as a JSON-serialised Date (e.g.
+          // "2026-07-03T21:00:00.000Z" for a July-4 record parsed at Kampala
+          // local midnight, then UTC-shifted by JSON.stringify). Slicing the
+          // ISO string returns YESTERDAY's YMD in EAT (UTC+3), which is what
+          // was silently zeroing out the "Today" filter and hiding all rows.
+          // See the same warning at line ~1516 and the `dateToYMD` header.
+          const visitDay = dateToYMD(w.visitDate);
           if (walkinFilter.from && visitDay < walkinFilter.from) return false;
           if (walkinFilter.to   && visitDay > walkinFilter.to)   return false;
           // Payment status
