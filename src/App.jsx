@@ -1464,11 +1464,15 @@ const Modal = ({ title, onClose, children, footer }) => (
 
 const Badge = ({ variant = "neutral", children }) => <span className={`badge badge-${variant}`}>{children}</span>;
 
-const StatCard = ({ icon: Icon, label, value, color, bg }) => (
+const StatCard = ({ icon: Icon, label, value, color, bg, labelStyle }) => (
+  // labelStyle: optional inline override for the label element. Reconciliation
+  // needs its four top-line labels rendered in full white instead of the
+  // default muted `.stat-label` colour, without touching the shared class
+  // (which is also used by Dashboard, Members, and every other stat tile).
   <div className="card stat-card">
     <div>
       <div className="stat-value" style={{ color }}>{value}</div>
-      <div className="stat-label">{label}</div>
+      <div className="stat-label" style={labelStyle}>{label}</div>
     </div>
     <div className="stat-icon" style={{ background: bg, color }}>
       <Icon size={20} />
@@ -9404,11 +9408,11 @@ const Reconciliation = ({ data, setData, currentUser }) => {
           unrestricted. */}
       <div className="card" style={{ marginBottom: 16, padding: "12px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>
+          <div style={{ fontSize: 11, color: "var(--text)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>
             Viewing: <span style={{ color: "var(--accent)", fontWeight: 700 }}>{rangeLabel}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
-            <label style={{ fontSize: 11, color: "var(--text-muted)" }}>From</label>
+            <label style={{ fontSize: 11, color: "var(--text)" }}>From</label>
             <input
               type="date"
               value={dateFrom}
@@ -9418,7 +9422,7 @@ const Reconciliation = ({ data, setData, currentUser }) => {
               onClick={(e) => { try { e.target.showPicker && e.target.showPicker(); } catch (_) {} }}
               style={{ colorScheme: "dark", cursor: "pointer", padding: "6px 8px" }}
             />
-            <label style={{ fontSize: 11, color: "var(--text-muted)" }}>To</label>
+            <label style={{ fontSize: 11, color: "var(--text)" }}>To</label>
             <input
               type="date"
               value={dateTo}
@@ -9447,18 +9451,20 @@ const Reconciliation = ({ data, setData, currentUser }) => {
           ))}
         </div>
         {!isAdmin && (
-          <div style={{ marginTop: 10, padding: "8px 10px", background: "var(--info-dim)", borderLeft: "3px solid var(--info)", borderRadius: "var(--radius-sm)", fontSize: 11, color: "var(--text-dim)" }}>
+          <div style={{ marginTop: 10, padding: "8px 10px", background: "var(--info-dim)", borderLeft: "3px solid var(--info)", borderRadius: "var(--radius-sm)", fontSize: 11, color: "var(--text)" }}>
             <strong style={{ color: "var(--info)" }}>Front Desk access:</strong> Reconciliation records are limited to the most recent 7 days ({formatDate(minAllowedDate)} – {formatDate(today())}). Contact an administrator for older periods.
           </div>
         )}
       </div>
 
-      {/* Top-level summary: Revenue vs Expenses vs Net */}
+      {/* Top-level summary: Revenue vs Expenses vs Net.
+          `labelStyle={{ color: "var(--text)" }}` scopes the white-label
+          treatment to this page — see StatCard definition for context. */}
       <div className="card-grid" style={{ marginBottom: 20 }}>
-        <StatCard icon={TrendingUp} label="Total Revenue" value={formatUGX(totalRevenue)} color="var(--success)" bg="var(--success-dim)" />
-        <StatCard icon={AlertTriangle} label="Total Expenses" value={formatUGX(totalExpensesToday)} color="var(--danger)" bg="var(--danger-dim)" />
-        <StatCard icon={DollarSign} label="Net Profit" value={formatUGX(netProfit)} color={netProfit >= 0 ? "var(--success)" : "var(--danger)"} bg={netProfit >= 0 ? "var(--success-dim)" : "var(--danger-dim)"} />
-        <StatCard icon={DollarSign} label="Expected Cash" value={formatUGX(systemCash - cashExpenses)} color="var(--accent)" bg="var(--accent-dim)" />
+        <StatCard icon={TrendingUp} label="Total Revenue" value={formatUGX(totalRevenue)} color="var(--success)" bg="var(--success-dim)" labelStyle={{ color: "var(--text)" }} />
+        <StatCard icon={AlertTriangle} label="Total Expenses" value={formatUGX(totalExpensesToday)} color="var(--danger)" bg="var(--danger-dim)" labelStyle={{ color: "var(--text)" }} />
+        <StatCard icon={DollarSign} label="Net Profit" value={formatUGX(netProfit)} color={netProfit >= 0 ? "var(--success)" : "var(--danger)"} bg={netProfit >= 0 ? "var(--success-dim)" : "var(--danger-dim)"} labelStyle={{ color: "var(--text)" }} />
+        <StatCard icon={DollarSign} label="Expected Cash" value={formatUGX(systemCash - cashExpenses)} color="var(--accent)" bg="var(--accent-dim)" labelStyle={{ color: "var(--text)" }} />
       </div>
 
       {/* Revenue by Payment Method */}
@@ -9466,15 +9472,15 @@ const Reconciliation = ({ data, setData, currentUser }) => {
         <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 12 }}>Revenue by Payment Method</h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
           <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--success)" }}>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase" }}>Cash In</div>
+            <div style={{ fontSize: 11, color: "var(--text)", textTransform: "uppercase" }}>Cash In</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: "var(--success)", marginTop: 4 }}>{formatUGX(systemCash)}</div>
           </div>
           <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--info)" }}>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase" }}>Mobile Money</div>
+            <div style={{ fontSize: 11, color: "var(--text)", textTransform: "uppercase" }}>Mobile Money</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: "var(--info)", marginTop: 4 }}>{formatUGX(systemMobile)}</div>
           </div>
           <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--accent)" }}>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase" }}>Card</div>
+            <div style={{ fontSize: 11, color: "var(--text)", textTransform: "uppercase" }}>Card</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: "var(--accent)", marginTop: 4 }}>{formatUGX(systemCard)}</div>
           </div>
         </div>
@@ -9489,10 +9495,10 @@ const Reconciliation = ({ data, setData, currentUser }) => {
             { label: "Activity Add-ons", value: addonRevenue, color: "var(--info)" },
             { label: "Walk-In Guests", value: walkinRevenue, color: "var(--warning)" },
             { label: "Shop / Products", value: shopRevenue, color: "var(--accent)" },
-            ...(otherRevenue > 0 ? [{ label: "Other", value: otherRevenue, color: "var(--text-dim)" }] : []),
+            ...(otherRevenue > 0 ? [{ label: "Other", value: otherRevenue, color: "var(--text)" }] : []),
           ].map((item) => (
             <div key={item.label} style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: `3px solid ${item.color}` }}>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{item.label}</div>
+              <div style={{ fontSize: 11, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{item.label}</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: item.color, marginTop: 4 }}>{formatUGX(item.value)}</div>
             </div>
           ))}
@@ -9505,7 +9511,7 @@ const Reconciliation = ({ data, setData, currentUser }) => {
               {walkinRevenue > 0 && <div style={{ width: `${walkinRevenue / totalRevenue * 100}%`, background: "var(--warning)" }} />}
               {shopRevenue > 0 && <div style={{ width: `${shopRevenue / totalRevenue * 100}%`, background: "var(--accent)" }} />}
             </div>
-            <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: "var(--text-muted)", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: "var(--text)", flexWrap: "wrap" }}>
               <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--success)", marginRight: 4 }} />Memberships</span>
               <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--info)", marginRight: 4 }} />Add-ons</span>
               <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--warning)", marginRight: 4 }} />Walk-Ins</span>
@@ -9519,7 +9525,7 @@ const Reconciliation = ({ data, setData, currentUser }) => {
       <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
           <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, margin: 0 }}>Revenue by Activity — {rangeLabel}</h3>
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          <span style={{ fontSize: 11, color: "var(--text)" }}>
             From walk-ins &amp; activity add-ons · {formatUGX(activityRevenueTotal)} total
           </span>
         </div>
@@ -9530,9 +9536,9 @@ const Reconciliation = ({ data, setData, currentUser }) => {
                 const pct = activityRevenueTotal > 0 ? Math.round(row.value / activityRevenueTotal * 100) : 0;
                 return (
                   <div key={row.id} style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--info)" }}>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{row.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{row.name}</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: "var(--info)", marginTop: 4 }}>{formatUGX(row.value)}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{pct}% of activity revenue</div>
+                    <div style={{ fontSize: 11, color: "var(--text)", marginTop: 4 }}>{pct}% of activity revenue</div>
                   </div>
                 );
               })}
@@ -9554,7 +9560,7 @@ const Reconciliation = ({ data, setData, currentUser }) => {
             )}
           </>
         ) : (
-          <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>
+          <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text)", textAlign: "center" }}>
             No activity-tagged revenue in this period. Walk-in records with selected activities and add-on payments will appear here.
           </div>
         )}
@@ -9582,14 +9588,14 @@ const Reconciliation = ({ data, setData, currentUser }) => {
             <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8 }}>
               {Object.entries(expenseByCat).map(([cat, amt]) => (
                 <div key={cat} style={{ padding: "4px 10px", background: "var(--bg-elevated)", borderRadius: "var(--radius-xs)", fontSize: 11 }}>
-                  <span style={{ color: "var(--text-muted)" }}>{cat}: </span>
+                  <span style={{ color: "var(--text)" }}>{cat}: </span>
                   <span style={{ color: "var(--danger)", fontWeight: 600 }}>{formatUGX(amt)}</span>
                 </div>
               ))}
             </div>
           )}
           <div style={{ marginTop: 12, padding: "10px 14px", background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", display: "flex", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Cash expenses (deducted from expected cash):</span>
+            <span style={{ fontSize: 12, color: "var(--text)" }}>Cash expenses (deducted from expected cash):</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: "var(--danger)" }}>{formatUGX(cashExpenses)}</span>
           </div>
         </div>
@@ -9621,10 +9627,10 @@ const Reconciliation = ({ data, setData, currentUser }) => {
                     <Badge variant={badge}>{desc.kind}</Badge>
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ color: "var(--text)", fontWeight: 500 }}>{customer}</div>
-                      <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <div style={{ color: "var(--text)", fontSize: 11, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>
                         {desc.primary}
                       </div>
-                      {desc.secondary && <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 1 }}>{desc.secondary}</div>}
+                      {desc.secondary && <div style={{ color: "var(--text)", fontSize: 10, marginTop: 1 }}>{desc.secondary}</div>}
                     </div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
@@ -9636,7 +9642,7 @@ const Reconciliation = ({ data, setData, currentUser }) => {
             })}
           </div>
         ) : (
-          <p style={{ color: "var(--text-muted)", fontSize: 13 }}>No transactions recorded in this range.</p>
+          <p style={{ color: "var(--text)", fontSize: 13 }}>No transactions recorded in this range.</p>
         )}
       </div>
 
@@ -9645,7 +9651,7 @@ const Reconciliation = ({ data, setData, currentUser }) => {
           a reconciliation row populated with historical totals. */}
       {!isViewingToday ? (
         <div className="card" style={{ padding: "16px 20px", background: "var(--bg-elevated)", borderLeft: "3px solid var(--info)" }}>
-          <p style={{ color: "var(--text-dim)", fontSize: 13, margin: 0 }}>
+          <p style={{ color: "var(--text)", fontSize: 13, margin: 0 }}>
             Viewing historical range — switch to <strong>Today</strong> to submit a new reconciliation.
           </p>
         </div>
@@ -9653,17 +9659,17 @@ const Reconciliation = ({ data, setData, currentUser }) => {
         <div className="card" style={{ textAlign: "center", padding: 40 }}>
           <AlertTriangle size={40} style={{ color: "var(--warning)", marginBottom: 12 }} />
           <h3 style={{ fontFamily: "var(--font-display)", marginBottom: 8 }}>Reconciliation Not Submitted</h3>
-          <p style={{ color: "var(--text-dim)", marginBottom: 20 }}>Submit today's end-of-shift cash declaration.</p>
+          <p style={{ color: "var(--text)", marginBottom: 20 }}>Submit today's end-of-shift cash declaration.</p>
           <button className="btn btn-primary" onClick={() => setModal(true)}>Submit Reconciliation</button>
         </div>
       ) : (
         <div className="card">
           <h3 style={{ fontFamily: "var(--font-display)", marginBottom: 16 }}>Today's Reconciliation</h3>
           <div className="form-grid">
-            <div><p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Declared Cash</p><p style={{ fontSize: 18, fontWeight: 700 }}>{formatUGX(todayRec.declaredCash)}</p></div>
-            <div><p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>System Cash</p><p style={{ fontSize: 18, fontWeight: 700 }}>{formatUGX(todayRec.systemCash)}</p></div>
-            <div><p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Variance</p><p style={{ fontSize: 18, fontWeight: 700, color: todayRec.variance === 0 ? "var(--success)" : "var(--danger)" }}>{formatUGX(todayRec.variance)}</p></div>
-            <div><p style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase" }}>Status</p>{todayRec.status === "balanced" ? <Badge variant="success">Balanced</Badge> : <Badge variant="danger">Variance Flagged</Badge>}</div>
+            <div><p style={{ fontSize: 12, color: "var(--text)", textTransform: "uppercase" }}>Declared Cash</p><p style={{ fontSize: 18, fontWeight: 700 }}>{formatUGX(todayRec.declaredCash)}</p></div>
+            <div><p style={{ fontSize: 12, color: "var(--text)", textTransform: "uppercase" }}>System Cash</p><p style={{ fontSize: 18, fontWeight: 700 }}>{formatUGX(todayRec.systemCash)}</p></div>
+            <div><p style={{ fontSize: 12, color: "var(--text)", textTransform: "uppercase" }}>Variance</p><p style={{ fontSize: 18, fontWeight: 700, color: todayRec.variance === 0 ? "var(--success)" : "var(--danger)" }}>{formatUGX(todayRec.variance)}</p></div>
+            <div><p style={{ fontSize: 12, color: "var(--text)", textTransform: "uppercase" }}>Status</p>{todayRec.status === "balanced" ? <Badge variant="success">Balanced</Badge> : <Badge variant="danger">Variance Flagged</Badge>}</div>
           </div>
         </div>
       )}
@@ -9692,12 +9698,12 @@ const Reconciliation = ({ data, setData, currentUser }) => {
         <Modal title="Submit Reconciliation" onClose={() => setModal(false)} footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button><button className="btn btn-primary" onClick={submit}>Submit</button></>}>
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 13 }}>
-              <span style={{ color: "var(--text-dim)" }}>Cash revenue (in):</span>
+              <span style={{ color: "var(--text)" }}>Cash revenue (in):</span>
               <span style={{ color: "var(--success)", fontWeight: 600 }}>{formatUGX(systemCash)}</span>
             </div>
             {cashExpenses > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 13 }}>
-                <span style={{ color: "var(--text-dim)" }}>Cash expenses (out):</span>
+                <span style={{ color: "var(--text)" }}>Cash expenses (out):</span>
                 <span style={{ color: "var(--danger)", fontWeight: 600 }}>-{formatUGX(cashExpenses)}</span>
               </div>
             )}
