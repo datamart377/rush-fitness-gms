@@ -28,7 +28,7 @@ async function main() {
     [recHash]
   );
 
-  // ── 2. Plans  (mirrors the original PLANS object, prices in KES) ─
+  // ── 2. Plans  (mirrors the original PLANS object, prices in UGX) ─
   // The user can edit or relabel these; codes are stable for app code.
   const plans = [
     ['gym_daily',     'Daily (Gym)',                 'gym',    500,    1,   null, null],

@@ -191,7 +191,7 @@ router.post(
           req.body.memberId || null,
           sale.id,
           total,
-          process.env.CURRENCY || 'KES',
+          process.env.CURRENCY || 'UGX',
           req.body.paymentMethod,
           req.body.reference || null,
           noteText,

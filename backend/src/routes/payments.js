@@ -81,7 +81,7 @@ router.post(
     const out = await withTx(async (client) => {
       const payload = {
         ...req.body,
-        currency: req.body.currency || process.env.CURRENCY || 'KES',
+        currency: req.body.currency || process.env.CURRENCY || 'UGX',
         createdBy: req.user.id,
       };
       const payment = await insert(client, TABLE, payload, FIELDS);

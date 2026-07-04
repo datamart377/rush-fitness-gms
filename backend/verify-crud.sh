@@ -160,7 +160,7 @@ case "$MS_DB" in
   *) bad "Membership DB row doesn't match expected" ;;
 esac
 
-hr "14. Create payment for the membership (full payment in KES)"
+hr "14. Create payment for the membership (full payment in UGX)"
 PAY_RES=$(curl -sS --max-time 5 -X POST "${AUTH[@]}" "${JSON[@]}" "$API/api/payments" -d "{
   \"memberId\":\"$MEM_ID\",\"membershipId\":\"$MS_ID\",
   \"amount\":$PLAN_PRICE,\"method\":\"mpesa\",\"type\":\"membership\",
@@ -169,9 +169,9 @@ PAY_RES=$(curl -sS --max-time 5 -X POST "${AUTH[@]}" "${JSON[@]}" "$API/api/paym
 PAY_ID=$(echo "$PAY_RES" | extract id)
 [ -n "$PAY_ID" ] && ok "Payment recorded id=${PAY_ID:0:8}..." || { bad "Payment failed: $PAY_RES"; exit 1; }
 
-# Currency should be KES
+# Currency should be UGX
 PAY_CUR=$(psql -tA "$DB" -c "SELECT currency FROM payments WHERE id='$PAY_ID';")
-[ "$PAY_CUR" = "KES" ] && ok "Currency = KES" || bad "Currency = '$PAY_CUR' (expected KES)"
+[ "$PAY_CUR" = "UGX" ] && ok "Currency = UGX" || bad "Currency = '$PAY_CUR' (expected UGX)"
 
 # Membership.total_paid should auto-bump to plan price
 TOTAL_PAID=$(psql -tA "$DB" -c "SELECT total_paid FROM memberships WHERE id='$MS_ID';")
@@ -221,7 +221,7 @@ PAY_LIST=$(curl -sS --max-time 5 "${AUTH[@]}" "$API/api/payments?memberId=$MEM_I
 PAY_COUNT=$(echo "$PAY_LIST" | python3 -c "import sys,json;print(len(json.loads(sys.stdin.read()).get('data',[])))")
 PAY_TOTAL=$(echo "$PAY_LIST" | python3 -c "import sys,json;print(json.loads(sys.stdin.read()).get('summary',{}).get('totalAmount',0))")
 [ "$PAY_COUNT" = "1" ] && ok "1 payment for member" || bad "Got $PAY_COUNT payments"
-echo "    Total amount: KES $PAY_TOTAL"
+echo "    Total amount: UGX $PAY_TOTAL"
 
 hr "21. Cleanup test data"
 psql -q "$DB" -c "DELETE FROM payments WHERE id='$PAY_ID';" >/dev/null && ok "Deleted test payment" || bad "Cleanup payment failed"

@@ -55,8 +55,10 @@ services:
         value: https://rush-fitness-gms.onrender.com
       - key: BCRYPT_ROUNDS
         value: "10"
+      # Rush Fitness operates in Uganda — all prices are Uganda Shillings.
+      # Payments API and product sales stamp this on every row as `currency`.
       - key: CURRENCY
-        value: KES
+        value: UGX
 
   # ── Frontend (React static build) ──────────────────────────────
   # NOTE: static sites are served from Render's global CDN — no `region` allowed.
