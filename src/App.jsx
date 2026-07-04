@@ -9343,12 +9343,21 @@ const Reconciliation = ({ data, setData, currentUser }) => {
     .filter((p) => p.type === "addon" && p.activityId)
     .forEach((p) => { activityRevenue[p.activityId] = (activityRevenue[p.activityId] || 0) + Number(p.amount || 0); });
   // Sort descending by revenue for stable, top-first display.
+  //
+  // Lookup must cover BOTH id shapes because walk-ins and payments can be keyed
+  // by either:
+  //   • the DB UUID (adaptActivity exposes as `.uuid`) — normal path once the
+  //     record originated from the backend, and
+  //   • the legacy code (adaptActivity exposes as `.id`, e.g. "aerobics") —
+  //     used by the ACTIVITIES seed constant and any older cached records.
+  // Falling back to `id` unchanged would render a raw UUID in the UI, which is
+  // exactly the bug this list is fixing.
   const activityList = (data.activities && data.activities.length ? data.activities : ACTIVITIES);
   const activityRevenueRows = Object.entries(activityRevenue)
     .map(([id, value]) => ({
       id,
       value,
-      name: activityList.find((a) => (a.id || a.code) === id)?.name || id,
+      name: activityList.find((a) => a.uuid === id || (a.id || a.code) === id)?.name || id,
     }))
     .sort((a, b) => b.value - a.value);
   const activityRevenueTotal = activityRevenueRows.reduce((s, r) => s + r.value, 0);
