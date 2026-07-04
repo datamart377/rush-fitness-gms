@@ -8,6 +8,36 @@ const { pool } = require('../src/db/pool');
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '..', 'migrations');
 
+// ── Wait for Postgres to be ready to accept sessions ──
+// Handles transient "cannot_connect_now" states that happen during
+// Render blueprint syncs, plan changes, and maintenance windows.
+// SQLSTATE 57P03 = the daemon accepted the TCP handshake but is
+// still starting up / shutting down / recovering; ECONNREFUSED /
+// ETIMEDOUT / ENOTFOUND cover TCP + DNS hiccups during the same
+// class of restart. Retry with a fixed 2s backoff up to 30 tries
+// (60s total) — comfortably longer than Render's typical restart
+// window and short enough that a truly-dead DB fails the deploy
+// promptly instead of hanging.
+async function waitForDb({ maxTries = 30, delayMs = 2000 } = {}) {
+  for (let i = 1; i <= maxTries; i++) {
+    try {
+      await pool.query('SELECT 1');
+      if (i > 1) console.log(`[migrate] DB ready after ${i} tries.`);
+      return;
+    } catch (err) {
+      const code = err.code;
+      const transient =
+        code === '57P03' ||           // cannot_connect_now
+        code === 'ECONNREFUSED' ||    // TCP refused
+        code === 'ETIMEDOUT' ||       // network hiccup
+        code === 'ENOTFOUND';         // DNS not resolving yet
+      if (!transient || i === maxTries) throw err;
+      console.log(`[migrate] DB not ready (${code}), retry ${i}/${maxTries} in ${delayMs}ms...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+}
+
 async function ensureMetaTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -23,6 +53,7 @@ async function applied() {
 }
 
 async function main() {
+  await waitForDb();
   await ensureMetaTable();
   const done = await applied();
 

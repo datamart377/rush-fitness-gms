@@ -3,7 +3,35 @@ require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const { pool } = require('../src/db/pool');
 
+// ── Wait for Postgres to be ready to accept sessions ──
+// Mirrors backend/scripts/migrate.js: preDeployCommand runs migrate
+// then seed back-to-back, and both can hit Render's blueprint-sync
+// restart window. SQLSTATE 57P03 = cannot_connect_now (starting up
+// / shutting down / recovering); ECONNREFUSED / ETIMEDOUT / ENOTFOUND
+// cover TCP + DNS hiccups during the same class of restart. 30 tries
+// × 2s = 60s max wait, matching migrate.js.
+async function waitForDb({ maxTries = 30, delayMs = 2000 } = {}) {
+  for (let i = 1; i <= maxTries; i++) {
+    try {
+      await pool.query('SELECT 1');
+      if (i > 1) console.log(`[seed] DB ready after ${i} tries.`);
+      return;
+    } catch (err) {
+      const code = err.code;
+      const transient =
+        code === '57P03' ||
+        code === 'ECONNREFUSED' ||
+        code === 'ETIMEDOUT' ||
+        code === 'ENOTFOUND';
+      if (!transient || i === maxTries) throw err;
+      console.log(`[seed] DB not ready (${code}), retry ${i}/${maxTries} in ${delayMs}ms...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+}
+
 async function main() {
+  await waitForDb();
   const ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10);
 
   // ── 1. Admin user ───────────────────────────────────────────────
