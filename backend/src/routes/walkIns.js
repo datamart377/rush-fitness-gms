@@ -17,6 +17,10 @@ const FIELDS = [
   // Safety + demographic fields. Added in migration 007 so walk-in emergency
   // contacts are actually persisted instead of being silently dropped.
   'gender', 'emergency_name', 'emergency_phone', 'emergency_phone_2',
+  // Optional FK to the members table — populated when a registered member
+  // is checked in as a walk-in because their pre-paid balance ran out.
+  // See migration 014.
+  'member_id',
 ];
 
 router.use(requireAuth);
@@ -61,6 +65,8 @@ router.post(
     body('emergencyName').optional({ checkFalsy: false }).isString().trim().isLength({ max: 120 }),
     body('emergencyPhone').optional({ checkFalsy: false }).isString().trim().isLength({ max: 40 }),
     body('emergencyPhone2').optional({ checkFalsy: false }).isString().trim().isLength({ max: 40 }),
+    // Optional link back to a members.id row (see migration 014).
+    body('memberId').optional({ checkFalsy: true }).isUUID(),
   ]),
   asyncHandler(async (req, res) => {
     const out = await withTx(async (client) => {
@@ -80,12 +86,18 @@ router.post(
       const row = await insert(client, TABLE, body, FIELDS);
 
       // If created already-checked-in, also log an attendance row.
+      // When the walk-in is linked to a member (see migration 014, e.g. a
+      // depleted-prepaid fallback), populate attendance.member_id too so the
+      // visit shows up in the member's attendance history. walk_in_id stays
+      // set so the row is still recognisable as a walk-in in reports.
       if (row.checkedIn) {
         await client.query(
           `INSERT INTO attendance
               (member_id, walk_in_id, guest_name, source, recorded_by, visit_date, check_in_at, activity_id)
-           VALUES (NULL, $1, $2, 'walkin', $3, $4, NOW(), $5)`,
-          [row.id, row.fullName || 'Walk-In Guest', req.user.id, row.visitDate || row.visit_date, row.activityId || null]
+           VALUES ($6, $1, $2, 'walkin', $3, $4, NOW(), $5)`,
+          [row.id, row.fullName || 'Walk-In Guest', req.user.id,
+           row.visitDate || row.visit_date, row.activityId || null,
+           row.memberId || null]
         );
       }
       return row;
@@ -122,13 +134,15 @@ router.post(
       const wi = r.rows[0];
 
       // Also create a corresponding row in `attendance` so this guest shows up
-      // in the Attendance Log alongside members. member_id stays NULL,
-      // walk_in_id + guest_name carry the identity.
+      // in the Attendance Log alongside members. If the walk-in is linked to a
+      // member (see migration 014), populate attendance.member_id too so the
+      // visit shows up in the member's history. walk_in_id + guest_name still
+      // mark the row as a walk-in for source-of-truth reporting.
       await client.query(
         `INSERT INTO attendance
             (member_id, walk_in_id, guest_name, source, recorded_by, visit_date, check_in_at, activity_id)
-         VALUES (NULL, $1, $2, 'staff', $3, $4, NOW(), $5)`,
-        [wi.id, wi.full_name || 'Walk-In Guest', req.user.id, wi.visit_date, wi.activity_id || null]
+         VALUES ($6, $1, $2, 'staff', $3, $4, NOW(), $5)`,
+        [wi.id, wi.full_name || 'Walk-In Guest', req.user.id, wi.visit_date, wi.activity_id || null, wi.member_id || null]
       );
 
       return wi;

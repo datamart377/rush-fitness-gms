@@ -256,6 +256,10 @@ const adaptWalkIn = (w) => {
     emergencyName: w.emergencyName || "",
     emergency: w.emergencyPhone || "",
     emergency2: w.emergencyPhone2 || "",
+    // Optional FK back to the members table (migration 014). Set when a
+    // registered member with a depleted pre-paid balance was checked in as
+    // a walk-in. Coerced to null so the value is easy to test with `?`.
+    memberId: w.memberId || null,
   };
 };
 
@@ -1754,8 +1758,10 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const [mode, setMode] = useState("member"); // member | walkin | history
   const isAdmin = currentUser?.role === "admin";
 
-  // Walk-in quick form
-  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null });
+  // Walk-in quick form. `memberId` is populated when the walk-in flow was
+  // entered from an existing member whose pre-paid balance ran out — the
+  // resulting walk_ins row is linked back to members.id (migration 014).
+  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null, memberId: null });
   const [walkinSearch, setWalkinSearch] = useState("");
   // Walk-in records filters (date range, payment status, check-in status)
   const [walkinFilter, setWalkinFilter] = useState({ from: "", to: "", paymentStatus: "all", checkedIn: "all", gender: "all", activity: "all", memberPlan: "all" });
@@ -1764,6 +1770,42 @@ const CheckIn = ({ data, setData, currentUser }) => {
   // collide with the walk-in records view.
   const [memberHistorySearch, setMemberHistorySearch] = useState("");
   const [memberHistoryFilter, setMemberHistoryFilter] = useState({ from: "", to: "", plan: "all", activity: "all", source: "all", checkedOut: "all" });
+
+  // Cross-page hand-off from Memberships → CheckIn. When a member's pre-paid
+  // balance runs below the daily rate, the Memberships row "Check In as
+  // Walk-In" button stashes the member snapshot into `data.pendingWalkInPrefill`
+  // and calls setPage("checkin"). We consume it on mount, pre-fill the
+  // walk-in form (including memberId → migration 014 link), switch to the
+  // Walk-In tab, and clear the field so a subsequent visit to CheckIn
+  // doesn't accidentally re-trigger the fallback.
+  useEffect(() => {
+    const p = data && data.pendingWalkInPrefill;
+    if (!p) return;
+    setWalkinForm((f) => ({
+      ...f,
+      firstName: p.firstName || "",
+      lastName:  p.lastName  || "",
+      phone:     p.phone     || "",
+      gender:    p.gender    || "Male",
+      emergency:  p.emergency  || p.emergencyPhone  || "",
+      emergency2: p.emergency2 || p.emergencyPhone2 || "",
+      memberId: p.id || null,
+      selectedActivities: [],
+      paymentMethod: "cash",
+      paymentStatus: "paid",
+      locker: null,
+      discountId: null,
+    }));
+    setMode("walkin");
+    setData((d) => {
+      if (!d || !d.pendingWalkInPrefill) return d;
+      const { pendingWalkInPrefill: _drop, ...rest } = d;
+      return rest;
+    });
+    // Mount-only: we intentionally do NOT re-run on data changes so that
+    // clearing the field inside this same effect doesn't cause a loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const results = search.length >= 2 ? data.members.filter((m) => {
     const q = search.toLowerCase();
@@ -2077,7 +2119,36 @@ const CheckIn = ({ data, setData, currentUser }) => {
     }
   };
 
-  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null }); };
+  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null, memberId: null }); };
+
+  // Fallback flow: a pre-paid member whose balance is below the daily rate
+  // gets checked in as a walk-in instead of being turned away. We pre-fill
+  // the walk-in form from their member record and stamp `memberId` so
+  // migration 014 can link the walk-in row back to the member for history.
+  // The phone-collision gate in handleQuickWalkIn recognises the memberId
+  // marker (or a depleted-prepaid balance) and lets the request through.
+  const openWalkInFallback = (from) => {
+    const src = from || selected;
+    if (!src) return;
+    setWalkinForm((f) => ({
+      ...f,
+      firstName: src.firstName || "",
+      lastName:  src.lastName  || "",
+      phone:     src.phone     || "",
+      gender:    src.gender    || "Male",
+      emergency:  src.emergency  || src.emergencyPhone  || "",
+      emergency2: src.emergency2 || src.emergencyPhone2 || "",
+      memberId: src.id,
+      selectedActivities: [],
+      paymentMethod: "cash",
+      paymentStatus: "paid",
+      locker: null,
+      discountId: null,
+    }));
+    setSelected(null);
+    setCheckedIn(false);
+    setMode("walkin");
+  };
 
   // Quick walk-in check-in from the walk-ins panel
   const checkInWalkInGuest = async (w) => {
@@ -2131,12 +2202,26 @@ const CheckIn = ({ data, setData, currentUser }) => {
           return true;
         });
         if (activeMs) {
-          alert(
-            `${fullName(matchedMember)} is an active member on the "${getPlanName(activeMs.plan)}" plan.\n\n` +
-            `Members with an active membership cannot be checked in as walk-ins. ` +
-            `Switch to the Member Check-In tab instead.`
-          );
-          return;
+          // Depleted-prepaid escape hatch: a pre-paid member whose remaining
+          // balance is below the daily rate can be checked in as a walk-in.
+          // Migration 014 records the link back to the member via
+          // walk_ins.member_id, so the visit still shows up in their history
+          // even though it goes through the walk-in route. The Memberships
+          // "Check In as Walk-In" button and the CheckIn insufficient-balance
+          // card both use this exact path — this gate must not block them.
+          const isDepletedPrepaid =
+            activeMs.plan === "prepaid" &&
+            (activeMs.prepaidBalance || 0) < (PLANS.prepaid?.dailyRate || 20000);
+          // Also allow when the caller already stamped memberId — that means
+          // staff has explicitly opted into the fallback via the UI.
+          if (!isDepletedPrepaid && !walkinForm.memberId) {
+            alert(
+              `${fullName(matchedMember)} is an active member on the "${getPlanName(activeMs.plan)}" plan.\n\n` +
+              `Members with an active membership cannot be checked in as walk-ins. ` +
+              `Switch to the Member Check-In tab instead.`
+            );
+            return;
+          }
         }
       }
     }
@@ -2189,6 +2274,11 @@ const CheckIn = ({ data, setData, currentUser }) => {
         activityId: primaryActivityId,
         paymentStatus: walkinForm.paymentStatus,
         checkedIn: isCheckedIn,
+        // Optional FK back to the member (see migration 014). Set when this
+        // walk-in was opened from the "insufficient prepaid balance"
+        // fallback in the CheckIn card or from Memberships; undefined for
+        // ordinary anonymous walk-ins.
+        memberId:        walkinForm.memberId    || undefined,
         // Safety + demographic fields (persisted via migration 007).
         gender:          walkinForm.gender     || undefined,
         emergencyPhone:  walkinForm.emergency  || "",
@@ -2663,7 +2753,17 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 <span>{Math.floor(prepaidBalance / PREPAID_BASE_FEE)}</span>
               </div>
               {insufficientPrepaid && (
-                <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8, fontWeight: 600 }}>⚠ Insufficient balance for this visit. Please top up via Memberships before check-in.</p>
+                <>
+                  <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 8, fontWeight: 600 }}>⚠ Insufficient balance for this visit. Top up via Memberships, or check this member in as a walk-in.</p>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-warning"
+                    style={{ marginTop: 8, width: "100%", justifyContent: "center" }}
+                    onClick={() => openWalkInFallback(selected)}
+                  >
+                    <UserPlus size={14} /> Check In as Walk-In
+                  </button>
+                </>
               )}
               {!insufficientPrepaid && prepaidBalance < prepaidVisitCost * 3 && (
                 <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 8 }}>⚠ Low balance — consider topping up soon.</p>
@@ -4911,7 +5011,7 @@ const getMembershipBalance = (ms /* , payments */) => {
   return { totalDue, totalPaid, balance: totalDue - totalPaid, isPaidInFull: totalPaid >= totalDue };
 };
 
-const Memberships = ({ data, setData, currentUser }) => {
+const Memberships = ({ data, setData, currentUser, setPage }) => {
   const isAdmin = currentUser?.role === "admin";
   const [modal, setModal] = useState(null); // 'assign' | 'pay' | null
   const [form, setForm] = useState({ memberId: "", groupMemberIds: [], plan: "gym_monthly", method: "cash", discountId: "", paymentAmount: "", paymentType: "full", depositAmount: "", startDate: "", months: 1 });
@@ -5813,6 +5913,36 @@ const Memberships = ({ data, setData, currentUser }) => {
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {isPrepaidMs && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openTopUp(ms)}><Plus size={12} /> Top Up</button>}
+                      {/* Depleted-prepaid fallback: when the remaining balance
+                          is below the daily rate the member can't be checked
+                          in on their plan. Offer a one-click walk-in check-in
+                          that pre-fills from the member record and links back
+                          via walk_ins.member_id (migration 014). The Check-In
+                          page reads `data.pendingWalkInPrefill` on mount and
+                          drops staff straight into the walk-in tab. */}
+                      {isPrepaidMs && ms.status === "active" && !exp && prepaidBal < PLANS.prepaid.dailyRate && member && (
+                        <button
+                          className="btn btn-sm btn-warning"
+                          title="Check this member in as a walk-in (their pre-paid balance is below the daily rate)"
+                          onClick={() => {
+                            setData((d) => ({
+                              ...d,
+                              pendingWalkInPrefill: {
+                                id: member.id,
+                                firstName: member.firstName || "",
+                                lastName:  member.lastName  || "",
+                                phone:     member.phone     || "",
+                                gender:    member.gender    || "Male",
+                                emergency:  member.emergency  || member.emergencyPhone  || "",
+                                emergency2: member.emergency2 || member.emergencyPhone2 || "",
+                              },
+                            }));
+                            if (typeof setPage === "function") setPage("checkin");
+                          }}
+                        >
+                          <UserPlus size={12} /> Check In as Walk-In
+                        </button>
+                      )}
                       {isPostpaidMs && ms.status === "active" && postpaidOut > 0 && <button className="btn btn-sm btn-primary" onClick={() => openSettle(ms)}><DollarSign size={12} /> Settle</button>}
                       {!isPrepaidMs && !isPostpaidMs && isPending && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
                       {!isPrepaidMs && !isPostpaidMs && !isPending && !bal.isPaidInFull && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openPayBalance(ms)}><DollarSign size={12} /> Pay Balance</button>}
@@ -12496,7 +12626,7 @@ export default function App() {
       case "dashboard": return <Dashboard data={data} />;
       case "checkin": return <CheckIn data={data} setData={securedSetData} currentUser={currentUser} />;
       case "members": return <Members data={data} setData={securedSetData} currentUser={currentUser} />;
-      case "memberships": return <Memberships data={data} setData={securedSetData} currentUser={currentUser} />;
+      case "memberships": return <Memberships data={data} setData={securedSetData} currentUser={currentUser} setPage={setPage} />;
       case "payments": return <Payments data={data} />;
       case "shop": return <Shop data={data} setData={securedSetData} currentUser={currentUser} />;
       case "expenses": return <Expenses data={data} setData={securedSetData} currentUser={currentUser} />;
