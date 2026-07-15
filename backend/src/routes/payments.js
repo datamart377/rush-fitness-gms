@@ -75,7 +75,7 @@ router.post(
     body('payerPhone').optional({ checkFalsy: true }).isString(),
     body('reference').optional({ checkFalsy: true }).isString(),
     body('cardLast4').optional({ checkFalsy: true }).isString().isLength({ min: 4, max: 4 }),
-    body('type').optional().isIn(['membership', 'addon', 'walk_in', 'product', 'other']),
+    body('type').optional().isIn(['membership', 'addon', 'addon_topup', 'addon_debit', 'walk_in', 'product', 'other']),
   ]),
   asyncHandler(async (req, res) => {
     const out = await withTx(async (client) => {
@@ -86,10 +86,33 @@ router.post(
       };
       const payment = await insert(client, TABLE, payload, FIELDS);
       if (payment.membershipId) {
-        await client.query(
-          `UPDATE memberships SET total_paid = total_paid + $1 WHERE id = $2`,
-          [payment.amount, payment.membershipId]
-        );
+        // Pre-paid ADD-ON wallet (migration 015). Two payment types drive
+        // the wallet without touching total_paid, which is scoped to the
+        // base plan cost — mixing add-on top-ups into total_paid would
+        // corrupt the "has the member paid their monthly fee?" derivation.
+        //
+        //   • addon_topup → real money collected for future add-on visits
+        //   • addon_debit → wallet consumption at check-in (no cash-in)
+        //
+        // GREATEST(0, …) prevents a debit from driving addon_balance
+        // negative even if two concurrent debits race past the client-side
+        // balance check.
+        if (payment.type === 'addon_topup') {
+          await client.query(
+            `UPDATE memberships SET addon_balance = addon_balance + $1 WHERE id = $2`,
+            [payment.amount, payment.membershipId]
+          );
+        } else if (payment.type === 'addon_debit') {
+          await client.query(
+            `UPDATE memberships SET addon_balance = GREATEST(0, addon_balance - $1) WHERE id = $2`,
+            [payment.amount, payment.membershipId]
+          );
+        } else {
+          await client.query(
+            `UPDATE memberships SET total_paid = total_paid + $1 WHERE id = $2`,
+            [payment.amount, payment.membershipId]
+          );
+        }
       }
       return payment;
     });

@@ -1955,9 +1955,18 @@ const CheckIn = ({ data, setData, currentUser }) => {
       };
     }
 
-    // ── NON-PREPAID: charge add-ons separately (cash payment).
+    // ── NON-PREPAID: charge add-ons separately.
     //    Daily plans pay standalone prices, monthly memberships pay addon prices.
+    //    NEW (migration 015): the pre-paid ADD-ON WALLET is drained first.
+    //      • walletUsed  → `addon_debit` payment; backend atomically decrements
+    //        memberships.addon_balance. No cash-in.
+    //      • cashDue     → normal `addon` payment (existing behaviour). This
+    //        is the shortfall staff still has to collect at reception.
+    //    When the wallet fully covers the cost, cashDue == 0 and no cash
+    //    payment is emitted. When the wallet is empty, walletUsed == 0 and
+    //    the flow matches the pre-migration behaviour (per-activity cash rows).
     let newPayments = [];
+    let addonWalletDebit = 0;   // amount drained from the wallet on this check-in
     if (!isPrepaid) {
       const bundleDiscount = addons.length > 1 ? PREPAID_BUNDLE_DISCOUNT : 0;
       const activityPrices = addons.map((actId) => {
@@ -1966,17 +1975,69 @@ const CheckIn = ({ data, setData, currentUser }) => {
       });
       const totalBeforeDiscount = activityPrices.reduce((s, p) => s + p, 0);
       const totalAfterDiscount = totalBeforeDiscount - bundleDiscount;
-      newPayments = bundleDiscount > 0
-        ? [{ id: generateId(), memberId: selected.id, membershipId: null, amount: totalAfterDiscount, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: addons.join("+"), discountId: null, discountAmount: bundleDiscount, note: `Bundle: ${addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ")} (${formatUGX(bundleDiscount)} discount)` }]
-        : addons.map((actId) => {
+      const actNamesLine = addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ");
+      const discountTag = bundleDiscount > 0 ? ` (${formatUGX(bundleDiscount)} bundle discount)` : "";
+
+      // Wallet consumption first. Only meaningful when the membership has a
+      // real backend id — in-memory seed rows don't have one and can't be
+      // atomically debited server-side.
+      const walletBal = membership?.id ? Number(membership.addonBalance || 0) : 0;
+      const walletUsed = Math.max(0, Math.min(walletBal, totalAfterDiscount));
+      const cashDue = totalAfterDiscount - walletUsed;
+      addonWalletDebit = walletUsed;
+
+      if (walletUsed > 0) {
+        newPayments.push({
+          id: generateId(),
+          memberId: selected.id,
+          membershipId: membership.id,
+          amount: walletUsed,
+          method: "cash", // meaningless for a debit but keeps the local row shape valid
+          paidAt: new Date().toISOString(),
+          type: "addon_debit",
+          activityId: addons.length === 1 ? addons[0] : null,
+          discountId: null,
+          discountAmount: 0,
+          note: `Add-on wallet debit: ${actNamesLine}${discountTag}`,
+        });
+      }
+
+      if (cashDue > 0) {
+        if (walletUsed > 0 || bundleDiscount > 0) {
+          // Mixed wallet+cash OR pure bundled cash → single lump-sum row so
+          // the amount reconciles cleanly (splitting per activity would need
+          // pro-rating that's hard to audit).
+          newPayments.push({
+            id: generateId(),
+            memberId: selected.id,
+            membershipId: null,
+            amount: cashDue,
+            method: "cash",
+            paidAt: new Date().toISOString(),
+            type: "addon",
+            activityId: addons.length === 1 ? addons[0] : addons.join("+"),
+            discountId: null,
+            discountAmount: walletUsed > 0 ? 0 : bundleDiscount,
+            note: walletUsed > 0
+              ? `Add-on cash shortfall: ${actNamesLine}${discountTag} (wallet covered ${formatUGX(walletUsed)})`
+              : `Bundle: ${actNamesLine}${discountTag}`,
+          });
+        } else {
+          // Wallet empty AND no bundle discount → keep the legacy per-activity
+          // ledger rows so historical reports remain granular.
+          newPayments = newPayments.concat(addons.map((actId) => {
             const act = ACTIVITIES.find((a) => a.id === actId);
             const price = isDailyPlan ? act.standalone : act.addon;
             return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0 };
-          });
+          }));
+        }
+      }
     }
 
     // Backend already created the attendance row & occupied the locker (above).
-    // Locally append non-persisted bits: prepaid balance change, addon payments.
+    // Locally append non-persisted bits: prepaid balance change, addon payments,
+    // and (new) the add-on wallet decrement so the row on Memberships
+    // refreshes immediately without waiting for a reload.
     setData((d) => ({
       ...d,
       payments: [
@@ -1988,19 +2049,25 @@ const CheckIn = ({ data, setData, currentUser }) => {
       memberships: isPrepaid
         ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, prepaidBalance: prepaidBalance - prepaidVisitCost } : ms)
         : isPostpaid
-          ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, postpaidOutstanding: postpaidOutstanding + postpaidPerVisit, postpaidVisitsUsed: postpaidVisitsUsed + 1 } : ms)
-          : d.memberships,
+          ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, postpaidOutstanding: postpaidOutstanding + postpaidPerVisit, postpaidVisitsUsed: postpaidVisitsUsed + 1, addonBalance: Math.max(0, Number(ms.addonBalance || 0) - addonWalletDebit) } : ms)
+          : addonWalletDebit > 0
+            ? d.memberships.map((ms) => ms.id === membership?.id ? { ...ms, addonBalance: Math.max(0, Number(ms.addonBalance || 0) - addonWalletDebit) } : ms)
+            : d.memberships,
     }));
     setCheckedIn(true);
 
     // Persist non-prepaid add-on payments to backend so they sync.
+    // Each local row already carries its own `type` (`addon` or `addon_debit`)
+    // and — for debits — the `membershipId` the backend needs to atomically
+    // decrement addon_balance in the same transaction.
     if (!isPrepaid && newPayments.length) {
       Promise.all(newPayments.map((p) =>
         paymentsApi.create({
           memberId: p.memberId,
+          membershipId: p.membershipId || undefined,
           amount: p.amount,
           method: paymentMethodToApi(p.method),
-          type: "addon",
+          type: p.type || "addon",
           discountAmount: p.discountAmount || undefined,
           notes: p.note,
         }).catch((e) => console.warn("Add-on payment persist failed:", e))
@@ -2904,6 +2971,37 @@ const CheckIn = ({ data, setData, currentUser }) => {
                       <span>Total</span>
                       <span>{formatUGX(addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) - (addons.length > 1 ? 10000 : 0))}</span>
                     </div>
+                    {/* Add-on wallet consumption preview (migration 015). Only
+                        surfaces for non-prepaid members who actually have a
+                        wallet balance — for everyone else the check-in flow
+                        stays visually identical to the pre-migration UI. */}
+                    {!isPrepaid && Number(membership?.addonBalance || 0) > 0 && (() => {
+                      const cost = addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) - (addons.length > 1 ? 10000 : 0);
+                      const bal = Number(membership.addonBalance || 0);
+                      const walletUsed = Math.max(0, Math.min(bal, cost));
+                      const cashDue = cost - walletUsed;
+                      return (
+                        <div style={{ marginTop: 8, padding: 8, background: "var(--accent-dim)", border: "1px solid var(--accent)", borderRadius: "var(--radius-xs)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-dim)" }}>
+                            <span>Add-on wallet balance</span>
+                            <span style={{ fontWeight: 600, color: "var(--accent)" }}>{formatUGX(bal)}</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
+                            <span>Debit from wallet</span>
+                            <span style={{ fontWeight: 600, color: "var(--success)" }}>-{formatUGX(walletUsed)}</span>
+                          </div>
+                          {cashDue > 0 && (
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
+                              <span>Cash shortfall (collect at reception)</span>
+                              <span style={{ fontWeight: 700, color: "var(--warning)" }}>{formatUGX(cashDue)}</span>
+                            </div>
+                          )}
+                          {cashDue === 0 && walletUsed > 0 && (
+                            <div style={{ fontSize: 10, color: "var(--success)", marginTop: 4, fontWeight: 600 }}>Fully covered by add-on wallet — no cash needed.</div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -5364,6 +5462,49 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
     setModal("topup");
   };
 
+  // ── Add-On Wallet Top-Up (migration 015) ─────────────────────────────
+  // Members on any non-prepaid plan can load a UGX balance that gets spent
+  // when add-on activities are selected at check-in. The wallet lives on
+  // memberships.addon_balance; this modal records an `addon_topup` payment
+  // and the backend atomically bumps the column. Pre-paid plans use their
+  // main wallet for add-ons and don't need a separate one.
+  const openTopUpAddons = (ms) => {
+    setPayTarget(ms);
+    setForm((f) => ({ ...f, method: "cash", paymentAmount: "" }));
+    setModal("topupAddons");
+  };
+
+  const topUpAddons = async () => {
+    if (!payTarget) return;
+    const amount = Number(form.paymentAmount) || 0;
+    if (amount <= 0) { alert("Enter a valid top-up amount."); return; }
+
+    setBusy(true);
+    setApiError("");
+    try {
+      await paymentsApi.create({
+        memberId: payTarget.memberId,
+        membershipId: payTarget.id,
+        amount,
+        method: paymentMethodToApi(form.method),
+        // Special type: backend detects this and bumps memberships.addon_balance
+        // instead of memberships.total_paid.
+        type: "addon_topup",
+        notes: `Add-on wallet top-up: ${formatUGX(amount)}`,
+      });
+      await reloadMemberships();
+      setModal(null);
+      setPayTarget(null);
+    } catch (err) {
+      const detail = Array.isArray(err?.details) && err.details.length
+        ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
+        : "";
+      setApiError([err?.message, detail].filter(Boolean).join(" – "));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openSettle = (ms) => {
     setPayTarget(ms);
     // Per policy, post-paid settles the FULL outstanding — the amount is
@@ -5848,6 +5989,11 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
               const postpaidUsed = ms.postpaidVisitsUsed || 0;
               const postpaidAlloc = ms.postpaidVisitsAllocated || 0;
               const postpaidRate = ms.postpaidPerVisit || PLANS.postpaid.dailyRate;
+              // Add-on wallet (migration 015). Available on every non-prepaid
+              // plan. Displayed inline next to the base balance/status cell
+              // and topped up via the "Top Up Add-Ons" row action.
+              const addonBal = ms.addonBalance || 0;
+              const showAddonWallet = !isPrepaidMs && ms.status === "active" && !exp;
               // Status-aware colour for the Payment cell.
               //   Active + paid       → green  (success — happy path)
               //   Active + partial    → amber  (warning — needs follow-up)
@@ -5909,10 +6055,35 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
                   </td>
                   <td>
                     {isPending ? <Badge variant="warning">Pending Payment</Badge> : ms.status === "frozen" ? <Badge variant="warning">Frozen</Badge> : exp ? <Badge variant="danger">Expired</Badge> : isPrepaidMs && prepaidBal < PLANS.prepaid.dailyRate ? <Badge variant="danger">Low Balance</Badge> : isPostpaidMs && postpaidOut > 0 ? <Badge variant="warning">Owes {formatUGX(postpaidOut)}</Badge> : <Badge variant="success">Active</Badge>}
+                    {/* Add-on wallet indicator (migration 015). Small chip
+                        under the status badge so staff can see wallet
+                        health at a glance on non-prepaid plans. Hidden
+                        when the wallet is empty AND the plan is not
+                        eligible for top-ups (frozen / expired) to keep
+                        the table quiet. */}
+                    {showAddonWallet && addonBal > 0 && (
+                      <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-muted)" }}>
+                        Add-on wallet: <span style={{ color: "var(--accent)", fontWeight: 600 }}>{formatUGX(addonBal)}</span>
+                      </div>
+                    )}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {isPrepaidMs && ms.status === "active" && <button className="btn btn-sm btn-primary" onClick={() => openTopUp(ms)}><Plus size={12} /> Top Up</button>}
+                      {/* Add-on wallet top-up (migration 015). Non-prepaid
+                          plans only — pre-paid already covers add-ons from
+                          its own wallet. Shown on active + non-expired rows
+                          so staff can load balance for future visits
+                          regardless of whether the base plan is fully paid. */}
+                      {showAddonWallet && (
+                        <button
+                          className="btn btn-sm btn-secondary"
+                          title="Top up this member's pre-paid add-on wallet"
+                          onClick={() => openTopUpAddons(ms)}
+                        >
+                          <Plus size={12} /> Top Up Add-Ons
+                        </button>
+                      )}
                       {/* Depleted-prepaid fallback: when the remaining balance
                           is below the daily rate the member can't be checked
                           in on their plan. Offer a one-click walk-in check-in
@@ -6658,6 +6829,85 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
                     <span style={{ color: "var(--text-muted)" }}>Visits covered</span>
                     <span style={{ color: "var(--success)", fontWeight: 600 }}>{Math.floor(newBal / PLANS.prepaid.dailyRate)} visits</span>
                   </div>
+                </div>
+              )}
+            </Modal>
+          );
+        })()
+      )}
+
+      {/* TOP-UP ADD-ON WALLET MODAL (migration 015) — for non-prepaid plans */}
+      {modal === "topupAddons" && payTarget && (
+        (() => {
+          const member = data.members.find((m) => m.id === payTarget.memberId);
+          const currentBal = payTarget.addonBalance || 0;
+          const topUpAmount = Number(form.paymentAmount) || 0;
+          const newBal = currentBal + topUpAmount;
+          // Assume the standard 10,000 UGX add-on price for monthly/annual
+          // plans. This is just an estimate for the "visits covered" hint.
+          const estAddonPrice = 10000;
+          return (
+            <Modal title="Top Up Add-On Wallet" onClose={() => { if (!busy) { setModal(null); setPayTarget(null); } }} footer={
+              <>
+                <button className="btn btn-secondary" onClick={() => { setModal(null); setPayTarget(null); }} disabled={busy}>Cancel</button>
+                <button className="btn btn-primary" onClick={topUpAddons} disabled={busy || !topUpAmount || topUpAmount <= 0}>{busy ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Saving...</> : <><Plus size={14} /> Top Up {topUpAmount > 0 ? formatUGX(topUpAmount) : ""}</>}</button>
+              </>
+            }>
+              <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>{fullName(member)}</h3>
+                <p style={{ color: "var(--text-dim)", marginTop: 2 }}>{getPlanName(payTarget.plan)} · Add-On Wallet</p>
+              </div>
+
+              <div style={{ background: "var(--accent-dim)", border: "1px solid var(--accent)", borderRadius: "var(--radius-sm)", padding: 16, marginBottom: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Current Add-On Balance</span>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-display)" }}>{formatUGX(currentBal)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: "var(--text-muted)" }}>
+                  <span>Est. add-ons covered</span>
+                  <span style={{ fontWeight: 600 }}>{Math.floor(currentBal / estAddonPrice)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 12, color: "var(--text-muted)" }}>
+                  <span>Est. add-on price</span>
+                  <span>{formatUGX(estAddonPrice)}/activity</span>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Top-up Amount (UGX) *</label>
+                <input type="number" value={form.paymentAmount} onChange={(e) => setForm({ ...form, paymentAmount: e.target.value })} placeholder="e.g. 50000" autoFocus />
+              </div>
+
+              <div className="form-group">
+                <label>Payment Method</label>
+                <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
+                  <option value="cash">Cash</option><option value="mobile_money_mtn">Mobile Money (MTN)</option><option value="mobile_money_airtel">Mobile Money (Airtel)</option><option value="card">Card</option>
+                </select>
+              </div>
+
+              <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: "20000" })} style={{ padding: "4px 10px" }}>+20k</button>
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: "50000" })} style={{ padding: "4px 10px" }}>+50k</button>
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: "100000" })} style={{ padding: "4px 10px" }}>+100k</button>
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => setForm({ ...form, paymentAmount: "200000" })} style={{ padding: "4px 10px" }}>+200k</button>
+              </div>
+
+              {topUpAmount > 0 && (
+                <div style={{ marginTop: 16, padding: 12, background: "var(--success-dim)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                    <span style={{ color: "var(--text-dim)" }}>After top-up</span>
+                    <span style={{ fontWeight: 700, color: "var(--success)", fontSize: 16 }}>{formatUGX(newBal)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 4 }}>
+                    <span style={{ color: "var(--text-muted)" }}>Est. add-ons covered</span>
+                    <span style={{ color: "var(--success)", fontWeight: 600 }}>{Math.floor(newBal / estAddonPrice)} activities</span>
+                  </div>
+                </div>
+              )}
+
+              {apiError && (
+                <div style={{ marginTop: 12, padding: 10, background: "var(--danger-dim)", border: "1px solid var(--danger)", borderRadius: "var(--radius-sm)", color: "var(--danger)", fontSize: 12 }}>
+                  {apiError}
                 </div>
               )}
             </Modal>
