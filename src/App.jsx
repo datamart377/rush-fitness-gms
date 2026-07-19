@@ -1768,6 +1768,11 @@ const CheckIn = ({ data, setData, currentUser }) => {
   // Walk-in records filters (date range, payment status, check-in status)
   const [walkinFilter, setWalkinFilter] = useState({ from: "", to: "", paymentStatus: "all", checkedIn: "all", gender: "all", activity: "all", memberPlan: "all" });
   const [editWalkin, setEditWalkin] = useState(null);
+  // Member check-in edit modal state — admin-only, mirrors editWalkin. The
+  // modal exposes a narrow whitelist of columns (Time in, Time out, Activity,
+  // Locker) matching the backend PATCH /attendance/:id whitelist so a stray
+  // field can't be smuggled through.
+  const [editAttendance, setEditAttendance] = useState(null);
   // Member check-in records — separate search + filter state so it doesn't
   // collide with the walk-in records view.
   const [memberHistorySearch, setMemberHistorySearch] = useState("");
@@ -3729,21 +3734,27 @@ const CheckIn = ({ data, setData, currentUser }) => {
                             title="Delete walk-in record (admin only)"
                             onClick={async () => {
                               const who = `${w.firstName || ""} ${w.lastName || w.name || ""}`.trim() || w.phone || "this record";
-                              if (!window.confirm(`Delete walk-in record for ${who} on ${formatDate(w.visitDate)}?\n\nThis cannot be undone. Linked attendance entries (if any) will also be removed by the database cascade.`)) return;
+                              if (!window.confirm(
+                                `Delete walk-in record for ${who} on ${formatDate(w.visitDate)}?\n\n` +
+                                `This cannot be undone. Linked payments (cash / M-Pesa / card recorded against this walk-in) and any attendance entry will also be removed.`
+                              )) return;
                               try {
                                 await walkInsApi.remove(w.id);
-                                // Refresh both walk-ins and attendance so the
-                                // Check-In History below reflects the deletion
-                                // immediately (attendance rows cascade-delete
-                                // with the walk-in via FK).
-                                const [wiRes, attRes] = await Promise.all([
+                                // Refresh walk-ins + attendance + payments so
+                                // the Check-In History and cash-in reports
+                                // reflect the deletion immediately. Backend
+                                // wipes payments.walk_in_id-linked rows and
+                                // attendance rows cascade-delete via FK.
+                                const [wiRes, attRes, payRes] = await Promise.all([
                                   walkInsApi.list({ limit: 10000 }),
                                   attendanceApi.list({ limit: 10000 }),
+                                  paymentsApi.list({ limit: 10000 }),
                                 ]);
                                 setData((d) => ({
                                   ...d,
-                                  walkIns: (wiRes?.data || []).map(adaptWalkIn),
+                                  walkIns:    (wiRes?.data  || []).map(adaptWalkIn),
                                   attendance: (attRes?.data || []).map(adaptAttendance),
+                                  payments:   (payRes?.data || []).map(adaptPayment),
                                 }));
                               } catch (err) {
                                 alert(err?.message || "Failed to delete walk-in record");
@@ -3927,7 +3938,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
 
           <div className="table-wrapper">
             <table>
-              <thead><tr><th>Date</th><th>Time In</th><th>Time Out</th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>Plan</th><th>Activity</th><th>Source</th><th>Locker</th></tr></thead>
+              <thead><tr><th>Date</th><th>Time In</th><th>Time Out</th><th>Surname</th><th>Other Name(s)</th><th>Phone</th><th>Plan</th><th>Activity</th><th>Source</th><th>Locker</th>{isAdmin && <th>Actions</th>}</tr></thead>
               <tbody>
                 {[...filtered].sort((a, b) => {
                   // Newest first — sort by check-in timestamp.
@@ -3949,11 +3960,79 @@ const CheckIn = ({ data, setData, currentUser }) => {
                       <td style={{ fontSize: 12 }}>{actNames || "—"}</td>
                       <td style={{ fontSize: 12, textTransform: "capitalize" }}>{a.source || "staff"}</td>
                       <td style={{ fontSize: 12 }}>{a.lockerId ? (data.lockers || []).find((l) => l.id === a.lockerId)?.number ? `#${(data.lockers || []).find((l) => l.id === a.lockerId).number}` : "—" : "—"}</td>
+                      {isAdmin && (
+                        <td>
+                          {/* Edit + Delete are admin-only. The backend PATCH
+                              and DELETE routes both enforce `requireRole('admin')`
+                              so hiding these on non-admins avoids a 403 after
+                              the confirm prompt. */}
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button
+                              className="btn btn-icon btn-secondary"
+                              onClick={() => setEditAttendance({
+                                id: a.id,
+                                // Preserve display fields for the modal header so
+                                // the admin sees who they're editing without a
+                                // second lookup.
+                                _memberName: `${a.memberFirstName || m?.firstName || ""} ${a.memberLastName || m?.lastName || ""}`.trim() || "member",
+                                _visitDate: a.date,
+                                // Editable fields. checkIn/checkOut are ISO strings; the
+                                // datetime-local input needs "YYYY-MM-DDTHH:mm" so we slice.
+                                checkInAt: a.checkIn ? String(a.checkIn).slice(0, 16) : "",
+                                checkOutAt: a.checkOut ? String(a.checkOut).slice(0, 16) : "",
+                                activityId: a.activityId || "",
+                                lockerId: a.lockerId || "",
+                                // Originals for locker-collision diff + optimistic revert.
+                                _originalLockerId: a.lockerId || null,
+                                _originalCheckInAt: a.checkIn || null,
+                                _originalCheckOutAt: a.checkOut || null,
+                                _originalActivityId: a.activityId || null,
+                              })}
+                              title="Edit check-in"
+                            ><Edit2 size={14} /></button>
+                            <button
+                              className="btn btn-icon btn-danger"
+                              style={{ background: "rgba(239,68,68,0.15)" }}
+                              title="Delete check-in record (admin only)"
+                              onClick={async () => {
+                                const who = `${a.memberFirstName || m?.firstName || ""} ${a.memberLastName || m?.lastName || ""}`.trim() || "this member";
+                                if (!window.confirm(
+                                  `Delete check-in for ${who} on ${formatDate(a.date)}?\n\n` +
+                                  `This cannot be undone. Same-day check-in payments (pre-paid visit debits, wallet debits, cash top-ups at the door) will also be removed and any spent add-on wallet balance will be refunded.`
+                                )) return;
+                                try {
+                                  await attendanceApi.remove(a.id);
+                                  // Refresh attendance + payments + memberships:
+                                  //   attendance   — the row we deleted
+                                  //   payments     — cascaded rows disappear
+                                  //   memberships  — addon_balance was refunded
+                                  //   lockers      — freed if the row had one
+                                  const [attRes, payRes, msRes, lkRes] = await Promise.all([
+                                    attendanceApi.list({ limit: 10000 }),
+                                    paymentsApi.list({ limit: 10000 }),
+                                    membershipsApi.list({ limit: 10000 }),
+                                    lockersApi.list({ limit: 10000 }),
+                                  ]);
+                                  setData((d) => ({
+                                    ...d,
+                                    attendance:  (attRes?.data || []).map(adaptAttendance),
+                                    payments:    (payRes?.data || []).map(adaptPayment),
+                                    memberships: (msRes?.data || []).map(adaptMembership),
+                                    lockers:     (lkRes?.data || []).map(adaptLocker),
+                                  }));
+                                } catch (err) {
+                                  alert(err?.message || "Failed to delete check-in record");
+                                }
+                              }}
+                            ><Trash2 size={14} /></button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={10} style={{ textAlign: "center", padding: 32, color: "var(--text-muted)" }}>
+                  <tr><td colSpan={isAdmin ? 11 : 10} style={{ textAlign: "center", padding: 32, color: "var(--text-muted)" }}>
                     {q || filtersActive ? "No records match the current filters." : "No member check-ins yet."}
                   </td></tr>
                 )}
@@ -4161,6 +4240,113 @@ const CheckIn = ({ data, setData, currentUser }) => {
                   ))}
               </select>
               <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Gender-filtered based on guest gender. Occupied lockers are disabled unless already assigned to this guest.</p>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* EDIT MEMBER CHECK-IN MODAL — admin only. Whitelist of columns mirrors
+          the backend PATCH /attendance/:id EDITABLE_FIELDS (check_in_at,
+          check_out_at, activity_id, locker_id) so an admin can fix a mistake
+          without exposing member-reassignment or source-tampering paths. */}
+      {editAttendance && isAdmin && (
+        <Modal title="Edit Member Check-In" onClose={() => setEditAttendance(null)} footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setEditAttendance(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={async () => {
+              // Build patch payload — only send fields the admin actually
+              // touched so the backend audit trail stays clean. Empty string
+              // → null so "clear locker" / "clear check-out" behave right.
+              const payload = {};
+              if (editAttendance.checkInAt !== (editAttendance._originalCheckInAt ? String(editAttendance._originalCheckInAt).slice(0, 16) : "")) {
+                payload.checkInAt = editAttendance.checkInAt || undefined;
+              }
+              const origCheckOut = editAttendance._originalCheckOutAt ? String(editAttendance._originalCheckOutAt).slice(0, 16) : "";
+              if (editAttendance.checkOutAt !== origCheckOut) {
+                payload.checkOutAt = editAttendance.checkOutAt || null;
+              }
+              if ((editAttendance.activityId || "") !== (editAttendance._originalActivityId || "")) {
+                payload.activityId = editAttendance.activityId || null;
+              }
+              if ((editAttendance.lockerId || "") !== (editAttendance._originalLockerId || "")) {
+                payload.lockerId = editAttendance.lockerId || null;
+              }
+              if (!Object.keys(payload).length) { setEditAttendance(null); return; }
+
+              try {
+                await attendanceApi.update(editAttendance.id, payload);
+                // Reload attendance + lockers so the UI reflects any locker
+                // reconciliation the backend did (release old / occupy new).
+                const [attRes, lkRes] = await Promise.all([
+                  attendanceApi.list({ limit: 10000 }),
+                  lockersApi.list({ limit: 10000 }),
+                ]);
+                setData((d) => ({
+                  ...d,
+                  attendance: (attRes?.data || []).map(adaptAttendance),
+                  lockers:    (lkRes?.data  || []).map(adaptLocker),
+                }));
+                setEditAttendance(null);
+              } catch (err) {
+                alert(err?.message || "Failed to update check-in");
+              }
+            }}>Save Changes</button>
+          </>
+        }>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+            Editing check-in for <strong style={{ color: "var(--text)" }}>{editAttendance._memberName}</strong>{editAttendance._visitDate ? ` on ${formatDate(editAttendance._visitDate)}` : ""}.
+          </p>
+          <div style={{ display: "grid", gap: 12 }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Time In</label>
+              <input
+                type="datetime-local"
+                value={editAttendance.checkInAt || ""}
+                onChange={(e) => setEditAttendance({ ...editAttendance, checkInAt: e.target.value })}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Time Out <span style={{ fontSize: 11, color: "var(--text-muted)" }}>(leave blank if still in)</span></label>
+              <input
+                type="datetime-local"
+                value={editAttendance.checkOutAt || ""}
+                min={editAttendance.checkInAt || undefined}
+                onChange={(e) => setEditAttendance({ ...editAttendance, checkOutAt: e.target.value })}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Activity</label>
+              <select
+                value={editAttendance.activityId || ""}
+                onChange={(e) => setEditAttendance({ ...editAttendance, activityId: e.target.value })}
+              >
+                <option value="">— None —</option>
+                {((data.activities && data.activities.length) ? data.activities : ACTIVITIES).map((a) => (
+                  <option key={a.id || a.uuid || a.code} value={a.uuid || a.id || a.code}>{a.name}</option>
+                ))}
+              </select>
+              <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                Only single-activity edits here. Add-on charges are not re-computed — use a delete + fresh check-in if the plan/pricing needs to change.
+              </p>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Locker</label>
+              <select
+                value={editAttendance.lockerId || ""}
+                onChange={(e) => setEditAttendance({ ...editAttendance, lockerId: e.target.value })}
+              >
+                <option value="">— None —</option>
+                {(data.lockers || [])
+                  .filter((l) => !l.isOccupied || l.id === editAttendance._originalLockerId)
+                  .map((l) => (
+                    <option key={l.id} value={l.id}>
+                      Locker {l.number} ({l.section}) {l.isOccupied && l.id !== editAttendance._originalLockerId ? "— occupied" : ""}
+                    </option>
+                  ))}
+              </select>
+              <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                Occupied lockers are hidden unless already tied to this check-in. Changing the locker will release the old one and occupy the new one atomically.
+              </p>
             </div>
           </div>
         </Modal>

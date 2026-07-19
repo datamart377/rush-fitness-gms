@@ -19,3 +19,4 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+DB_MIGRATION_FRANKFURT.md # OR: git add DB_MIGRATION_FRANKFURT.md

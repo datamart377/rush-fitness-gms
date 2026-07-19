@@ -7,7 +7,7 @@ const validate = require('../middleware/validate');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 const { audit } = require('../utils/audit');
-const { insert, updateById, getById, deleteById, parsePagination, camelize } = require('../utils/crud');
+const { insert, updateById, getById, parsePagination, camelize } = require('../utils/crud');
 
 const router = express.Router();
 const TABLE = 'walk_ins';
@@ -152,9 +152,27 @@ router.post(
   })
 );
 
+// DELETE — admin only. Cascades to payments linked via walk_in_id so a
+// deleted walk-in record doesn't leave orphaned cash/mpesa rows in the
+// ledger. attendance rows for this walk-in are wiped by the DB-level FK
+// cascade (see the walk_ins → attendance relationship set up in migration
+// 014); we run the payments delete manually because payments.walk_in_id is
+// nullable-fk without ON DELETE CASCADE so those rows would otherwise linger.
 router.delete('/:id', requireRole('admin'), validate([param('id').isUUID()]), asyncHandler(async (req, res) => {
-  await deleteById(pool, TABLE, req.params.id);
-  await audit(req, 'walk_in.delete', TABLE, req.params.id);
+  const summary = await withTx(async (client) => {
+    // Verify the row exists so we can return a real 404 (deleteById does
+    // this too but we want the payments cascade to short-circuit cleanly).
+    const cur = await client.query(`SELECT id FROM ${TABLE} WHERE id = $1`, [req.params.id]);
+    if (!cur.rowCount) throw new ApiError(404, 'Walk-in not found');
+
+    const del = await client.query(
+      `DELETE FROM payments WHERE walk_in_id = $1 RETURNING id`,
+      [req.params.id]
+    );
+    await client.query(`DELETE FROM ${TABLE} WHERE id = $1`, [req.params.id]);
+    return { paymentsRemoved: del.rowCount };
+  });
+  await audit(req, 'walk_in.delete', TABLE, req.params.id, summary);
   res.status(204).send();
 }));
 
