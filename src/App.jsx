@@ -1525,8 +1525,10 @@ const Dashboard = ({ data }) => {
   const todayWalkIns = data.walkIns.filter((w) => dateToYMD(w.visitDate) === todayYmd).length;
   // Revenue: use dateToYMD on the ISO paidAt so the tz-shift bug doesn't
   // attribute payments to the wrong calendar day.
+  // Exclude prepaid_visit (internal debit) and addon_debit (wallet consumption,
+  // no cash-in). addon_topup IS real revenue and stays included.
   const todayRevenue = data.payments
-    .filter((p) => p.type !== "prepaid_visit" && dateToYMD(p.paidAt) === todayYmd)
+    .filter((p) => p.type !== "prepaid_visit" && p.type !== "addon_debit" && dateToYMD(p.paidAt) === todayYmd)
     .reduce((s, p) => s + Number(p.amount || 0), 0);
   // Expenses: adaptExpense already normalizes spentOn → YYYY-MM-DD string in `date`.
   const todayExpenses = (data.expenses || [])
@@ -2131,8 +2133,14 @@ const CheckIn = ({ data, setData, currentUser }) => {
       };
     }
 
-    // ── NON-PREPAID: charge add-ons as cash. Daily plans pay standalone, monthly pay addon.
+    // ── NON-PREPAID: drain the add-on wallet first, then collect any shortfall
+    //    as cash. Matches the wallet-first logic in handleFullCheckIn so
+    //    post-checkin add-ons behave identically to add-ons chosen at check-in.
+    //      • walletUsed → `addon_debit` row (backend atomically decrements
+    //        memberships.addon_balance). No cash-in.
+    //      • cashDue    → normal `addon` cash row (existing behaviour).
     let newPayments = [];
+    let addonWalletDebit = 0;
     if (!isPrepaid) {
       const bundleDiscount = addons.length > 1 ? PREPAID_BUNDLE_DISCOUNT : 0;
       const activityPrices = addons.map((actId) => {
@@ -2140,33 +2148,84 @@ const CheckIn = ({ data, setData, currentUser }) => {
         return isDailyPlan ? act.standalone : act.addon;
       });
       const totalAfterDiscount = activityPrices.reduce((s, p) => s + p, 0) - bundleDiscount;
-      newPayments = bundleDiscount > 0
-        ? [{ id: generateId(), memberId: selected.id, membershipId: null, amount: totalAfterDiscount, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: addons.join("+"), discountId: null, discountAmount: bundleDiscount, note: `Bundle (post check-in): ${addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ")} (${formatUGX(bundleDiscount)} discount)` }]
-        : addons.map((actId) => {
+      const actNamesLine = addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ");
+      const discountTag = bundleDiscount > 0 ? ` (${formatUGX(bundleDiscount)} bundle discount)` : "";
+
+      // Wallet drain — only meaningful for memberships that exist server-side.
+      const walletBal = membership?.id ? Number(membership.addonBalance || 0) : 0;
+      const walletUsed = Math.max(0, Math.min(walletBal, totalAfterDiscount));
+      const cashDue = totalAfterDiscount - walletUsed;
+      addonWalletDebit = walletUsed;
+
+      if (walletUsed > 0) {
+        newPayments.push({
+          id: generateId(),
+          memberId: selected.id,
+          membershipId: membership.id,
+          amount: walletUsed,
+          method: "cash",
+          paidAt: new Date().toISOString(),
+          type: "addon_debit",
+          activityId: addons.length === 1 ? addons[0] : null,
+          discountId: null,
+          discountAmount: 0,
+          note: `Add-on wallet debit (post check-in): ${actNamesLine}${discountTag}`,
+        });
+      }
+
+      if (cashDue > 0) {
+        if (walletUsed > 0 || bundleDiscount > 0) {
+          // Mixed wallet+cash OR pure bundled cash → single lump-sum row.
+          newPayments.push({
+            id: generateId(),
+            memberId: selected.id,
+            membershipId: null,
+            amount: cashDue,
+            method: "cash",
+            paidAt: new Date().toISOString(),
+            type: "addon",
+            activityId: addons.length === 1 ? addons[0] : addons.join("+"),
+            discountId: null,
+            discountAmount: walletUsed > 0 ? 0 : bundleDiscount,
+            note: walletUsed > 0
+              ? `Add-on cash shortfall (post check-in): ${actNamesLine}${discountTag} (wallet covered ${formatUGX(walletUsed)})`
+              : `Bundle (post check-in): ${actNamesLine}${discountTag}`,
+          });
+        } else {
+          // Wallet empty AND no bundle discount → per-activity rows (legacy shape).
+          newPayments = newPayments.concat(addons.map((actId) => {
             const act = ACTIVITIES.find((a) => a.id === actId);
             const price = isDailyPlan ? act.standalone : act.addon;
             return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0, note: `Add-on (post check-in): ${act.name}` };
-          });
+          }));
+        }
+      }
     }
 
-    // Optimistic state update
+    // Optimistic state update — also decrement local wallet balance so the UI
+    // reflects the drain immediately (backend does the same atomically).
     setData((d) => ({
       ...d,
       payments: [...d.payments, ...newPayments, ...(prepaidDeduction ? [prepaidDeduction] : [])],
       memberships: isPrepaid
         ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, prepaidBalance: prepaidBalance - (prepaidDeduction?.amount || 0) } : ms)
-        : d.memberships,
+        : (addonWalletDebit > 0
+            ? d.memberships.map((ms) => ms.id === membership.id ? { ...ms, addonBalance: Math.max(0, Number(ms.addonBalance || 0) - addonWalletDebit) } : ms)
+            : d.memberships),
     }));
     setCheckedIn(true);
 
-    // Persist non-prepaid add-on payments
+    // Persist non-prepaid add-on payments — preserve each row's type and
+    // membershipId so addon_debit rows hit the wallet decrement branch on the
+    // backend and addon cash rows behave as before.
     if (!isPrepaid && newPayments.length) {
       Promise.all(newPayments.map((p) =>
         paymentsApi.create({
           memberId: p.memberId,
+          membershipId: p.membershipId || undefined,
           amount: p.amount,
           method: paymentMethodToApi(p.method),
-          type: "addon",
+          type: p.type || "addon",
           discountAmount: p.discountAmount || undefined,
           notes: p.note,
         }).catch((e) => console.warn("Add-on payment persist failed:", e))
@@ -5496,9 +5555,18 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
       setModal(null);
       setPayTarget(null);
     } catch (err) {
-      const detail = Array.isArray(err?.details) && err.details.length
-        ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
-        : "";
+      // `details` can be an array (express-validator errors: [{ msg, field }])
+      // OR an object ({ detail, column } from mapPgError). Handle both so
+      // Postgres cast errors like "invalid input syntax for type uuid: ..."
+      // actually surface to the user instead of a bare generic message.
+      let detail = "";
+      if (Array.isArray(err?.details) && err.details.length) {
+        detail = err.details.map((d) => d.msg || JSON.stringify(d)).join("; ");
+      } else if (err?.details && typeof err.details === "object") {
+        detail = err.details.detail || JSON.stringify(err.details);
+      }
+      // eslint-disable-next-line no-console
+      console.error("[topUpAddons] failed:", { err, payload: { memberId: payTarget.memberId, membershipId: payTarget.id, type: "addon_topup" } });
       setApiError([err?.message, detail].filter(Boolean).join(" – "));
     } finally {
       setBusy(false);
@@ -10042,9 +10110,11 @@ const Reconciliation = ({ data, setData, currentUser }) => {
 
   // SINGLE SOURCE OF TRUTH: all revenue flows through data.payments. Filtered
   // by the selected date range (inclusive); prepaid_visit rows excluded since
-  // they're internal balance debits, not real money in.
+  // they're internal balance debits, not real money in. addon_debit is also
+  // excluded (wallet consumption — the cash landed at addon_topup time).
   const todayPayments = data.payments.filter((p) => {
     if (p.type === "prepaid_visit") return false;
+    if (p.type === "addon_debit") return false;
     const ymd = dateToYMD(p.paidAt);
     return ymd >= dateFrom && ymd <= dateTo;
   });

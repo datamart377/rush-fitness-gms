@@ -16,8 +16,13 @@ function mapPgError(err) {
       return new ApiError(400, `Missing required field: ${err.column}`);
     case '23514': // check_violation
       return new ApiError(400, 'Value violates a check constraint', { detail: err.detail });
-    case '22P02': // invalid_text_representation (e.g. bad UUID)
-      return new ApiError(400, 'Invalid identifier or value format');
+    case '22P02': // invalid_text_representation (e.g. bad UUID / bad number)
+      // Include Postgres's own message so the client sees exactly which value
+      // failed to cast (e.g. `invalid input syntax for type uuid: "ms1"`).
+      return new ApiError(400, 'Invalid identifier or value format', {
+        detail: err.message,
+        column: err.column,
+      });
     default:
       return null;
   }

@@ -20,8 +20,12 @@
 -- ever driving the balance below zero even if a race occurs between the
 -- balance-check and the debit itself.
 
+-- NUMERIC(12,2) — same type as payments.amount so `addon_balance + $1`
+-- doesn't die casting "50000.00" (node-postgres' string form of NUMERIC)
+-- into an INTEGER column. INTEGER would throw 22P02 the moment a real
+-- payment amount hits the UPDATE; NUMERIC promotes cleanly.
 ALTER TABLE memberships
-  ADD COLUMN IF NOT EXISTS addon_balance INTEGER NOT NULL DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS addon_balance NUMERIC(12,2) NOT NULL DEFAULT 0;
 
 -- Expand the payments.type CHECK constraint. Postgres doesn't allow ALTER
 -- CONSTRAINT to change the expression, so we drop-and-recreate. The DROP
