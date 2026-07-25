@@ -10326,6 +10326,49 @@ const Reconciliation = ({ data, setData, currentUser }) => {
   const shopRevenue = todayPayments.filter((p) => p.type === "product_sale").reduce((s, p) => s + p.amount, 0);
   const otherRevenue = totalRevenue - membershipRevenue - addonRevenue - walkinRevenue - shopRevenue;
 
+  // ── Prepaid Deposit Drawdowns ──────────────────────────────────────────
+  // These are internal debits recorded when a customer's previously-paid
+  // deposit is applied at check-in:
+  //   • prepaid_visit → daily rate drawn from a plan's prepaid balance
+  //   • addon_debit   → activity add-on drawn from the wallet balance
+  //
+  // Both are EXCLUDED from `todayPayments` above (see filter at line ~10301)
+  // because they aren't new cash inflow. But finance still needs to SEE them
+  // during reconciliation so:
+  //   1. Services delivered today are visible (accrual view), and
+  //   2. The Recognized Revenue line reconciles: New + Applied = Total.
+  //
+  // Traceability (AC6): each drawdown row references the membership that
+  // owns the deposit. `originatingDepositFor(payment)` resolves the most
+  // recent addon_topup (for wallet debits) or plan payment (for plan
+  // prepaid_visit) so the drill-down can show the original receipt date +
+  // reference. If no originating row can be found (data imported without
+  // history), the field is left null and the UI shows "—".
+  const prepaidApplied = data.payments.filter((p) => {
+    if (p.type !== "prepaid_visit" && p.type !== "addon_debit") return false;
+    const ymd = dateToYMD(p.paidAt);
+    return ymd >= dateFrom && ymd <= dateTo;
+  });
+  const prepaidAppliedTotal = prepaidApplied.reduce((s, p) => s + p.amount, 0);
+  const prepaidPlanApplied = prepaidApplied.filter((p) => p.type === "prepaid_visit").reduce((s, p) => s + p.amount, 0);
+  const prepaidWalletApplied = prepaidApplied.filter((p) => p.type === "addon_debit").reduce((s, p) => s + p.amount, 0);
+  const recognizedRevenue = totalRevenue + prepaidAppliedTotal;
+
+  // Resolve the originating deposit for a drawdown row. Walks the full
+  // payments list (not just `todayPayments`) since the topup is by
+  // definition on a prior date.
+  const originatingDepositFor = (drawdown) => {
+    if (!drawdown?.membershipId) return null;
+    const originType = drawdown.type === "addon_debit" ? "addon_topup" : "membership";
+    // Most recent topup/plan-payment on or before the drawdown date, same membership.
+    const candidates = data.payments
+      .filter((p) => p.membershipId === drawdown.membershipId
+        && p.type === originType
+        && new Date(p.paidAt) <= new Date(drawdown.paidAt))
+      .sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt));
+    return candidates[0] || null;
+  };
+
   // Expenses — same date-range window as payments. Expense rows already store
   // a bare YYYY-MM-DD in `date`, so direct string compare works.
   const todayExpenses = data.expenses
@@ -10504,9 +10547,34 @@ const Reconciliation = ({ data, setData, currentUser }) => {
         </div>
       </div>
 
-      {/* Revenue by Source Breakdown */}
+      {/* Revenue by Source Breakdown ────────────────────────────────────
+          Split into two conceptually distinct blocks:
+
+          1. NEW REVENUE (CASH INFLOW) — real money the till received today
+             via cash / mobile money / card. This is what needs to match the
+             physical cash drawer + M-Pesa / bank statements for reconciliation.
+
+          2. APPLIED FROM PREPAID DEPOSITS — internal drawdowns from balances
+             the customer paid in on a prior date (plan prepaid_visit debits
+             and add-on wallet debits). These are services delivered today
+             but generated no new cash flow — the money was already banked
+             when the deposit was received.
+
+          The two blocks are kept visually distinct so a finance user can't
+          confuse them. A footer line reconciles them into a single
+          "Recognized Revenue" figure (AC5). */}
       <div className="card" style={{ marginBottom: 20 }}>
         <h3 style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 16 }}>Revenue Breakdown by Source — {rangeLabel}</h3>
+
+        {/* ── Block 1: New Revenue (cash inflow) ───────────────────── */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            New Revenue <span style={{ color: "var(--text-muted)", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· cash inflow today</span>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text)" }}>
+            Subtotal: <strong style={{ color: "var(--success)" }}>{formatUGX(totalRevenue)}</strong>
+          </div>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
           {[
             { label: "Memberships", value: membershipRevenue, color: "var(--success)" },
@@ -10534,6 +10602,90 @@ const Reconciliation = ({ data, setData, currentUser }) => {
               <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--info)", marginRight: 4 }} />Add-ons</span>
               <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--warning)", marginRight: 4 }} />Walk-Ins</span>
               <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--accent)", marginRight: 4 }} />Shop</span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Block 2: Applied from Prepaid Deposits ───────────────── */}
+        {prepaidAppliedTotal > 0 && (
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px dashed var(--border)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                Applied from Prepaid Deposits <span style={{ color: "var(--text-muted)", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· drawn from previously-paid balance · no new cash today</span>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text)" }}>
+                Subtotal: <strong style={{ color: "var(--info)" }}>{formatUGX(prepaidAppliedTotal)}</strong>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+              {prepaidPlanApplied > 0 && (
+                <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px dashed var(--success)" }}>
+                  <div style={{ fontSize: 11, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Plan Prepaid Drawdown</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--success)", marginTop: 4 }}>{formatUGX(prepaidPlanApplied)}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>Daily rate drawn from prepaid plan balance at check-in.</div>
+                </div>
+              )}
+              {prepaidWalletApplied > 0 && (
+                <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px dashed var(--info)" }}>
+                  <div style={{ fontSize: 11, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Add-On Wallet Drawdown</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--info)", marginTop: 4 }}>{formatUGX(prepaidWalletApplied)}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>Activity add-on consumed from wallet balance.</div>
+                </div>
+              )}
+            </div>
+
+            {/* Per-row traceability list (AC6). Each drawdown links back to
+                the originating deposit's date + reference so an auditor can
+                trace today's applied revenue to the actual cash-in date. */}
+            <div style={{ marginTop: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text)", textTransform: "uppercase", marginBottom: 8 }}>
+                Drawdowns in this range · {prepaidApplied.length}
+              </div>
+              <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                {[...prepaidApplied].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)).map((p) => {
+                  const member = p.memberId ? data.members.find((m) => m.id === p.memberId) : null;
+                  const orig = originatingDepositFor(p);
+                  const kind = p.type === "addon_debit" ? "Wallet" : "Plan";
+                  const kindColour = p.type === "addon_debit" ? "var(--info)" : "var(--success)";
+                  return (
+                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 12, gap: 12 }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: 1, minWidth: 0 }}>
+                        <Badge variant={p.type === "addon_debit" ? "info" : "success"}>{kind}</Badge>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ color: "var(--text)", fontWeight: 500 }}>{member ? fullName(member) : "—"}</div>
+                          <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>
+                            Applied {formatDate(p.paidAt)} · {formatTime(p.paidAt)}
+                          </div>
+                          <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 1 }}>
+                            {orig
+                              ? <>Originating deposit: <span style={{ color: "var(--text)" }}>{formatDate(orig.paidAt)}</span>{orig.reference ? <> · Ref <span style={{ color: "var(--text)" }}>{orig.reference}</span></> : ""} · {formatUGX(orig.amount)} {formatPaymentMethod(orig.method, true)}</>
+                              : <>Originating deposit: <span style={{ color: "var(--text-muted)" }}>— (pre-import balance)</span></>}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                        <span style={{ fontWeight: 600, color: kindColour, minWidth: 80, textAlign: "right" }}>{formatUGX(p.amount)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Reconciliation footer (AC5) ──────────────────────────────
+            Explicit New + Applied = Recognized so a finance user can see
+            at a glance that the two blocks reconcile without double-counting.
+            Only shown when there's something to reconcile against. */}
+        {(totalRevenue > 0 || prepaidAppliedTotal > 0) && (
+          <div style={{ marginTop: 20, padding: "12px 14px", background: "var(--bg-input)", borderRadius: "var(--radius-sm)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              <strong style={{ color: "var(--text)" }}>Recognized Revenue</strong> = New ({formatUGX(totalRevenue)}) + Applied ({formatUGX(prepaidAppliedTotal)})
+              <div style={{ marginTop: 2 }}>New = actual cash / mobile / card received today. Applied = services delivered today from previously-banked deposits. No amount is counted twice.</div>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
+              {formatUGX(recognizedRevenue)}
             </div>
           </div>
         )}
