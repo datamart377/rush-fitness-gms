@@ -1627,6 +1627,18 @@ const Dashboard = ({ data }) => {
           color={todayPrepaidApplied > 0 ? "var(--danger)" : "var(--text-muted)"}
           bg="var(--danger-dim)"
         />
+        {/* Cash-Basis Revenue = New Revenue − Prepaid Applied. This is the
+            actual money the till received today (mirrors the Reconciliation
+            page's "Cash-Basis Today" footer figure). Highlighted so finance
+            can see at a glance what to expect in the drawer, distinct from
+            the accrual-view "Today's Revenue" tile above. */}
+        <StatCard
+          icon={Receipt}
+          label="Cash-Basis Revenue (till today)"
+          value={formatUGX(todayRevenue - todayPrepaidApplied)}
+          color="var(--success)"
+          bg="var(--success-dim)"
+        />
         <StatCard icon={TrendingDown} label="Today's Expenses" value={formatUGX(todayExpenses)} color="var(--danger)" bg="var(--danger-dim)" />
         <StatCard icon={Layers} label="Lockers Available" value={`${availableLockers}/${totalLockers}`} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={Pause} label="Frozen Memberships" value={frozenCount} color="var(--warning)" bg="var(--warning-dim)" />
