@@ -1530,6 +1530,15 @@ const Dashboard = ({ data }) => {
   const todayRevenue = data.payments
     .filter((p) => p.type !== "prepaid_visit" && p.type !== "addon_debit" && dateToYMD(p.paidAt) === todayYmd)
     .reduce((s, p) => s + Number(p.amount || 0), 0);
+  // Prepaid drawdowns applied today — plan prepaid_visit + wallet addon_debit.
+  // These are services delivered today from previously-banked deposits, so
+  // they don't count as new cash. Displayed as a negative KPI on the
+  // dashboard so a finance user can see at a glance what portion of today's
+  // service activity was covered by prior payments (mirrors the Reconciliation
+  // page's "Applied from Prepaid Deposits" treatment).
+  const todayPrepaidApplied = data.payments
+    .filter((p) => (p.type === "prepaid_visit" || p.type === "addon_debit") && dateToYMD(p.paidAt) === todayYmd)
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
   // Expenses: adaptExpense already normalizes spentOn → YYYY-MM-DD string in `date`.
   const todayExpenses = (data.expenses || [])
     .filter((e) => e.date === todayYmd)
@@ -1586,6 +1595,14 @@ const Dashboard = ({ data }) => {
         <StatCard icon={UserX} label="Missed Attendance Today" value={missedAttendanceToday} color="var(--warning)" bg="var(--warning-dim)" />
         <StatCard icon={UserCheck} label="Walk-ins Today" value={todayWalkIns} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={DollarSign} label="Today's Revenue" value={formatUGX(todayRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
+        {/* Prepaid drawdowns applied today. Displayed as NEGATIVE because
+            this money was banked on a prior date — no new cash was collected
+            today. Only rendered when > 0 to keep the KPI grid tidy on days
+            with no drawdowns. Mirrors the Reconciliation page's negative
+            "Applied from Prepaid Deposits" treatment. */}
+        {todayPrepaidApplied > 0 && (
+          <StatCard icon={TrendingDown} label="Prepaid Applied Today (no cash)" value={`−${formatUGX(todayPrepaidApplied)}`} color="var(--danger)" bg="var(--danger-dim)" />
+        )}
         <StatCard icon={TrendingDown} label="Today's Expenses" value={formatUGX(todayExpenses)} color="var(--danger)" bg="var(--danger-dim)" />
         <StatCard icon={Layers} label="Lockers Available" value={`${availableLockers}/${totalLockers}`} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={Pause} label="Frozen Memberships" value={frozenCount} color="var(--warning)" bg="var(--warning-dim)" />
@@ -10606,37 +10623,45 @@ const Reconciliation = ({ data, setData, currentUser }) => {
           </div>
         )}
 
-        {/* ── Block 2: Applied from Prepaid Deposits ───────────────── */}
+        {/* ── Block 2: Applied from Prepaid Deposits ─────────────────
+            Displayed as NEGATIVE amounts (red/danger tone) because these
+            represent recognized services with NO cash received today —
+            the money was banked on a prior date. Rendering as negatives
+            makes it visually obvious that this line REDUCES the true
+            same-day cash position and can't be double-counted against the
+            New Revenue subtotal above. */}
         {prepaidAppliedTotal > 0 && (
           <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px dashed var(--border)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                Applied from Prepaid Deposits <span style={{ color: "var(--text-muted)", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· drawn from previously-paid balance · no new cash today</span>
+                Applied from Prepaid Deposits <span style={{ color: "var(--text-muted)", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· drawn from previously-paid balance · <strong style={{ color: "var(--danger)" }}>no cash collected today</strong></span>
               </div>
               <div style={{ fontSize: 12, color: "var(--text)" }}>
-                Subtotal: <strong style={{ color: "var(--info)" }}>{formatUGX(prepaidAppliedTotal)}</strong>
+                Subtotal: <strong style={{ color: "var(--danger)" }}>−{formatUGX(prepaidAppliedTotal)}</strong>
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
               {prepaidPlanApplied > 0 && (
-                <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px dashed var(--success)" }}>
+                <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px dashed var(--danger)" }}>
                   <div style={{ fontSize: 11, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Plan Prepaid Drawdown</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--success)", marginTop: 4 }}>{formatUGX(prepaidPlanApplied)}</div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>Daily rate drawn from prepaid plan balance at check-in.</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--danger)", marginTop: 4 }}>−{formatUGX(prepaidPlanApplied)}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>Daily rate drawn from prepaid plan balance at check-in. Money was already collected on an earlier date.</div>
                 </div>
               )}
               {prepaidWalletApplied > 0 && (
-                <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px dashed var(--info)" }}>
+                <div style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", borderLeft: "3px dashed var(--danger)" }}>
                   <div style={{ fontSize: 11, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Add-On Wallet Drawdown</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--info)", marginTop: 4 }}>{formatUGX(prepaidWalletApplied)}</div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>Activity add-on consumed from wallet balance.</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--danger)", marginTop: 4 }}>−{formatUGX(prepaidWalletApplied)}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>Activity add-on consumed from wallet balance. Money was already collected on an earlier date.</div>
                 </div>
               )}
             </div>
 
             {/* Per-row traceability list (AC6). Each drawdown links back to
                 the originating deposit's date + reference so an auditor can
-                trace today's applied revenue to the actual cash-in date. */}
+                trace today's applied services back to the actual cash-in date.
+                Amounts here are also negative to reinforce the "no cash today"
+                message consistently across the block. */}
             <div style={{ marginTop: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text)", textTransform: "uppercase", marginBottom: 8 }}>
                 Drawdowns in this range · {prepaidApplied.length}
@@ -10646,11 +10671,10 @@ const Reconciliation = ({ data, setData, currentUser }) => {
                   const member = p.memberId ? data.members.find((m) => m.id === p.memberId) : null;
                   const orig = originatingDepositFor(p);
                   const kind = p.type === "addon_debit" ? "Wallet" : "Plan";
-                  const kindColour = p.type === "addon_debit" ? "var(--info)" : "var(--success)";
                   return (
                     <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 12, gap: 12 }}>
                       <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: 1, minWidth: 0 }}>
-                        <Badge variant={p.type === "addon_debit" ? "info" : "success"}>{kind}</Badge>
+                        <Badge variant="danger">{kind}</Badge>
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ color: "var(--text)", fontWeight: 500 }}>{member ? fullName(member) : "—"}</div>
                           <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>
@@ -10664,7 +10688,7 @@ const Reconciliation = ({ data, setData, currentUser }) => {
                         </div>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-                        <span style={{ fontWeight: 600, color: kindColour, minWidth: 80, textAlign: "right" }}>{formatUGX(p.amount)}</span>
+                        <span style={{ fontWeight: 600, color: "var(--danger)", minWidth: 80, textAlign: "right" }}>−{formatUGX(p.amount)}</span>
                       </div>
                     </div>
                   );
@@ -10674,18 +10698,30 @@ const Reconciliation = ({ data, setData, currentUser }) => {
           </div>
         )}
 
-        {/* ── Reconciliation footer (AC5) ──────────────────────────────
-            Explicit New + Applied = Recognized so a finance user can see
-            at a glance that the two blocks reconcile without double-counting.
-            Only shown when there's something to reconcile against. */}
+        {/* ── Reconciliation footer ────────────────────────────────────
+            Prepaid Applied is subtracted (not added) here so the finance
+            user sees the true SAME-DAY CASH IMPACT: what actually hit the
+            till today. Recognized Services (what was delivered) is shown
+            separately so the accrual-basis figure is still available.
+            Only rendered when there's something to reconcile against. */}
         {(totalRevenue > 0 || prepaidAppliedTotal > 0) && (
-          <div style={{ marginTop: 20, padding: "12px 14px", background: "var(--bg-input)", borderRadius: "var(--radius-sm)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              <strong style={{ color: "var(--text)" }}>Recognized Revenue</strong> = New ({formatUGX(totalRevenue)}) + Applied ({formatUGX(prepaidAppliedTotal)})
-              <div style={{ marginTop: 2 }}>New = actual cash / mobile / card received today. Applied = services delivered today from previously-banked deposits. No amount is counted twice.</div>
+          <div style={{ marginTop: 20, padding: "12px 14px", background: "var(--bg-input)", borderRadius: "var(--radius-sm)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", flex: 1, minWidth: 240 }}>
+              <div style={{ marginBottom: 4 }}>
+                <strong style={{ color: "var(--text)" }}>Cash-Basis Revenue</strong> = New Revenue ({formatUGX(totalRevenue)}) − Prepaid Applied ({formatUGX(prepaidAppliedTotal)} already banked earlier)
+              </div>
+              <div style={{ marginBottom: 4 }}>
+                Cash-Basis = the actual money the till received today. Prepaid Applied is subtracted because that money was banked on a prior date and is not new cash today.
+              </div>
+              <div>
+                <strong style={{ color: "var(--text)" }}>Recognized Services</strong> = {formatUGX(recognizedRevenue)} (accrual view — services delivered today, including those covered by prior deposits).
+              </div>
             </div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
-              {formatUGX(recognizedRevenue)}
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Cash-Basis Today</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: (totalRevenue - prepaidAppliedTotal) >= 0 ? "var(--text)" : "var(--danger)" }}>
+                {formatUGX(totalRevenue - prepaidAppliedTotal)}
+              </div>
             </div>
           </div>
         )}
