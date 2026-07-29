@@ -372,6 +372,22 @@ const formatTime = (d) => new Date(d).toLocaleTimeString("en-UG", { hour: "2-dig
 // timezones, breaking every "filter by today" control in the app.
 const today = () => dateToYMD(new Date());
 
+// Identify a payment record that represents money DRAWN DOWN from a prior
+// prepaid deposit (i.e. no new cash was collected on paidAt). Two flavours:
+//   1. Wallet add-on debit (`type='addon_debit'`) — a first-class DB type.
+//   2. Plan-based prepaid visit — stored as `type='other'` with a
+//      "Pre-paid visit:" note prefix, because the payments.type CHECK
+//      constraint (migration 015) doesn't include a `prepaid_visit` value.
+//      The frontend uses `type='prepaid_visit'` only for its in-memory
+//      objects; the persisted row round-trips as `type='other'`.
+// Used by Dashboard revenue KPIs and Reconciliation revenue breakdown so
+// both pages classify drawdowns consistently and don't double-count them
+// as new cash revenue.
+const isPrepaidDrawdown = (p) =>
+  p.type === "addon_debit" ||
+  p.type === "prepaid_visit" ||
+  (p.type === "other" && (p.notes || p.note || "").startsWith("Pre-paid visit"));
+
 const PLANS = {
   gym_daily: { name: "Daily (Gym)", price: 20000, days: 1, category: "gym" },
   gym_weekly: { name: "Weekly (Gym)", price: 120000, days: 7, category: "gym" },
@@ -1525,19 +1541,23 @@ const Dashboard = ({ data }) => {
   const todayWalkIns = data.walkIns.filter((w) => dateToYMD(w.visitDate) === todayYmd).length;
   // Revenue: use dateToYMD on the ISO paidAt so the tz-shift bug doesn't
   // attribute payments to the wrong calendar day.
-  // Exclude prepaid_visit (internal debit) and addon_debit (wallet consumption,
-  // no cash-in). addon_topup IS real revenue and stays included.
+  // Exclude prepaid drawdowns (plan + wallet) — those are internal debits
+  // against previously-banked deposits, not new cash today. addon_topup IS
+  // real revenue and stays included. Uses the shared isPrepaidDrawdown
+  // helper so this matches the Reconciliation page (previously the two
+  // pages disagreed because plan drawdowns persist as type='other' with a
+  // "Pre-paid visit:" note prefix, not the imagined type='prepaid_visit').
   const todayRevenue = data.payments
-    .filter((p) => p.type !== "prepaid_visit" && p.type !== "addon_debit" && dateToYMD(p.paidAt) === todayYmd)
+    .filter((p) => !isPrepaidDrawdown(p) && dateToYMD(p.paidAt) === todayYmd)
     .reduce((s, p) => s + Number(p.amount || 0), 0);
-  // Prepaid drawdowns applied today — plan prepaid_visit + wallet addon_debit.
+  // Prepaid drawdowns applied today — plan prepaid visits + wallet debits.
   // These are services delivered today from previously-banked deposits, so
   // they don't count as new cash. Displayed as a negative KPI on the
   // dashboard so a finance user can see at a glance what portion of today's
   // service activity was covered by prior payments (mirrors the Reconciliation
   // page's "Applied from Prepaid Deposits" treatment).
   const todayPrepaidApplied = data.payments
-    .filter((p) => (p.type === "prepaid_visit" || p.type === "addon_debit") && dateToYMD(p.paidAt) === todayYmd)
+    .filter((p) => isPrepaidDrawdown(p) && dateToYMD(p.paidAt) === todayYmd)
     .reduce((s, p) => s + Number(p.amount || 0), 0);
   // Expenses: adaptExpense already normalizes spentOn → YYYY-MM-DD string in `date`.
   const todayExpenses = (data.expenses || [])
@@ -10316,12 +10336,14 @@ const Reconciliation = ({ data, setData, currentUser }) => {
   }, [setData]);
 
   // SINGLE SOURCE OF TRUTH: all revenue flows through data.payments. Filtered
-  // by the selected date range (inclusive); prepaid_visit rows excluded since
-  // they're internal balance debits, not real money in. addon_debit is also
-  // excluded (wallet consumption — the cash landed at addon_topup time).
+  // by the selected date range (inclusive); prepaid drawdown rows excluded
+  // since they're internal balance debits, not real money in. Uses shared
+  // isPrepaidDrawdown helper — plan-side drawdowns persist as type='other'
+  // with a "Pre-paid visit:" note prefix (not type='prepaid_visit' as the
+  // in-memory objects suggest), so a pure type check would miss them and
+  // double-count the drawdown in Total Revenue.
   const todayPayments = data.payments.filter((p) => {
-    if (p.type === "prepaid_visit") return false;
-    if (p.type === "addon_debit") return false;
+    if (isPrepaidDrawdown(p)) return false;
     const ymd = dateToYMD(p.paidAt);
     return ymd >= dateFrom && ymd <= dateTo;
   });
@@ -10366,12 +10388,16 @@ const Reconciliation = ({ data, setData, currentUser }) => {
   // reference. If no originating row can be found (data imported without
   // history), the field is left null and the UI shows "—".
   const prepaidApplied = data.payments.filter((p) => {
-    if (p.type !== "prepaid_visit" && p.type !== "addon_debit") return false;
+    if (!isPrepaidDrawdown(p)) return false;
     const ymd = dateToYMD(p.paidAt);
     return ymd >= dateFrom && ymd <= dateTo;
   });
   const prepaidAppliedTotal = prepaidApplied.reduce((s, p) => s + p.amount, 0);
-  const prepaidPlanApplied = prepaidApplied.filter((p) => p.type === "prepaid_visit").reduce((s, p) => s + p.amount, 0);
+  // Plan-side = anything the helper classifies as prepaid that ISN'T the
+  // addon wallet debit. Covers both the imagined type='prepaid_visit' path
+  // (in-memory objects) and the persisted type='other' with "Pre-paid visit:"
+  // note prefix path.
+  const prepaidPlanApplied = prepaidApplied.filter((p) => p.type !== "addon_debit").reduce((s, p) => s + p.amount, 0);
   const prepaidWalletApplied = prepaidApplied.filter((p) => p.type === "addon_debit").reduce((s, p) => s + p.amount, 0);
   const recognizedRevenue = totalRevenue + prepaidAppliedTotal;
 
