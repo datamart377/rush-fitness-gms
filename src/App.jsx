@@ -1595,14 +1595,18 @@ const Dashboard = ({ data }) => {
         <StatCard icon={UserX} label="Missed Attendance Today" value={missedAttendanceToday} color="var(--warning)" bg="var(--warning-dim)" />
         <StatCard icon={UserCheck} label="Walk-ins Today" value={todayWalkIns} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={DollarSign} label="Today's Revenue" value={formatUGX(todayRevenue)} color="var(--accent)" bg="var(--accent-dim)" />
-        {/* Prepaid drawdowns applied today. Displayed as NEGATIVE because
-            this money was banked on a prior date — no new cash was collected
-            today. Only rendered when > 0 to keep the KPI grid tidy on days
-            with no drawdowns. Mirrors the Reconciliation page's negative
-            "Applied from Prepaid Deposits" treatment. */}
-        {todayPrepaidApplied > 0 && (
-          <StatCard icon={TrendingDown} label="Prepaid Applied Today (no cash)" value={`−${formatUGX(todayPrepaidApplied)}`} color="var(--danger)" bg="var(--danger-dim)" />
-        )}
+        {/* Prepaid drawdowns applied today. Displayed as NEGATIVE (with a
+            leading minus) because this money was banked on a prior date —
+            no new cash was collected today. Always rendered so finance can
+            see the metric at a glance even on days with zero drawdowns
+            (mirrors how "Today's Expenses" is always visible even at 0). */}
+        <StatCard
+          icon={TrendingDown}
+          label="Prepaid Applied Today (no cash)"
+          value={todayPrepaidApplied > 0 ? `−${formatUGX(todayPrepaidApplied)}` : formatUGX(0)}
+          color={todayPrepaidApplied > 0 ? "var(--danger)" : "var(--text-muted)"}
+          bg="var(--danger-dim)"
+        />
         <StatCard icon={TrendingDown} label="Today's Expenses" value={formatUGX(todayExpenses)} color="var(--danger)" bg="var(--danger-dim)" />
         <StatCard icon={Layers} label="Lockers Available" value={`${availableLockers}/${totalLockers}`} color="var(--info)" bg="var(--info-dim)" />
         <StatCard icon={Pause} label="Frozen Memberships" value={frozenCount} color="var(--warning)" bg="var(--warning-dim)" />
