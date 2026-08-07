@@ -5632,6 +5632,25 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
       const customStart = isAdmin && form.startDate ? form.startDate : undefined;
       const paidAt = customStart ? new Date(`${customStart}T12:00:00Z`).toISOString() : undefined;
 
+      // ── Partial payment support ──
+      // The group modal shares the same `paymentType`/`paymentAmount` fields as the
+      // standard single-member flow. Compute the actual amount collected against the
+      // total group bill (perPerson × required), then split it evenly across members.
+      // Each member's membership carries its full `perPerson` obligation as totalDue;
+      // members whose share doesn't cover that stay on the books as debtors and can
+      // be settled later via the "Pay Balance" action.
+      const totalGroupBill = perPerson * required;
+      const payAmount = form.paymentType === "full"
+        ? totalGroupBill
+        : Math.min(Number(form.paymentAmount) || 0, totalGroupBill);
+      if (payAmount <= 0) { setApiError("Payment amount must be > 0"); return; }
+      // Even split with the 1-UGX remainder distributed to the first members so
+      // the sum of shares equals payAmount exactly (no floating-point drift).
+      const baseShare = Math.floor(payAmount / required);
+      const remainderUGX = payAmount - baseShare * required;
+      const shares = ids.map((_, i) => baseShare + (i < remainderUGX ? 1 : 0));
+      const isPartialGroup = payAmount < totalGroupBill;
+
       // Pre-check: the backend rejects overlapping memberships per-member. If we
       // ran the loop blindly and member #2 conflicted, member #1 would already
       // have a fresh membership row — bad partial state. Catch known conflicts
@@ -5658,26 +5677,40 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
       setApiError("");
       try {
         // Sequential to keep order in the audit log
-        for (const memberId of ids) {
+        for (let i = 0; i < ids.length; i++) {
+          const memberId = ids[i];
+          const share = shares[i];
           const ms = await membershipsApi.create({
             memberId,
             planId: underlyingPlanId,
             totalDue: perPerson,
             startDate: customStart,
           });
-          await paymentsApi.create({
-            memberId,
-            membershipId: ms.id,
-            amount: perPerson,
-            method: paymentMethodToApi(form.method),
-            type: "membership",
-            paidAt,
-            notes: `${groupTag} — share for member ${ids.indexOf(memberId) + 1} of ${required}`,
-          });
+          // Only record a payment if this member's share is > 0 — otherwise the
+          // membership stays fully outstanding (backend rejects amount ≤ 0 for
+          // membership-type rows). Every member still has their membership row
+          // so the group is properly formed; they just show up as debtors.
+          if (share > 0) {
+            const shareNote = share < perPerson
+              ? ` (partial: ${formatUGX(share)} of ${formatUGX(perPerson)})`
+              : "";
+            await paymentsApi.create({
+              memberId,
+              membershipId: ms.id,
+              amount: share,
+              method: paymentMethodToApi(form.method),
+              type: "membership",
+              paidAt,
+              notes: `${groupTag} — share for member ${i + 1} of ${required}${shareNote}`,
+            });
+          }
         }
         await reloadMemberships();
         setModal(null);
-        alert(`✓ Group plan assigned to ${required} members. Total collected: ${formatUGX(groupInfo.price)} (${formatUGX(perPerson)} per member).`);
+        const summary = isPartialGroup
+          ? `✓ Group plan assigned to ${required} members. Partial collected: ${formatUGX(payAmount)} of ${formatUGX(totalGroupBill)} (outstanding: ${formatUGX(totalGroupBill - payAmount)}). Each member's balance can be settled via Pay Balance.`
+          : `✓ Group plan assigned to ${required} members. Total collected: ${formatUGX(totalGroupBill)} (${formatUGX(perPerson)} per member).`;
+        alert(summary);
       } catch (err) {
         const detail = Array.isArray(err?.details) && err.details.length
           ? err.details.map((d) => d.msg || JSON.stringify(d)).join("; ")
