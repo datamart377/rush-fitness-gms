@@ -372,6 +372,17 @@ const formatTime = (d) => new Date(d).toLocaleTimeString("en-UG", { hour: "2-dig
 // timezones, breaking every "filter by today" control in the app.
 const today = () => dateToYMD(new Date());
 
+// True when a membership's end date has already passed (yesterday or earlier).
+// A membership whose endDate is TODAY is NOT expired — the member is entitled
+// to check in on their last day. Compares LOCAL YMD strings (via dateToYMD)
+// rather than `new Date(endDate) < new Date()` because a bare "YYYY-MM-DD"
+// string parses to 00:00 UTC, which in UTC+3 (Kampala) makes the membership
+// look expired from 3 AM on its last day — hours before the gym opens.
+const isMembershipEndPast = (ms) => {
+  if (!ms?.endDate) return false;
+  return dateToYMD(ms.endDate) < today();
+};
+
 // Identify a payment record that represents money DRAWN DOWN from a prior
 // prepaid deposit (i.e. no new cash was collected on paidAt). Two flavours:
 //   1. Wallet add-on debit (`type='addon_debit'`) — a first-class DB type.
@@ -1569,17 +1580,21 @@ const Dashboard = ({ data }) => {
   const maintenanceEquip = data.equipment.filter((eq) => eq.status === "maintenance").length;
   const expiringIn3 = data.memberships.filter((ms) => {
     if (!ms.isActive) return false;
+    if (!ms.endDate) return false;
+    // Ending today or later still counts as active (isMembershipEndPast is
+    // strict-past). diff <= 3 captures today (diff ≈ -0.x) through +3 days.
+    if (isMembershipEndPast(ms)) return false;
     const diff = (new Date(ms.endDate) - new Date()) / 86400000;
-    return diff >= 0 && diff <= 3;
+    return diff <= 3;
   });
 
   // Recently expired memberships — last 30 days, most-recent first.
-  // Mirrors the badge-consistent expiry check used on the Memberships page:
-  // a time-based comparison (new Date(endDate) < new Date()) so a row whose
-  // endDate is "today" but already past midnight UTC is correctly counted
-  // as expired. Skips frozen / pending / cancelled (those aren't lapsed in
-  // the renew-me-now sense). Deduplicates by memberId so a member with
-  // multiple lapsed periods only appears once (with their latest expiry).
+  // Uses isMembershipEndPast so a membership ending TODAY is NOT surfaced
+  // here (same-day check-ins are still allowed — the member only becomes
+  // "recently expired" tomorrow). Skips frozen / pending / cancelled
+  // (those aren't lapsed in the renew-me-now sense). Deduplicates by
+  // memberId so a member with multiple lapsed periods only appears once
+  // (with their latest expiry).
   const recentlyExpired = (() => {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
@@ -1587,8 +1602,9 @@ const Dashboard = ({ data }) => {
       .filter((ms) => {
         if (!ms.endDate) return false;
         if (ms.status === "frozen" || ms.status === "pending_payment" || ms.status === "cancelled") return false;
+        if (!isMembershipEndPast(ms)) return false;   // ending today still counts as active
         const end = new Date(ms.endDate);
-        return end < now && end >= thirtyDaysAgo;
+        return end >= thirtyDaysAgo;                  // still within the 30-day window
       })
       .sort((a, b) => new Date(b.endDate) - new Date(a.endDate));
     const seen = new Set();
@@ -1877,7 +1893,11 @@ const CheckIn = ({ data, setData, currentUser }) => {
   }) : [];
 
   const membership = selected ? data.memberships.find((ms) => ms.memberId === selected.id && (ms.isActive || ms.status === "pending_payment")) : null;
-  const isExpired = membership ? (new Date(membership.endDate) < new Date() && membership.status !== "pending_payment") : true;
+  // Expired = end date strictly in the past. A membership ending TODAY still
+  // allows a final check-in (see isMembershipEndPast for the timezone reason).
+  // Pending-payment memberships aren't considered expired for gating purposes —
+  // they have their own separate "insufficient payment" flow.
+  const isExpired = membership ? (isMembershipEndPast(membership) && membership.status !== "pending_payment") : true;
   const isFrozen = membership?.status === "frozen";
   const isPendingPayment = membership?.status === "pending_payment";
   const alreadyCheckedIn = selected ? data.attendance.some((a) => a.memberId === selected.id && a.date === today()) : false;
@@ -2584,7 +2604,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 <tbody>
                   {results.map((m) => {
                     const ms = data.memberships.find((ms) => ms.memberId === m.id && (ms.isActive || ms.status === "pending_payment"));
-                    const exp = ms ? (new Date(ms.endDate) < new Date() && ms.status !== "pending_payment") : true;
+                    const exp = ms ? (isMembershipEndPast(ms) && ms.status !== "pending_payment") : true;
                     const isPending = ms?.status === "pending_payment";
                     return (
                       <tr key={m.id} style={!m.isActive ? { opacity: 0.5 } : {}}>
@@ -5167,7 +5187,7 @@ const Members = ({ data, setData, currentUser }) => {
           <tbody>
             {filtered.map((m) => {
               const ms = data.memberships.find((ms) => ms.memberId === m.id && ms.isActive);
-              const exp = ms ? new Date(ms.endDate) < new Date() : true;
+              const exp = ms ? isMembershipEndPast(ms) : true;
               return (
                 <tr key={m.id}>
                   <td>
@@ -6215,11 +6235,12 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
                 // "default" preserves the legacy view (active + frozen + pending);
                 // explicit choices let staff drill into expired/cancelled history.
                 //
-                // IMPORTANT: must mirror the row's badge logic exactly, otherwise
-                // rows whose end_date equals today (badge says "Expired" because
-                // midnight-UTC < now) wouldn't be captured by Status:Expired.
+                // IMPORTANT: must mirror the row's badge logic exactly.
+                // Uses isMembershipEndPast (local-YMD compare) so a membership
+                // ending TODAY is NOT flagged as expired — the member still
+                // gets their final day.
                 const isExpiredByDate = ms.endDate
-                  && new Date(ms.endDate) < new Date()
+                  && isMembershipEndPast(ms)
                   && ms.status !== "frozen"
                   && ms.status !== "pending_payment"
                   && ms.status !== "cancelled";
@@ -6261,9 +6282,11 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
                 if (ms.status === "pending_payment") return true;
                 if (ms.status === "frozen") return true;
                 if (ms.endDate) {
-                  // Use the same time-based comparison the row badge uses so
-                  // "Expired" rows are always captured here too.
-                  if (new Date(ms.endDate) < new Date()) return true; // expired (incl. ending today)
+                  // Use the same YMD comparison the row badge uses so
+                  // "Expired" rows are always captured here too. Memberships
+                  // ending TODAY are surfaced under "expiring within 7 days"
+                  // (below), NOT as expired — same-day check-in is allowed.
+                  if (isMembershipEndPast(ms)) return true;
                   const sevenAhead = new Date(Date.now() + 7 * 86400000);
                   if (new Date(ms.endDate) <= sevenAhead) return true; // expiring within 7d
                 }
@@ -6286,7 +6309,7 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
               })
               .map((ms) => {
               const member = data.members.find((m) => m.id === ms.memberId);
-              const exp = new Date(ms.endDate) < new Date() && ms.status !== "frozen" && ms.status !== "pending_payment";
+              const exp = isMembershipEndPast(ms) && ms.status !== "frozen" && ms.status !== "pending_payment";
               const bal = getMembershipBalance(ms, data.payments);
               const isPending = ms.status === "pending_payment";
               const isPrepaidMs = ms.plan === "prepaid";
@@ -11480,7 +11503,7 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
         setMember(found);
         // Skip PIN — validate membership and check in directly
         const ms = data.memberships.find((ms) => ms.memberId === found.id && ms.isActive);
-        if (!ms || new Date(ms.endDate) < new Date()) { setStep("blocked"); setTimeout(reset, 5000); return; }
+        if (!ms || isMembershipEndPast(ms)) { setStep("blocked"); setTimeout(reset, 5000); return; }
         if (ms.status === "frozen") { setStep("blocked"); setTimeout(reset, 5000); return; }
         const alreadyIn = data.attendance.some((a) => a.memberId === found.id && a.date === today());
         if (alreadyIn) { setStep("success"); return; }
@@ -11499,7 +11522,7 @@ const SelfCheckIn = ({ data, setData, onExit }) => {
     else if (k === "go") {
       if (pin === member.pin) {
         const ms = data.memberships.find((ms) => ms.memberId === member.id && ms.isActive);
-        if (!ms || new Date(ms.endDate) < new Date()) { setStep("blocked"); setTimeout(reset, 5000); return; }
+        if (!ms || isMembershipEndPast(ms)) { setStep("blocked"); setTimeout(reset, 5000); return; }
         if (ms.status === "frozen") { setStep("blocked"); setTimeout(reset, 5000); return; }
         const alreadyIn = data.attendance.some((a) => a.memberId === member.id && a.date === today());
         if (alreadyIn) { setStep("success"); return; }
