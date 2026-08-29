@@ -1825,6 +1825,11 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const [selected, setSelected] = useState(null);
   const [checkedIn, setCheckedIn] = useState(false);
   const [addons, setAddons] = useState([]);
+  // Add-on payment method — applies to the cash-due portion of add-on charges
+  // at member check-in (`handleCheckIn`) and post-checkin add-ons (`chargeAddons`).
+  // The addon_debit wallet-drain row keeps method="cash" because it isn't a
+  // real cash-in; only the shortfall row uses this selector.
+  const [addonPaymentMethod, setAddonPaymentMethod] = useState("cash");
   const [selectedLocker, setSelectedLocker] = useState(null);
   const [mode, setMode] = useState("member"); // member | walkin | history
   const isAdmin = currentUser?.role === "admin";
@@ -2092,7 +2097,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
             memberId: selected.id,
             membershipId: null,
             amount: cashDue,
-            method: "cash",
+            method: addonPaymentMethod,
             paidAt: new Date().toISOString(),
             type: "addon",
             activityId: addons.length === 1 ? addons[0] : addons.join("+"),
@@ -2108,7 +2113,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
           newPayments = newPayments.concat(addons.map((actId) => {
             const act = ACTIVITIES.find((a) => a.id === actId);
             const price = isDailyPlan ? act.standalone : act.addon;
-            return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0 };
+            return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: addonPaymentMethod, paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0 };
           }));
         }
       }
@@ -2259,7 +2264,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
             memberId: selected.id,
             membershipId: null,
             amount: cashDue,
-            method: "cash",
+            method: addonPaymentMethod,
             paidAt: new Date().toISOString(),
             type: "addon",
             activityId: addons.length === 1 ? addons[0] : addons.join("+"),
@@ -2274,7 +2279,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
           newPayments = newPayments.concat(addons.map((actId) => {
             const act = ACTIVITIES.find((a) => a.id === actId);
             const price = isDailyPlan ? act.standalone : act.addon;
-            return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: "cash", paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0, note: `Add-on (post check-in): ${act.name}` };
+            return { id: generateId(), memberId: selected.id, membershipId: null, amount: price, method: addonPaymentMethod, paidAt: new Date().toISOString(), type: "addon", activityId: actId, discountId: null, discountAmount: 0, note: `Add-on (post check-in): ${act.name}` };
           }));
         }
       }
@@ -2323,7 +2328,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
     }
   };
 
-  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null, memberId: null }); };
+  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setAddonPaymentMethod("cash"); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null, memberId: null }); };
 
   // Fallback flow: a pre-paid member whose balance is below the daily rate
   // gets checked in as a walk-in instead of being turned away. We pre-fill
@@ -3108,6 +3113,29 @@ const CheckIn = ({ data, setData, currentUser }) => {
                       <span>Total</span>
                       <span>{formatUGX(addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) - (addons.length > 1 ? 10000 : 0))}</span>
                     </div>
+                    {/* Payment method for the cash-due portion of the add-on
+                        total. Prepaid members deduct from balance (no cash-in),
+                        so the selector is only meaningful for non-prepaid. When
+                        the wallet fully covers the cost, the selector is
+                        harmless (no cash row is emitted). */}
+                    {!isPrepaid && (() => {
+                      const cost = addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) - (addons.length > 1 ? 10000 : 0);
+                      const bal = Number(membership?.addonBalance || 0);
+                      const walletUsed = Math.max(0, Math.min(bal, cost));
+                      const cashDue = cost - walletUsed;
+                      if (cashDue <= 0) return null;
+                      return (
+                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--border)" }}>
+                          <label style={{ display: "block", fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Payment Method</label>
+                          <select value={addonPaymentMethod} onChange={(e) => setAddonPaymentMethod(e.target.value)} style={{ width: "100%" }}>
+                            <option value="cash">Cash</option>
+                            <option value="mobile_money_mtn">Mobile Money (MTN)</option>
+                            <option value="mobile_money_airtel">Mobile Money (Airtel)</option>
+                            <option value="card">Card</option>
+                          </select>
+                        </div>
+                      );
+                    })()}
                     {/* Add-on wallet consumption preview (migration 015). Only
                         surfaces for non-prepaid members who actually have a
                         wallet balance — for everyone else the check-in flow
@@ -6805,8 +6833,8 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
                     value={parsed || ""}
                     max={today()}
                     onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                    onFocus={(e) => e.target.showPicker?.()}
-                    onClick={(e) => e.target.showPicker?.()}
+                    onFocus={(e) => { try { e.target.showPicker?.(); } catch (_) {} }}
+                    onClick={(e) => { try { e.target.showPicker?.(); } catch (_) {} }}
                   />
                   {hasInput && parsed > today() && (
                     <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 4 }}>
@@ -9664,8 +9692,8 @@ const Discounts = ({ data, setData, currentUser }) => {
                 every browser that supports it. Older browsers without
                 showPicker() fall back to the default behaviour because
                 of the optional-chaining. */}
-            <div className="form-group"><label>Start Date</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} onFocus={(e) => e.target.showPicker?.()} onClick={(e) => e.target.showPicker?.()} /></div>
-            <div className="form-group"><label>End Date</label><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} onFocus={(e) => e.target.showPicker?.()} onClick={(e) => e.target.showPicker?.()} /></div>
+            <div className="form-group"><label>Start Date</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} onFocus={(e) => { try { e.target.showPicker?.(); } catch (_) {} }} onClick={(e) => { try { e.target.showPicker?.(); } catch (_) {} }} /></div>
+            <div className="form-group"><label>End Date</label><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} onFocus={(e) => { try { e.target.showPicker?.(); } catch (_) {} }} onClick={(e) => { try { e.target.showPicker?.(); } catch (_) {} }} /></div>
             <div className="form-group"><label>Max Uses</label><input type="number" min="0" value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} placeholder="leave blank for unlimited" /></div>
           </div>
         </Modal>
