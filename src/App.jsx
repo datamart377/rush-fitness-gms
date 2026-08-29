@@ -7859,12 +7859,54 @@ const printPaymentReceipt = (p, data) => {
   w.document.close();
 };
 
-const Payments = ({ data }) => {
+const Payments = ({ data, setData, currentUser }) => {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   // Date range filter — ymd strings (YYYY-MM-DD). Empty = no bound.
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo]     = useState("");
+  // In-flight void ids so the row's button can show "…" and stay disabled
+  // while the refund is being persisted. Prevents duplicate calls if the
+  // admin clicks twice.
+  const [voidingIds, setVoidingIds] = useState(() => new Set());
+  const isAdmin = currentUser?.role === "admin";
+
+  // Void (refund) a wrongly-recorded payment. Backend flips status to
+  // 'refunded'; derivePrepaidBalance / derivePostpaidOutstanding both
+  // skip refunded rows, so a prepaid top-up voided here immediately
+  // drops the corresponding balance on next re-derive.
+  const voidPayment = async (p) => {
+    if (!isAdmin) return;
+    if (!p || !p.id) return;
+    if (p.status === "refunded") return;
+    const memberName = p.memberId
+      ? (data.members.find((m) => m.id === p.memberId) ? fullName(data.members.find((m) => m.id === p.memberId)) : "this member")
+      : "walk-in guest";
+    const ok = window.confirm(
+      `Void this payment?\n\n${memberName} — ${formatUGX(p.amount)} (${formatPaymentMethod(p.method)})\n${p.note || ""}\n\n` +
+      `The row stays in the ledger marked "refunded" for the audit trail, ` +
+      `and any linked prepaid balance is reduced accordingly.`
+    );
+    if (!ok) return;
+    setVoidingIds((s) => { const n = new Set(s); n.add(p.id); return n; });
+    try {
+      await paymentsApi.refund(p.id);
+      // Flip status locally, then re-derive prepaid + postpaid so
+      // Daniel's wallet drops by 100k straight away without a reload.
+      setData((d) => {
+        const nextPayments = d.payments.map((x) => x.id === p.id ? { ...x, status: "refunded" } : x);
+        const nextMemberships = derivePostpaidOutstanding(
+          derivePrepaidBalance(d.memberships, nextPayments),
+          nextPayments
+        );
+        return { ...d, payments: nextPayments, memberships: nextMemberships };
+      });
+    } catch (err) {
+      alert(err?.message || "Void failed");
+    } finally {
+      setVoidingIds((s) => { const n = new Set(s); n.delete(p.id); return n; });
+    }
+  };
 
   // Quick-range presets — match the same patterns used on Reports.
   const setRangePreset = (preset) => {
@@ -7981,7 +8023,7 @@ const Payments = ({ data }) => {
       </div>
       <div className="table-wrapper">
         <table>
-          <thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Details</th><th>Method</th><th>Reference</th><th>Amount</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
+          <thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Details</th><th>Method</th><th>Reference</th><th>Amount</th><th style={{ textAlign: "center" }}>Actions</th></tr></thead>
           <tbody>
             {[...filtered].sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt)).map((p) => {
               const member = p.memberId ? data.members.find((m) => m.id === p.memberId) : null;
@@ -8008,16 +8050,35 @@ const Payments = ({ data }) => {
                     {formatUGX(p.amount)}
                   </td>
                   <td style={{ textAlign: "center" }}>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-secondary"
-                      onClick={() => printPaymentReceipt(p, data)}
-                      title="Generate and print receipt"
-                      style={{ padding: "4px 8px", display: "inline-flex", alignItems: "center", gap: 4 }}
-                    >
-                      <Printer size={12} />
-                      <span style={{ fontSize: 11 }}>Print</span>
-                    </button>
+                    <div style={{ display: "inline-flex", gap: 4, justifyContent: "center" }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => printPaymentReceipt(p, data)}
+                        title="Generate and print receipt"
+                        style={{ padding: "4px 8px", display: "inline-flex", alignItems: "center", gap: 4 }}
+                      >
+                        <Printer size={12} />
+                        <span style={{ fontSize: 11 }}>Print</span>
+                      </button>
+                      {/* Admin-only void. Hidden entirely for non-admins and
+                          for rows already refunded — the row-level opacity
+                          plus "(refunded)" tag in the Amount cell already
+                          signals the state. */}
+                      {isAdmin && !isRefund && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          onClick={() => voidPayment(p)}
+                          disabled={voidingIds.has(p.id)}
+                          title="Void this payment (marks it refunded; keeps audit trail)"
+                          style={{ padding: "4px 8px", display: "inline-flex", alignItems: "center", gap: 4, opacity: voidingIds.has(p.id) ? 0.5 : 1 }}
+                        >
+                          <X size={12} />
+                          <span style={{ fontSize: 11 }}>{voidingIds.has(p.id) ? "…" : "Void"}</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -13447,7 +13508,7 @@ export default function App() {
       case "checkin": return <CheckIn data={data} setData={securedSetData} currentUser={currentUser} />;
       case "members": return <Members data={data} setData={securedSetData} currentUser={currentUser} />;
       case "memberships": return <Memberships data={data} setData={securedSetData} currentUser={currentUser} setPage={setPage} />;
-      case "payments": return <Payments data={data} />;
+      case "payments": return <Payments data={data} setData={securedSetData} currentUser={currentUser} />;
       case "shop": return <Shop data={data} setData={securedSetData} currentUser={currentUser} />;
       case "expenses": return <Expenses data={data} setData={securedSetData} currentUser={currentUser} />;
       case "attendance": return <Attendance data={data} setData={securedSetData} />;
