@@ -1919,31 +1919,40 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const postpaidVisitsAllocated = membership?.postpaidVisitsAllocated || 0;
   const postpaidOverAllocation = isPostpaid && postpaidVisitsAllocated > 0 && postpaidVisitsUsed >= postpaidVisitsAllocated;
 
-  // ── Pricing helpers (Option C — prepaid uses actual activity prices) ──
-  // Base gym access fee (used when no add-ons are selected)
+  // ── Pricing helpers ──
+  //
+  // Model: a prepaid visit ALWAYS includes the base gym fee, and each selected
+  // add-on activity is charged at its add-on rate on top. Every add-on adds
+  // its full price — no bundle discount for prepaid members.
+  //
+  //   gym only        : 20,000                          (base)
+  //   gym + 1 addon   : 20,000 + 10,000       = 30,000  (base + addon)
+  //   gym + 2 addons  : 20,000 + 10,000 * 2   = 40,000
+  //   gym + 3 addons  : 20,000 + 10,000 * 3   = 50,000
+  //
+  // Non-prepaid flows (walk-in, monthly + addon) still apply the 10k bundle
+  // discount inside handleCheckIn / chargeAddons — that pricing model is
+  // separate and hasn't been touched by this change.
   const PREPAID_BASE_FEE = ACTIVITIES.find((a) => a.id === "gym_daily_activity")?.standalone || PLANS.prepaid.dailyRate;
-  // Sum of standalone prices for currently selected add-ons.
-  const addonsStandaloneTotal = (selectedIds = addons) =>
-    selectedIds.reduce((sum, actId) => sum + (ACTIVITIES.find((a) => a.id === actId)?.standalone || 0), 0);
-  const PREPAID_BUNDLE_DISCOUNT = 10000;  // 2-activity bundle discount
+  // Sum of add-on-rate prices for the currently selected add-ons.
+  const addonsAddonTotal = (selectedIds = addons) =>
+    selectedIds.reduce((sum, actId) => sum + (ACTIVITIES.find((a) => a.id === actId)?.addon || 0), 0);
+  const PREPAID_BUNDLE_DISCOUNT = 10000;  // non-prepaid 2+ add-on bundle discount (walk-in/monthly)
   // Today's prepaid cost for this check-in given current addon selection.
   const prepaidVisitCost = (() => {
     if (!isPrepaid) return 0;
-    if (!addons.length) return PREPAID_BASE_FEE;                         // basic gym access
-    const total = addonsStandaloneTotal();
-    return addons.length > 1 ? total - PREPAID_BUNDLE_DISCOUNT : total;  // bundle discount on >=2
+    if (!addons.length) return PREPAID_BASE_FEE;      // basic gym access
+    return PREPAID_BASE_FEE + addonsAddonTotal();      // base + every add-on at full add-on rate
   })();
   const insufficientPrepaid = isPrepaid && prepaidBalance < prepaidVisitCost;
 
   // ── Pricing for "add-on after check-in" mode ─────────────────────────
   // When a member is already checked in for today, they already paid the base
-  // entry fee. Adding extras now charges only the add-on cost (no base, no
-  // double-counting). 0 add-ons = 0 cost (button disabled). 2+ add-ons get
-  // the same bundle discount as a fresh check-in.
+  // entry fee. Adding extras now charges only the add-on portion at add-on
+  // rate — every add-on adds its own bill, no bundle discount.
   const prepaidAddonOnlyCost = (() => {
     if (!isPrepaid || !addons.length) return 0;
-    const total = addonsStandaloneTotal();
-    return addons.length > 1 ? total - PREPAID_BUNDLE_DISCOUNT : total;
+    return addonsAddonTotal();
   })();
   const insufficientPrepaidAddon = isPrepaid && addons.length > 0 && prepaidBalance < prepaidAddonOnlyCost;
   const nonPrepaidAddonOnlyCost = (() => {
@@ -2007,20 +2016,20 @@ const CheckIn = ({ data, setData, currentUser }) => {
       lockerId: selectedLocker ? selectedLocker.id : null,
     };
 
-    // ── PREPAID: deduct the ACTUAL cost of this visit (gym base + selected addons,
-    //    minus 10k bundle discount if 2+ activities). One single deduction record.
+    // ── PREPAID: deduct the ACTUAL cost of this visit (gym base + every selected
+    //    add-on at full add-on rate — no bundle discount). One single deduction record.
     let prepaidDeduction = null;
     if (isPrepaid) {
       const deductAmount = prepaidVisitCost;
       const breakdown = !addons.length
         ? "gym access"
-        : addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ") +
-          (addons.length > 1 ? ` (-${formatUGX(PREPAID_BUNDLE_DISCOUNT)} bundle)` : "");
+        : "gym access + " +
+          addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ");
       prepaidDeduction = {
         id: generateId(), memberId: selected.id, membershipId: membership.id,
         amount: deductAmount, method: "prepaid", paidAt: new Date().toISOString(),
         type: "prepaid_visit", discountId: null,
-        discountAmount: addons.length > 1 ? PREPAID_BUNDLE_DISCOUNT : 0,
+        discountAmount: 0,
         note: `Pre-paid visit: ${breakdown} = ${formatUGX(deductAmount)} (balance before: ${formatUGX(prepaidBalance)})`,
       };
     }
@@ -2201,17 +2210,16 @@ const CheckIn = ({ data, setData, currentUser }) => {
     if (isPrepaid && insufficientPrepaidAddon) return;
 
     // ── PREPAID: deduct only the add-on cost (no base — that was paid at check-in).
+    //    Every add-on bills at full add-on rate; no bundle discount.
     let prepaidDeduction = null;
     if (isPrepaid) {
       const deductAmount = prepaidAddonOnlyCost;
-      const bundleDiscount = addons.length > 1 ? PREPAID_BUNDLE_DISCOUNT : 0;
-      const breakdown = addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ") +
-        (bundleDiscount ? ` (-${formatUGX(bundleDiscount)} bundle)` : "");
+      const breakdown = addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ");
       prepaidDeduction = {
         id: generateId(), memberId: selected.id, membershipId: membership.id,
         amount: deductAmount, method: "prepaid", paidAt: new Date().toISOString(),
         type: "prepaid_visit", discountId: null,
-        discountAmount: bundleDiscount,
+        discountAmount: 0,
         note: `Pre-paid visit (add-on): ${breakdown} = ${formatUGX(deductAmount)} (balance before: ${formatUGX(prepaidBalance)})`,
       };
     }
@@ -3058,19 +3066,23 @@ const CheckIn = ({ data, setData, currentUser }) => {
 
           {!isExpired && !isFrozen && !isPendingPayment && !(insufficientPrepaid && !alreadyCheckedIn) && (
             <>
+              {(() => { /* per-flow cap: prepaid members can stack every activity;
+                           monthly members & walk-ins keep the standard 2-cap. */ })()}
               <div style={{ marginTop: 20, textAlign: "left" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                     {alreadyCheckedIn ? "Add Activity for Today's Visit" : "Add-on Activities"}
                   </p>
-                  <span style={{ fontSize: 11, color: addons.length >= MAX_ACTIVITIES ? "var(--warning)" : "var(--text-muted)" }}>
-                    {addons.length}/{MAX_ACTIVITIES} selected
+                  <span style={{ fontSize: 11, color: (!isPrepaid && addons.length >= MAX_ACTIVITIES) ? "var(--warning)" : "var(--text-muted)" }}>
+                    {isPrepaid ? `${addons.length} selected` : `${addons.length}/${MAX_ACTIVITIES} selected`}
                   </span>
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {ACTIVITIES.map((act) => {
                     const isSelected = addons.includes(act.id);
-                    const isDisabled = !isSelected && addons.length >= MAX_ACTIVITIES;
+                    // Prepaid: no cap — every unselected activity remains clickable.
+                    // Others: keep the MAX_ACTIVITIES cap so walk-ins/monthly plans behave as before.
+                    const isDisabled = !isSelected && !isPrepaid && addons.length >= MAX_ACTIVITIES;
                     return (
                       <button
                         key={act.id}
@@ -3086,7 +3098,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                     );
                   })}
                 </div>
-                {addons.length >= MAX_ACTIVITIES && (
+                {!isPrepaid && addons.length >= MAX_ACTIVITIES && (
                   <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 6 }}>Maximum {MAX_ACTIVITIES} activities per visit. Deselect one to choose a different activity.</p>
                 )}
 
@@ -3103,7 +3115,10 @@ const CheckIn = ({ data, setData, currentUser }) => {
                         </div>
                       );
                     })}
-                    {addons.length > 1 && (
+                    {/* Bundle discount ONLY for non-prepaid (walk-in / monthly).
+                        Prepaid members bill each add-on separately at full add-on
+                        rate — the "every add-on = extra bill" rule. */}
+                    {!isPrepaid && addons.length > 1 && (
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}>
                         <span>Bundle Discount</span>
                         <span>-{formatUGX(10000)}</span>
@@ -3111,7 +3126,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                     )}
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, color: "var(--accent)", borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}>
                       <span>Total</span>
-                      <span>{formatUGX(addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) - (addons.length > 1 ? 10000 : 0))}</span>
+                      <span>{formatUGX(addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) - (!isPrepaid && addons.length > 1 ? 10000 : 0))}</span>
                     </div>
                     {/* Payment method for the cash-due portion of the add-on
                         total. Prepaid members deduct from balance (no cash-in),
