@@ -3105,6 +3105,17 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 {/* Pricing summary */}
                 {addons.length > 0 && (
                   <div style={{ marginTop: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                    {/* Gym Access base line — only for a prepaid FRESH check-in.
+                        Post-check-in add-on flow (alreadyCheckedIn) skips it
+                        because the base was already paid at initial check-in.
+                        Non-prepaid flows (walk-in / monthly) don't deduct base
+                        here — their base is handled at plan assignment. */}
+                    {isPrepaid && !alreadyCheckedIn && (
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}>
+                        <span>Gym Access</span>
+                        <span>{formatUGX(PREPAID_BASE_FEE)}</span>
+                      </div>
+                    )}
                     {addons.map((actId) => {
                       const act = ACTIVITIES.find((a) => a.id === actId);
                       const price = isDailyPlan ? act.standalone : act.addon;
@@ -3126,7 +3137,11 @@ const CheckIn = ({ data, setData, currentUser }) => {
                     )}
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, color: "var(--accent)", borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}>
                       <span>Total</span>
-                      <span>{formatUGX(addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) - (!isPrepaid && addons.length > 1 ? 10000 : 0))}</span>
+                      <span>{formatUGX(
+                        (isPrepaid && !alreadyCheckedIn ? PREPAID_BASE_FEE : 0) +
+                        addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) -
+                        (!isPrepaid && addons.length > 1 ? 10000 : 0)
+                      )}</span>
                     </div>
                     {/* Payment method for the cash-due portion of the add-on
                         total. Prepaid members deduct from balance (no cash-in),
