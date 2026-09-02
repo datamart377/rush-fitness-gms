@@ -1921,38 +1921,50 @@ const CheckIn = ({ data, setData, currentUser }) => {
 
   // ── Pricing helpers ──
   //
-  // Model: a prepaid visit ALWAYS includes the base gym fee, and each selected
-  // add-on activity is charged at its add-on rate on top. Every add-on adds
-  // its full price — no bundle discount for prepaid members.
+  // Model: NOTHING is auto-charged for a prepaid visit. The member picks what
+  // they want (including "Daily Gym Access" if they intend to use the gym
+  // floor), and the visit cost is the sum of the selected items. Daily Gym
+  // Access is a fixed 20,000 fee when selected; every other add-on charges at
+  // its .addon rate. No bundle discount for prepaid.
   //
-  //   gym only        : 20,000                          (base)
-  //   gym + 1 addon   : 20,000 + 10,000       = 30,000  (base + addon)
-  //   gym + 2 addons  : 20,000 + 10,000 * 2   = 40,000
-  //   gym + 3 addons  : 20,000 + 10,000 * 3   = 50,000
+  //   gym only         : 20,000                        (just gym access)
+  //   gym + 1 addon    : 20,000 + 10,000     = 30,000
+  //   gym + 2 addons   : 20,000 + 10,000 * 2 = 40,000
+  //   1 addon only     : 10,000                        (e.g., Aerobics without gym)
+  //   nothing selected : 0                             (check-in disabled)
   //
   // Non-prepaid flows (walk-in, monthly + addon) still apply the 10k bundle
   // discount inside handleCheckIn / chargeAddons — that pricing model is
   // separate and hasn't been touched by this change.
   const PREPAID_BASE_FEE = ACTIVITIES.find((a) => a.id === "gym_daily_activity")?.standalone || PLANS.prepaid.dailyRate;
-  // Sum of add-on-rate prices for the currently selected add-ons.
-  const addonsAddonTotal = (selectedIds = addons) =>
-    selectedIds.reduce((sum, actId) => sum + (ACTIVITIES.find((a) => a.id === actId)?.addon || 0), 0);
+  const isGymAccessActivity = (act) => act && (act.id === "gym_daily_activity" || act.code === "gym_daily_activity");
+  // Prepaid billing rate for a given activity id: Daily Gym Access is a fixed
+  // 20k; everything else uses its addon rate.
+  const prepaidPriceFor = (actId) => {
+    const act = ACTIVITIES.find((a) => a.id === actId);
+    if (!act) return 0;
+    if (isGymAccessActivity(act)) return PREPAID_BASE_FEE;
+    return act.addon || 0;
+  };
+  // Sum of prepaid-rate prices for the currently selected items.
+  const addonsPrepaidTotal = (selectedIds = addons) =>
+    selectedIds.reduce((sum, id) => sum + prepaidPriceFor(id), 0);
   const PREPAID_BUNDLE_DISCOUNT = 10000;  // non-prepaid 2+ add-on bundle discount (walk-in/monthly)
-  // Today's prepaid cost for this check-in given current addon selection.
+  // Today's prepaid cost for this check-in given current selection.
   const prepaidVisitCost = (() => {
     if (!isPrepaid) return 0;
-    if (!addons.length) return PREPAID_BASE_FEE;      // basic gym access
-    return PREPAID_BASE_FEE + addonsAddonTotal();      // base + every add-on at full add-on rate
+    return addonsPrepaidTotal();
   })();
-  const insufficientPrepaid = isPrepaid && prepaidBalance < prepaidVisitCost;
+  const insufficientPrepaid = isPrepaid && addons.length > 0 && prepaidBalance < prepaidVisitCost;
+  const noPrepaidSelection = isPrepaid && addons.length === 0;
 
   // ── Pricing for "add-on after check-in" mode ─────────────────────────
-  // When a member is already checked in for today, they already paid the base
-  // entry fee. Adding extras now charges only the add-on portion at add-on
-  // rate — every add-on adds its own bill, no bundle discount.
+  // When a member is already checked in for today, they already paid for
+  // whatever they picked at check-in. Post-check-in extras charge at the
+  // same prepaid rate model (Daily Gym Access, if picked again, is 20k).
   const prepaidAddonOnlyCost = (() => {
     if (!isPrepaid || !addons.length) return 0;
-    return addonsAddonTotal();
+    return addonsPrepaidTotal();
   })();
   const insufficientPrepaidAddon = isPrepaid && addons.length > 0 && prepaidBalance < prepaidAddonOnlyCost;
   const nonPrepaidAddonOnlyCost = (() => {
@@ -1975,7 +1987,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const todayUncheckedWalkIns = data.walkIns.filter((w) => w.visitDate === today() && !w.checkedIn && (w.paymentStatus === "paid" || !w.paymentStatus));
 
   const handleCheckIn = async () => {
-    if (isExpired || isFrozen || alreadyCheckedIn || isPendingPayment || insufficientPrepaid) return;
+    if (isExpired || isFrozen || alreadyCheckedIn || isPendingPayment || insufficientPrepaid || noPrepaidSelection) return;
 
     // Call backend first — it atomically creates the attendance row and occupies the locker.
     // If multiple activities were selected, record the first one's UUID
@@ -2021,10 +2033,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
     let prepaidDeduction = null;
     if (isPrepaid) {
       const deductAmount = prepaidVisitCost;
-      const breakdown = !addons.length
-        ? "gym access"
-        : "gym access + " +
-          addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ");
+      const breakdown = addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ") || "(no items)";
       prepaidDeduction = {
         id: generateId(), memberId: selected.id, membershipId: membership.id,
         amount: deductAmount, method: "prepaid", paidAt: new Date().toISOString(),
@@ -2958,7 +2967,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 <span style={{ fontSize: 20, fontWeight: 700, color: insufficientPrepaid ? "var(--danger)" : "var(--accent)", fontFamily: "var(--font-display)" }}>{formatUGX(prepaidBalance)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: "var(--text-dim)" }}>
-                <span>This visit ({addons.length === 0 ? "gym only" : `${addons.length} activit${addons.length === 1 ? "y" : "ies"}`})</span>
+                <span>This visit ({addons.length === 0 ? "nothing selected" : `${addons.length} item${addons.length === 1 ? "" : "s"}`})</span>
                 <span style={{ fontWeight: 600 }}>-{formatUGX(prepaidVisitCost)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 12, color: "var(--text-dim)" }}>
@@ -3078,7 +3087,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                   </span>
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {ACTIVITIES.map((act) => {
+                  {ACTIVITIES.filter((act) => !(alreadyCheckedIn && isGymAccessActivity(act))).map((act) => {
                     const isSelected = addons.includes(act.id);
                     // Prepaid: no cap — every unselected activity remains clickable.
                     // Others: keep the MAX_ACTIVITIES cap so walk-ins/monthly plans behave as before.
@@ -3093,7 +3102,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                           setAddons((a) => a.includes(act.id) ? a.filter((x) => x !== act.id) : [...a, act.id]);
                         }}
                       >
-                        {act.name} ({formatUGX(isDailyPlan ? act.standalone : act.addon)})
+                        {act.name} ({formatUGX(isPrepaid ? prepaidPriceFor(act.id) : (isDailyPlan ? act.standalone : act.addon))})
                       </button>
                     );
                   })}
@@ -3105,20 +3114,15 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 {/* Pricing summary */}
                 {addons.length > 0 && (
                   <div style={{ marginTop: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
-                    {/* Gym Access base line — only for a prepaid FRESH check-in.
-                        Post-check-in add-on flow (alreadyCheckedIn) skips it
-                        because the base was already paid at initial check-in.
-                        Non-prepaid flows (walk-in / monthly) don't deduct base
-                        here — their base is handled at plan assignment. */}
-                    {isPrepaid && !alreadyCheckedIn && (
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}>
-                        <span>Gym Access</span>
-                        <span>{formatUGX(PREPAID_BASE_FEE)}</span>
-                      </div>
-                    )}
+                    {/* Every line comes from the user's selection now — there is
+                        no auto "Gym Access" line. If the member wants gym floor
+                        access they select "Daily Gym Access" explicitly (fixed
+                        20k for prepaid). */}
                     {addons.map((actId) => {
                       const act = ACTIVITIES.find((a) => a.id === actId);
-                      const price = isDailyPlan ? act.standalone : act.addon;
+                      const price = isPrepaid
+                        ? prepaidPriceFor(actId)
+                        : (isDailyPlan ? act.standalone : act.addon);
                       return (
                         <div key={actId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}>
                           <span>{act.name}</span>
@@ -3138,9 +3142,9 @@ const CheckIn = ({ data, setData, currentUser }) => {
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, color: "var(--accent)", borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6 }}>
                       <span>Total</span>
                       <span>{formatUGX(
-                        (isPrepaid && !alreadyCheckedIn ? PREPAID_BASE_FEE : 0) +
-                        addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) -
-                        (!isPrepaid && addons.length > 1 ? 10000 : 0)
+                        isPrepaid
+                          ? addonsPrepaidTotal()
+                          : addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) - (addons.length > 1 ? 10000 : 0)
                       )}</span>
                     </div>
                     {/* Payment method for the cash-due portion of the add-on
@@ -3248,8 +3252,15 @@ const CheckIn = ({ data, setData, currentUser }) => {
                     : `Charge Add-On (${formatUGX(isPrepaid ? prepaidAddonOnlyCost : nonPrepaidAddonOnlyCost)})`}
                 </button>
               ) : (
-                <button className="btn btn-success" style={{ marginTop: 24, width: "100%", padding: "14px 24px", fontSize: 16, fontWeight: 700 }} onClick={handleCheckIn}>
-                  <Check size={20} /> Check In{selectedLocker ? ` + Locker #${selectedLocker.number}` : ""}
+                <button
+                  className="btn btn-success"
+                  style={{ marginTop: 24, width: "100%", padding: "14px 24px", fontSize: 16, fontWeight: 700, opacity: noPrepaidSelection ? 0.5 : 1, cursor: noPrepaidSelection ? "not-allowed" : "pointer" }}
+                  onClick={handleCheckIn}
+                  disabled={noPrepaidSelection}
+                >
+                  <Check size={20} /> {noPrepaidSelection
+                    ? "Select an activity to check in"
+                    : `Check In${selectedLocker ? ` + Locker #${selectedLocker.number}` : ""}`}
                 </button>
               )}
             </>
