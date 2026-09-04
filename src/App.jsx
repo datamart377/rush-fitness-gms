@@ -5167,6 +5167,7 @@ const Members = ({ data, setData, currentUser }) => {
     try {
       await membersApi.remove(m.id);
       await reload();
+      window.__rfgAudit?.("delete_member", `Deleted member "${name}" (id: ${m.id}, phone: ${m.phone || "n/a"})`);
     } catch (err) {
       const msg = err?.message || "Failed to delete member";
       setApiError(msg);
@@ -6238,6 +6239,10 @@ const Memberships = ({ data, setData, currentUser, setPage }) => {
     try {
       await membershipsApi.remove(ms.id);
       await reloadMemberships();
+      window.__rfgAudit?.(
+        "delete_membership",
+        `Deleted ${getPlanName(ms.plan)} membership for ${who} (${dateToYMD(ms.startDate)} → ${dateToYMD(ms.endDate)})`
+      );
     } catch (err) {
       alert(err?.message || "Delete failed");
     }
@@ -7942,6 +7947,10 @@ const Payments = ({ data, setData, currentUser }) => {
         );
         return { ...d, payments: nextPayments, memberships: nextMemberships };
       });
+      window.__rfgAudit?.(
+        "void_payment",
+        `Voided payment #${p.id} — ${memberName}, ${formatUGX(p.amount)} (${formatPaymentMethod(p.method)})${p.note ? ` — ${p.note}` : ""}`
+      );
     } catch (err) {
       alert(err?.message || "Void failed");
     } finally {
@@ -11205,6 +11214,7 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
       });
       await reload();
       setModal(null);
+      window.__rfgAudit?.("create_staff", `Created staff account "${name}" (username: ${username}, role: ${role})`);
     } catch (err) {
       // Translate backend errors into friendly text
       let msg;
@@ -11231,6 +11241,7 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
     try {
       await usersApi.update(resetTarget.id, { newPassword });
       await reload();
+      window.__rfgAudit?.("reset_password", `Reset password for staff "${resetTarget.name}" (username: ${resetTarget.username})`);
       setResetTarget(null);
       setNewPassword("");
       setConfirmNewPassword("");
@@ -11242,8 +11253,13 @@ const StaffMgmt = ({ data, setData, currentUser }) => {
   const toggleActive = async (s) => {
     if (s.id === currentUser?.id) { alert("You cannot deactivate your own account"); return; }
     try {
-      await usersApi.update(s.id, { isActive: !s.isActive });
+      const nextActive = !s.isActive;
+      await usersApi.update(s.id, { isActive: nextActive });
       await reload();
+      window.__rfgAudit?.(
+        nextActive ? "reactivate_staff" : "deactivate_staff",
+        `${nextActive ? "Reactivated" : "Deactivated"} staff "${s.name}" (username: ${s.username}, role: ${s.role})`
+      );
     } catch (err) {
       alert(err?.message || "Failed to update staff");
     }
@@ -13175,11 +13191,23 @@ const LoginScreen = ({ staff, onLogin }) => {
     } catch (err) {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
+      // Audit every failed login attempt — anonymised (we don't know for sure
+      // whose credentials were tried, only what was typed).
+      window.__rfgAudit?.(
+        "login_failed",
+        `Failed login attempt for username "${username}" (attempt ${newAttempts})`,
+        { userId: "anonymous", userName: username || "unknown" }
+      );
       // Backend rate-limits after 20 attempts/10min; we still show local feedback
       if (newAttempts >= 5) {
         const lockTime = Date.now() + 60000;
         setLockedUntil(lockTime);
         setError("Too many failed attempts. Locked for 60 seconds.");
+        window.__rfgAudit?.(
+          "login_locked",
+          `Login locked for 60s after 5 failed attempts on username "${username}"`,
+          { userId: "anonymous", userName: username || "unknown" }
+        );
         setTimeout(() => { setLockedUntil(null); setAttempts(0); }, 60000);
       } else {
         const msg = err?.message || "Login failed";
@@ -13490,6 +13518,20 @@ export default function App() {
     if (!currentUser) return;
     setData((d) => ({ ...d, auditLog: [...d.auditLog, createAuditEntry(currentUser.id, currentUser.name, action, details)] }));
   };
+
+  // Global audit hook — lets any child component or the login screen log a
+  // sensitive event without having to prop-drill setData/currentUser through
+  // every layer. Signature:
+  //   window.__rfgAudit(action, details)                             ← uses currentUser
+  //   window.__rfgAudit(action, details, { userId, userName })       ← anon events (e.g. failed login)
+  useEffect(() => {
+    window.__rfgAudit = (action, details, opts) => {
+      const userId = opts?.userId ?? currentUser?.id ?? "anonymous";
+      const userName = opts?.userName ?? currentUser?.name ?? "anonymous";
+      setData((d) => ({ ...d, auditLog: [...d.auditLog, createAuditEntry(userId, userName, action, details)] }));
+    };
+    return () => { delete window.__rfgAudit; };
+  }, [currentUser]);
 
   const handleLogin = (user) => {
     setCurrentUser(user);
