@@ -13599,12 +13599,33 @@ export default function App() {
               ))}
             </nav>
             <div className="sidebar-footer">
-              <div className="user-info">
+              <div className="user-info" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <div className="user-avatar">{currentUser.name?.charAt(0) || "U"}</div>
-                <div>
-                  <div style={{ color: "var(--text)", fontWeight: 500, fontSize: 13 }}>{currentUser.name}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: "var(--text)", fontWeight: 500, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentUser.name}</div>
                   <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{currentUser.role === "admin" ? "Administrator" : "Front Desk Staff"}</div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => handleLogout("manual")}
+                  title="Sign out"
+                  aria-label="Sign out"
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    padding: 6,
+                    color: "var(--text-dim)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--danger)"; e.currentTarget.style.borderColor = "var(--danger)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.borderColor = "var(--border)"; }}
+                >
+                  <LogIn size={14} style={{ transform: "scaleX(-1)" }} />
+                </button>
               </div>
             </div>
           </aside>
