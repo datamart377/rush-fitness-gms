@@ -1825,6 +1825,10 @@ const CheckIn = ({ data, setData, currentUser }) => {
   const [selected, setSelected] = useState(null);
   const [checkedIn, setCheckedIn] = useState(false);
   const [addons, setAddons] = useState([]);
+  // Prepaid members can also pick full "Activities" at standalone rate,
+  // independently of add-ons. See the two selection lists rendered below
+  // and the addonsPrepaidTotal / activitiesStandaloneTotal helpers.
+  const [activities, setActivities] = useState([]);
   // Add-on payment method — applies to the cash-due portion of add-on charges
   // at member check-in (`handleCheckIn`) and post-checkin add-ons (`chargeAddons`).
   // The addon_debit wallet-drain row keeps method="cash" because it isn't a
@@ -1921,52 +1925,63 @@ const CheckIn = ({ data, setData, currentUser }) => {
 
   // ── Pricing helpers ──
   //
-  // Model: NOTHING is auto-charged for a prepaid visit. The member picks what
-  // they want (including "Daily Gym Access" if they intend to use the gym
-  // floor), and the visit cost is the sum of the selected items. Daily Gym
-  // Access is a fixed 20,000 fee when selected; every other add-on charges at
-  // its .addon rate. No bundle discount for prepaid.
+  // Model: NOTHING is auto-charged for a prepaid visit. Prepaid members pick
+  // from TWO independent lists:
+  //   • Activities  → charged at .standalone rate
+  //   • Add-ons     → charged at .addon rate
+  // Both lists are multi-select. Daily Gym Access is a fixed 20,000 in EITHER
+  // list (picking it in both charges 20k twice, which is what the user asked
+  // for). No bundle discount for prepaid.
   //
-  //   gym only         : 20,000                        (just gym access)
-  //   gym + 1 addon    : 20,000 + 10,000     = 30,000
-  //   gym + 2 addons   : 20,000 + 10,000 * 2 = 40,000
-  //   1 addon only     : 10,000                        (e.g., Aerobics without gym)
-  //   nothing selected : 0                             (check-in disabled)
+  //   gym access only         : 20,000                                    (Activities: Daily Gym Access)
+  //   gym + 1 addon           : 20,000 + 10,000            = 30,000       (Activities: Gym; Add-ons: Aerobics)
+  //   aerobics standalone     : 20,000                                    (Activities: Aerobics)
+  //   nothing selected        : 0                                         (check-in disabled)
   //
-  // Non-prepaid flows (walk-in, monthly + addon) still apply the 10k bundle
-  // discount inside handleCheckIn / chargeAddons — that pricing model is
-  // separate and hasn't been touched by this change.
+  // Non-prepaid flows (walk-in, monthly + addon) don't use the Activities
+  // list at all — they still use the single add-ons list + 10k bundle
+  // discount inside handleCheckIn / chargeAddons, unchanged.
   const PREPAID_BASE_FEE = ACTIVITIES.find((a) => a.id === "gym_daily_activity")?.standalone || PLANS.prepaid.dailyRate;
   const isGymAccessActivity = (act) => act && (act.id === "gym_daily_activity" || act.code === "gym_daily_activity");
-  // Prepaid billing rate for a given activity id: Daily Gym Access is a fixed
-  // 20k; everything else uses its addon rate.
+  // Prepaid billing rate for an add-on-list selection: Daily Gym Access = 20k
+  // fixed; everything else uses its .addon rate.
   const prepaidPriceFor = (actId) => {
     const act = ACTIVITIES.find((a) => a.id === actId);
     if (!act) return 0;
     if (isGymAccessActivity(act)) return PREPAID_BASE_FEE;
     return act.addon || 0;
   };
-  // Sum of prepaid-rate prices for the currently selected items.
+  // Prepaid billing rate for an Activities-list selection: Daily Gym Access =
+  // 20k fixed; everything else uses its .standalone rate.
+  const prepaidActivityPriceFor = (actId) => {
+    const act = ACTIVITIES.find((a) => a.id === actId);
+    if (!act) return 0;
+    if (isGymAccessActivity(act)) return PREPAID_BASE_FEE;
+    return act.standalone || 0;
+  };
   const addonsPrepaidTotal = (selectedIds = addons) =>
     selectedIds.reduce((sum, id) => sum + prepaidPriceFor(id), 0);
+  const activitiesStandaloneTotal = (selectedIds = activities) =>
+    selectedIds.reduce((sum, id) => sum + prepaidActivityPriceFor(id), 0);
   const PREPAID_BUNDLE_DISCOUNT = 10000;  // non-prepaid 2+ add-on bundle discount (walk-in/monthly)
-  // Today's prepaid cost for this check-in given current selection.
+  // Today's prepaid cost for this check-in — sum of both lists.
   const prepaidVisitCost = (() => {
     if (!isPrepaid) return 0;
-    return addonsPrepaidTotal();
+    return activitiesStandaloneTotal() + addonsPrepaidTotal();
   })();
-  const insufficientPrepaid = isPrepaid && addons.length > 0 && prepaidBalance < prepaidVisitCost;
-  const noPrepaidSelection = isPrepaid && addons.length === 0;
+  const prepaidHasSelection = isPrepaid && (activities.length > 0 || addons.length > 0);
+  const insufficientPrepaid = isPrepaid && prepaidHasSelection && prepaidBalance < prepaidVisitCost;
+  const noPrepaidSelection = isPrepaid && !prepaidHasSelection;
 
   // ── Pricing for "add-on after check-in" mode ─────────────────────────
   // When a member is already checked in for today, they already paid for
   // whatever they picked at check-in. Post-check-in extras charge at the
-  // same prepaid rate model (Daily Gym Access, if picked again, is 20k).
+  // same prepaid rate model — both lists still count.
   const prepaidAddonOnlyCost = (() => {
-    if (!isPrepaid || !addons.length) return 0;
-    return addonsPrepaidTotal();
+    if (!isPrepaid || !prepaidHasSelection) return 0;
+    return activitiesStandaloneTotal() + addonsPrepaidTotal();
   })();
-  const insufficientPrepaidAddon = isPrepaid && addons.length > 0 && prepaidBalance < prepaidAddonOnlyCost;
+  const insufficientPrepaidAddon = isPrepaid && prepaidHasSelection && prepaidBalance < prepaidAddonOnlyCost;
   const nonPrepaidAddonOnlyCost = (() => {
     if (isPrepaid || !addons.length) return 0;
     const bundleDiscount = addons.length > 1 ? PREPAID_BUNDLE_DISCOUNT : 0;
@@ -2033,7 +2048,9 @@ const CheckIn = ({ data, setData, currentUser }) => {
     let prepaidDeduction = null;
     if (isPrepaid) {
       const deductAmount = prepaidVisitCost;
-      const breakdown = addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ") || "(no items)";
+      const actNames = activities.map((a) => `${ACTIVITIES.find((x) => x.id === a)?.name} (activity)`);
+      const addOnNames = addons.map((a) => `${ACTIVITIES.find((x) => x.id === a)?.name} (add-on)`);
+      const breakdown = [...actNames, ...addOnNames].join(" + ") || "(no items)";
       prepaidDeduction = {
         id: generateId(), memberId: selected.id, membershipId: membership.id,
         amount: deductAmount, method: "prepaid", paidAt: new Date().toISOString(),
@@ -2215,15 +2232,21 @@ const CheckIn = ({ data, setData, currentUser }) => {
   // record the extra payment so the ledger and prepaid balance stay accurate.
   const chargeAddons = async () => {
     if (!alreadyCheckedIn || isExpired || isFrozen || isPendingPayment) return;
-    if (!addons.length) return;
-    if (isPrepaid && insufficientPrepaidAddon) return;
+    if (isPrepaid) {
+      if (!prepaidHasSelection) return;
+      if (insufficientPrepaidAddon) return;
+    } else {
+      if (!addons.length) return;
+    }
 
-    // ── PREPAID: deduct only the add-on cost (no base — that was paid at check-in).
-    //    Every add-on bills at full add-on rate; no bundle discount.
+    // ── PREPAID: deduct the sum of both selection lists.
+    //    Activities at standalone rate + Add-ons at addon rate. No bundle discount.
     let prepaidDeduction = null;
     if (isPrepaid) {
       const deductAmount = prepaidAddonOnlyCost;
-      const breakdown = addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(" + ");
+      const actNames = activities.map((a) => `${ACTIVITIES.find((x) => x.id === a)?.name} (activity)`);
+      const addOnNames = addons.map((a) => `${ACTIVITIES.find((x) => x.id === a)?.name} (add-on)`);
+      const breakdown = [...actNames, ...addOnNames].join(" + ");
       prepaidDeduction = {
         id: generateId(), memberId: selected.id, membershipId: membership.id,
         amount: deductAmount, method: "prepaid", paidAt: new Date().toISOString(),
@@ -2345,7 +2368,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
     }
   };
 
-  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setAddonPaymentMethod("cash"); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null, memberId: null }); };
+  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setActivities([]); setAddonPaymentMethod("cash"); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null, memberId: null }); };
 
   // Fallback flow: a pre-paid member whose balance is below the daily rate
   // gets checked in as a walk-in instead of being turned away. We pre-fill
@@ -2967,7 +2990,14 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 <span style={{ fontSize: 20, fontWeight: 700, color: insufficientPrepaid ? "var(--danger)" : "var(--accent)", fontFamily: "var(--font-display)" }}>{formatUGX(prepaidBalance)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: "var(--text-dim)" }}>
-                <span>This visit ({addons.length === 0 ? "nothing selected" : `${addons.length} item${addons.length === 1 ? "" : "s"}`})</span>
+                <span>This visit ({(() => {
+                  const total = activities.length + addons.length;
+                  if (total === 0) return "nothing selected";
+                  const parts = [];
+                  if (activities.length) parts.push(`${activities.length} activit${activities.length === 1 ? "y" : "ies"}`);
+                  if (addons.length) parts.push(`${addons.length} add-on${addons.length === 1 ? "" : "s"}`);
+                  return parts.join(" + ");
+                })()})</span>
                 <span style={{ fontWeight: 600 }}>-{formatUGX(prepaidVisitCost)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 12, color: "var(--text-dim)" }}>
@@ -3060,7 +3090,14 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 <span style={{ fontSize: 20, fontWeight: 700, color: insufficientPrepaidAddon ? "var(--danger)" : "var(--accent)", fontFamily: "var(--font-display)" }}>{formatUGX(prepaidBalance)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: "var(--text-dim)" }}>
-                <span>Add-on charge ({addons.length === 0 ? "none selected" : `${addons.length} activit${addons.length === 1 ? "y" : "ies"}`})</span>
+                <span>Extra charge ({(() => {
+                  const total = activities.length + addons.length;
+                  if (total === 0) return "nothing selected";
+                  const parts = [];
+                  if (activities.length) parts.push(`${activities.length} activit${activities.length === 1 ? "y" : "ies"}`);
+                  if (addons.length) parts.push(`${addons.length} add-on${addons.length === 1 ? "" : "s"}`);
+                  return parts.join(" + ");
+                })()})</span>
                 <span style={{ fontWeight: 600 }}>-{formatUGX(prepaidAddonOnlyCost)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 12, color: "var(--text-dim)" }}>
@@ -3078,61 +3115,127 @@ const CheckIn = ({ data, setData, currentUser }) => {
               {(() => { /* per-flow cap: prepaid members can stack every activity;
                            monthly members & walk-ins keep the standard 2-cap. */ })()}
               <div style={{ marginTop: 20, textAlign: "left" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                    {alreadyCheckedIn ? "Add Activity for Today's Visit" : "Add-on Activities"}
-                  </p>
-                  <span style={{ fontSize: 11, color: (!isPrepaid && addons.length >= MAX_ACTIVITIES) ? "var(--warning)" : "var(--text-muted)" }}>
-                    {isPrepaid ? `${addons.length} selected` : `${addons.length}/${MAX_ACTIVITIES} selected`}
-                  </span>
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {ACTIVITIES.filter((act) => !(alreadyCheckedIn && isGymAccessActivity(act))).map((act) => {
-                    const isSelected = addons.includes(act.id);
-                    // Prepaid: no cap — every unselected activity remains clickable.
-                    // Others: keep the MAX_ACTIVITIES cap so walk-ins/monthly plans behave as before.
-                    const isDisabled = !isSelected && !isPrepaid && addons.length >= MAX_ACTIVITIES;
-                    return (
-                      <button
-                        key={act.id}
-                        className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
-                        style={isDisabled ? { opacity: 0.4, cursor: "not-allowed" } : {}}
-                        onClick={() => {
-                          if (isDisabled) return;
-                          setAddons((a) => a.includes(act.id) ? a.filter((x) => x !== act.id) : [...a, act.id]);
-                        }}
-                      >
-                        {act.name} ({formatUGX(isPrepaid ? prepaidPriceFor(act.id) : (isDailyPlan ? act.standalone : act.addon))})
-                      </button>
-                    );
-                  })}
-                </div>
-                {!isPrepaid && addons.length >= MAX_ACTIVITIES && (
-                  <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 6 }}>Maximum {MAX_ACTIVITIES} activities per visit. Deselect one to choose a different activity.</p>
+                {/* PREPAID: two independent multi-select lists, side-by-side.
+                    Activities uses .standalone rate; Add-ons uses .addon rate.
+                    Daily Gym Access is a fixed 20k in either list.
+                    NON-PREPAID keeps the single Add-on list below. */}
+                {isPrepaid ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+                    {/* ── Activities (standalone rate) ── */}
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          Activities <span style={{ textTransform: "none", color: "var(--text-muted)", fontSize: 10 }}>(standalone rate)</span>
+                        </p>
+                        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{activities.length} selected</span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {ACTIVITIES.map((act) => {
+                          const isSelected = activities.includes(act.id);
+                          return (
+                            <button
+                              key={act.id}
+                              className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
+                              onClick={() => {
+                                setActivities((a) => a.includes(act.id) ? a.filter((x) => x !== act.id) : [...a, act.id]);
+                              }}
+                            >
+                              {act.name} ({formatUGX(prepaidActivityPriceFor(act.id))})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {/* ── Add-Ons (addon rate) ── */}
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          Add-Ons <span style={{ textTransform: "none", color: "var(--text-muted)", fontSize: 10 }}>(add-on rate)</span>
+                        </p>
+                        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{addons.length} selected</span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {ACTIVITIES.map((act) => {
+                          const isSelected = addons.includes(act.id);
+                          return (
+                            <button
+                              key={act.id}
+                              className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
+                              onClick={() => {
+                                setAddons((a) => a.includes(act.id) ? a.filter((x) => x !== act.id) : [...a, act.id]);
+                              }}
+                            >
+                              {act.name} ({formatUGX(prepaidPriceFor(act.id))})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <p style={{ fontSize: 12, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                        {alreadyCheckedIn ? "Add Activity for Today's Visit" : "Add-on Activities"}
+                      </p>
+                      <span style={{ fontSize: 11, color: addons.length >= MAX_ACTIVITIES ? "var(--warning)" : "var(--text-muted)" }}>
+                        {addons.length}/{MAX_ACTIVITIES} selected
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {ACTIVITIES.map((act) => {
+                        const isSelected = addons.includes(act.id);
+                        const isDisabled = !isSelected && addons.length >= MAX_ACTIVITIES;
+                        return (
+                          <button
+                            key={act.id}
+                            className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
+                            style={isDisabled ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+                            onClick={() => {
+                              if (isDisabled) return;
+                              setAddons((a) => a.includes(act.id) ? a.filter((x) => x !== act.id) : [...a, act.id]);
+                            }}
+                          >
+                            {act.name} ({formatUGX(isDailyPlan ? act.standalone : act.addon)})
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {addons.length >= MAX_ACTIVITIES && (
+                      <p style={{ fontSize: 11, color: "var(--warning)", marginTop: 6 }}>Maximum {MAX_ACTIVITIES} activities per visit. Deselect one to choose a different activity.</p>
+                    )}
+                  </>
                 )}
 
-                {/* Pricing summary */}
-                {addons.length > 0 && (
+                {/* Pricing summary — shows selection from EITHER list for
+                    prepaid, or the add-on selection for non-prepaid. */}
+                {(isPrepaid ? (activities.length + addons.length) : addons.length) > 0 && (
                   <div style={{ marginTop: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
-                    {/* Every line comes from the user's selection now — there is
-                        no auto "Gym Access" line. If the member wants gym floor
-                        access they select "Daily Gym Access" explicitly (fixed
-                        20k for prepaid). */}
+                    {/* Prepaid: activities lines first, then add-on lines with
+                        a small tag so a member sees why the same activity may
+                        appear twice. */}
+                    {isPrepaid && activities.map((actId) => {
+                      const act = ACTIVITIES.find((a) => a.id === actId);
+                      return (
+                        <div key={`act-${actId}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}>
+                          <span>{act?.name} <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(activity)</span></span>
+                          <span>{formatUGX(prepaidActivityPriceFor(actId))}</span>
+                        </div>
+                      );
+                    })}
                     {addons.map((actId) => {
                       const act = ACTIVITIES.find((a) => a.id === actId);
                       const price = isPrepaid
                         ? prepaidPriceFor(actId)
                         : (isDailyPlan ? act.standalone : act.addon);
                       return (
-                        <div key={actId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}>
-                          <span>{act.name}</span>
+                        <div key={`addon-${actId}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}>
+                          <span>{act.name}{isPrepaid && <span style={{ fontSize: 10, color: "var(--text-muted)" }}> (add-on)</span>}</span>
                           <span>{formatUGX(price)}</span>
                         </div>
                       );
                     })}
-                    {/* Bundle discount ONLY for non-prepaid (walk-in / monthly).
-                        Prepaid members bill each add-on separately at full add-on
-                        rate — the "every add-on = extra bill" rule. */}
+                    {/* Bundle discount ONLY for non-prepaid (walk-in / monthly). */}
                     {!isPrepaid && addons.length > 1 && (
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}>
                         <span>Bundle Discount</span>
@@ -3143,7 +3246,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
                       <span>Total</span>
                       <span>{formatUGX(
                         isPrepaid
-                          ? addonsPrepaidTotal()
+                          ? activitiesStandaloneTotal() + addonsPrepaidTotal()
                           : addons.reduce((s, actId) => { const act = ACTIVITIES.find((a) => a.id === actId); return s + (isDailyPlan ? act.standalone : act.addon); }, 0) - (addons.length > 1 ? 10000 : 0)
                       )}</span>
                     </div>
@@ -3240,18 +3343,24 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 </div>
               )}
 
-              {alreadyCheckedIn ? (
-                <button
-                  className="btn btn-success"
-                  style={{ marginTop: 24, width: "100%", padding: "14px 24px", fontSize: 16, fontWeight: 700, opacity: (addons.length === 0 || insufficientPrepaidAddon) ? 0.5 : 1, cursor: (addons.length === 0 || insufficientPrepaidAddon) ? "not-allowed" : "pointer" }}
-                  onClick={chargeAddons}
-                  disabled={addons.length === 0 || insufficientPrepaidAddon}
-                >
-                  <Plus size={20} /> {addons.length === 0
-                    ? "Select an activity to add"
-                    : `Charge Add-On (${formatUGX(isPrepaid ? prepaidAddonOnlyCost : nonPrepaidAddonOnlyCost)})`}
-                </button>
-              ) : (
+              {alreadyCheckedIn ? (() => {
+                const nothingSelected = isPrepaid
+                  ? (activities.length === 0 && addons.length === 0)
+                  : (addons.length === 0);
+                const blocked = nothingSelected || (isPrepaid && insufficientPrepaidAddon);
+                return (
+                  <button
+                    className="btn btn-success"
+                    style={{ marginTop: 24, width: "100%", padding: "14px 24px", fontSize: 16, fontWeight: 700, opacity: blocked ? 0.5 : 1, cursor: blocked ? "not-allowed" : "pointer" }}
+                    onClick={chargeAddons}
+                    disabled={blocked}
+                  >
+                    <Plus size={20} /> {nothingSelected
+                      ? "Select an activity to add"
+                      : `Charge (${formatUGX(isPrepaid ? prepaidAddonOnlyCost : nonPrepaidAddonOnlyCost)})`}
+                  </button>
+                );
+              })() : (
                 <button
                   className="btn btn-success"
                   style={{ marginTop: 24, width: "100%", padding: "14px 24px", fontSize: 16, fontWeight: 700, opacity: noPrepaidSelection ? 0.5 : 1, cursor: noPrepaidSelection ? "not-allowed" : "pointer" }}
@@ -3283,6 +3392,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
             </div>
           )}
           <p style={{ color: "var(--text-dim)", marginTop: 8 }}>Today's visits: {data.attendance.filter((a) => a.date === today()).length}</p>
+          {activities.length > 0 && <p style={{ color: "var(--accent)", marginTop: 8 }}>Activities: {activities.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(", ")}</p>}
           {addons.length > 0 && <p style={{ color: "var(--accent)", marginTop: 8 }}>Add-ons: {addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(", ")}</p>}
           {selected._isWalkIn && walkinForm.selectedActivities.length > 0 && <p style={{ color: "var(--accent)", marginTop: 8 }}>Activities: {walkinForm.selectedActivities.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(", ")}</p>}
           <button className="btn btn-secondary" style={{ marginTop: 24 }} onClick={reset}>New Check-In</button>
