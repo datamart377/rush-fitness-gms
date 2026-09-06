@@ -1841,7 +1841,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
   // Walk-in quick form. `memberId` is populated when the walk-in flow was
   // entered from an existing member whose pre-paid balance ran out — the
   // resulting walk_ins row is linked back to members.id (migration 014).
-  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null, memberId: null });
+  const [walkinForm, setWalkinForm] = useState({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], selectedAddons: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null, memberId: null });
   const [walkinSearch, setWalkinSearch] = useState("");
   // Walk-in records filters (date range, payment status, check-in status)
   const [walkinFilter, setWalkinFilter] = useState({ from: "", to: "", paymentStatus: "all", checkedIn: "all", gender: "all", activity: "all", memberPlan: "all" });
@@ -1876,6 +1876,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
       emergency2: p.emergency2 || p.emergencyPhone2 || "",
       memberId: p.id || null,
       selectedActivities: [],
+      selectedAddons: [],
       paymentMethod: "cash",
       paymentStatus: "paid",
       locker: null,
@@ -2368,7 +2369,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
     }
   };
 
-  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setActivities([]); setAddonPaymentMethod("cash"); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null, memberId: null }); };
+  const reset = () => { setSelected(null); setCheckedIn(false); setSearch(""); setAddons([]); setActivities([]); setAddonPaymentMethod("cash"); setSelectedLocker(null); setMode("member"); setWalkinForm({ firstName: "", lastName: "", phone: "", emergency: "", emergency2: "", selectedActivities: [], selectedAddons: [], paymentMethod: "cash", paymentStatus: "paid", gender: "Male", locker: null, discountId: null, memberId: null }); };
 
   // Fallback flow: a pre-paid member whose balance is below the daily rate
   // gets checked in as a walk-in instead of being turned away. We pre-fill
@@ -2389,6 +2390,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
       emergency2: src.emergency2 || src.emergencyPhone2 || "",
       memberId: src.id,
       selectedActivities: [],
+      selectedAddons: [],
       paymentMethod: "cash",
       paymentStatus: "paid",
       locker: null,
@@ -2417,6 +2419,16 @@ const CheckIn = ({ data, setData, currentUser }) => {
       if (current.includes(actId)) return { ...f, selectedActivities: current.filter((x) => x !== actId) };
       if (current.length >= MAX_ACTIVITIES) return f;
       return { ...f, selectedActivities: [...current, actId] };
+    });
+  };
+  // Walk-in add-ons — parallel selection to activities. Add-ons stack at the
+  // per-activity `addon` rate; no MAX cap so guests can layer as many
+  // supplementary services as they need on top of their primary activity(s).
+  const walkinToggleAddon = (actId) => {
+    setWalkinForm((f) => {
+      const current = f.selectedAddons || [];
+      if (current.includes(actId)) return { ...f, selectedAddons: current.filter((x) => x !== actId) };
+      return { ...f, selectedAddons: [...current, actId] };
     });
   };
 
@@ -2475,10 +2487,32 @@ const CheckIn = ({ data, setData, currentUser }) => {
       }
     }
     if (!walkinForm.emergency) { alert("Emergency contact is required."); return; }
-    if (walkinForm.selectedActivities.length === 0) { alert("Select at least one activity."); return; }
+    const selectedAddons = walkinForm.selectedAddons || [];
+    if (walkinForm.selectedActivities.length === 0 && selectedAddons.length === 0) {
+      alert("Select at least one activity or add-on.");
+      return;
+    }
 
-    const prices = walkinForm.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.standalone || 0);
-    const baseTotal = prices.reduce((s, p) => s + p, 0) - (walkinForm.selectedActivities.length > 1 ? 10000 : 0);
+    // Activities price at their standalone rate (Daily Gym Access is fixed
+    // at PREPAID_BASE_FEE in either list). Add-ons stack at the per-activity
+    // addon rate. The historical 10k bundle discount still applies when 2+
+    // full activities are combined; it does not apply to add-ons.
+    const activityPrice = (id) => {
+      const a = ACTIVITIES.find((x) => x.id === id);
+      if (!a) return 0;
+      if (isGymAccessActivity(a)) return PREPAID_BASE_FEE;
+      return a.standalone || 0;
+    };
+    const addonPrice = (id) => {
+      const a = ACTIVITIES.find((x) => x.id === id);
+      if (!a) return 0;
+      if (isGymAccessActivity(a)) return PREPAID_BASE_FEE;
+      return a.addon || 0;
+    };
+    const activitiesSubtotal = walkinForm.selectedActivities.reduce((s, id) => s + activityPrice(id), 0);
+    const addonsSubtotal     = selectedAddons.reduce((s, id) => s + addonPrice(id), 0);
+    const bundleDiscount     = walkinForm.selectedActivities.length > 1 ? 10000 : 0;
+    const baseTotal = Math.max(0, activitiesSubtotal + addonsSubtotal - bundleDiscount);
     // Apply selected discount, if any. Same math as the on-screen breakdown:
     // percentage rounds to whole UGX, fixed is capped at baseTotal so a
     // 50k flat coupon on a 30k bundle doesn't go negative.
@@ -2491,7 +2525,9 @@ const CheckIn = ({ data, setData, currentUser }) => {
         ? Math.round(baseTotal * Number(selDiscount.value || 0) / 100)
         : Math.min(baseTotal, Number(selDiscount.value || 0));
     const total = Math.max(0, baseTotal - couponAmt);
-    const actNames = walkinForm.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).join(" + ");
+    const actNames   = walkinForm.selectedActivities.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).filter(Boolean).join(" + ");
+    const addonNames = selectedAddons.map((id) => ACTIVITIES.find((a) => a.id === id)?.name).filter(Boolean).join(" + ");
+    const combinedNames = [actNames, addonNames && `Add-ons: ${addonNames}`].filter(Boolean).join(" | ");
     const discountTag = selDiscount
       ? ` [Discount: ${selDiscount.name} -${formatUGX(couponAmt)}]`
       : "";
@@ -2499,12 +2535,13 @@ const CheckIn = ({ data, setData, currentUser }) => {
     const isCheckedIn = isPaid; // Check-in only if paid
     const lockerToAssign = (isCheckedIn && walkinForm.locker) ? walkinForm.locker : null;
 
-    // Resolve the FIRST selected activity to its backend UUID. The form keeps
-    // legacy codes (e.g. "boxing") in `selectedActivities`; the adapter
-    // exposes the real DB UUID as `.uuid`. We can only store ONE activity on
-    // `walk_ins.activity_id`, so any second activity remains captured in
-    // notes (which the Attendance Log also surfaces).
-    const firstActCode = walkinForm.selectedActivities[0];
+    // Resolve the FIRST selected activity (or first add-on, if only add-ons
+    // were selected) to its backend UUID. The form keeps legacy codes (e.g.
+    // "boxing") in `selectedActivities`/`selectedAddons`; the adapter exposes
+    // the real DB UUID as `.uuid`. We can only store ONE activity on
+    // `walk_ins.activity_id`, so any additional selections remain captured
+    // in notes (which the Attendance Log also surfaces).
+    const firstActCode = walkinForm.selectedActivities[0] || selectedAddons[0];
     const firstAct = firstActCode
       ? ACTIVITIES.find((a) => (a.id || a.code) === firstActCode)
       : null;
@@ -2533,8 +2570,8 @@ const CheckIn = ({ data, setData, currentUser }) => {
         emergencyPhone:  walkinForm.emergency  || "",
         emergencyPhone2: walkinForm.emergency2 || "",
         notes: (walkinForm.selectedActivities.length > 1
-          ? `Bundle: ${actNames} (UGX 10,000 discount)`
-          : actNames) + discountTag,
+          ? `Bundle: ${actNames} (UGX 10,000 discount)${addonNames ? ` | Add-ons: ${addonNames}` : ""}`
+          : combinedNames) + discountTag,
       });
     } catch (err) {
       alert("Failed to save walk-in: " + (err?.message || "unknown error"));
@@ -2548,7 +2585,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
           amount: total,
           method: paymentMethodToApi(walkinForm.paymentMethod),
           type: "walk_in",
-          notes: `Walk-in: ${walkinForm.firstName} ${walkinForm.lastName} — ${actNames}${discountTag}`,
+          notes: `Walk-in: ${walkinForm.firstName} ${walkinForm.lastName} — ${combinedNames}${discountTag}`,
         });
         // Bump the discount's usage counter so the "Uses" column in the
         // Discounts admin reflects redemptions. Best-effort — a failure
@@ -2696,6 +2733,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
               // Don't carry over activities or payment from the previous visit —
               // those are visit-specific
               selectedActivities: [],
+              selectedAddons: [],
               paymentMethod: "cash",
               paymentStatus: "paid",
               locker: null,
@@ -2862,29 +2900,77 @@ const CheckIn = ({ data, setData, currentUser }) => {
           </div>
 
           <div style={{ marginTop: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <label style={{ fontSize: 12, fontWeight: 500, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Activities * <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none" }}>— select 1 or 2</span></label>
-              <span style={{ fontSize: 11, color: walkinForm.selectedActivities.length >= MAX_ACTIVITIES ? "var(--warning)" : "var(--text-muted)" }}>
-                {walkinForm.selectedActivities.length}/{MAX_ACTIVITIES}
-              </span>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+              {/* ACTIVITIES — primary services, priced at standalone rate.
+                  Bundle discount (UGX 10,000) applies when 2+ activities
+                  are combined. Daily Gym Access is fixed at PREPAID_BASE_FEE. */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 500, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Activities <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none" }}>— select up to {MAX_ACTIVITIES}</span></label>
+                  <span style={{ fontSize: 11, color: walkinForm.selectedActivities.length >= MAX_ACTIVITIES ? "var(--warning)" : "var(--text-muted)" }}>
+                    {walkinForm.selectedActivities.length}/{MAX_ACTIVITIES}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {ACTIVITIES.map((act) => {
+                    const isSel = walkinForm.selectedActivities.includes(act.id);
+                    const isDis = !isSel && walkinForm.selectedActivities.length >= MAX_ACTIVITIES;
+                    const price = isGymAccessActivity(act) ? PREPAID_BASE_FEE : (act.standalone || 0);
+                    return (
+                      <button key={act.id} type="button" className={`btn btn-sm ${isSel ? "btn-primary" : "btn-secondary"}`}
+                        style={isDis ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+                        onClick={() => { if (!isDis) walkinToggleActivity(act.id); }}>
+                        {act.name} ({formatUGX(price)})
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ADD-ONS — supplementary services stacked on top of the
+                  primary activity, priced at the per-activity `addon` rate.
+                  No MAX cap. Daily Gym Access stays fixed at PREPAID_BASE_FEE
+                  even when picked as an add-on. */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 500, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Add-Ons <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "none" }}>— optional extras</span></label>
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                    {(walkinForm.selectedAddons || []).length} selected
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {ACTIVITIES.map((act) => {
+                    const isSel = (walkinForm.selectedAddons || []).includes(act.id);
+                    const price = isGymAccessActivity(act) ? PREPAID_BASE_FEE : (act.addon || 0);
+                    return (
+                      <button key={act.id} type="button" className={`btn btn-sm ${isSel ? "btn-primary" : "btn-secondary"}`}
+                        onClick={() => walkinToggleAddon(act.id)}>
+                        {act.name} ({formatUGX(price)})
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {ACTIVITIES.map((act) => {
-                const isSel = walkinForm.selectedActivities.includes(act.id);
-                const isDis = !isSel && walkinForm.selectedActivities.length >= MAX_ACTIVITIES;
-                return (
-                  <button key={act.id} type="button" className={`btn btn-sm ${isSel ? "btn-primary" : "btn-secondary"}`}
-                    style={isDis ? { opacity: 0.4, cursor: "not-allowed" } : {}}
-                    onClick={() => { if (!isDis) walkinToggleActivity(act.id); }}>
-                    {act.name} ({formatUGX(act.standalone)})
-                  </button>
-                );
-              })}
-            </div>
-            {walkinForm.selectedActivities.length > 0 && (() => {
-              const baseTotal =
-                walkinForm.selectedActivities.reduce((s, id) => s + (ACTIVITIES.find((a) => a.id === id)?.standalone || 0), 0)
-                - (walkinForm.selectedActivities.length > 1 ? 10000 : 0);
+
+            {(walkinForm.selectedActivities.length > 0 || (walkinForm.selectedAddons || []).length > 0) && (() => {
+              const selectedAddons = walkinForm.selectedAddons || [];
+              const activityPrice = (id) => {
+                const a = ACTIVITIES.find((x) => x.id === id);
+                if (!a) return 0;
+                if (isGymAccessActivity(a)) return PREPAID_BASE_FEE;
+                return a.standalone || 0;
+              };
+              const addonPrice = (id) => {
+                const a = ACTIVITIES.find((x) => x.id === id);
+                if (!a) return 0;
+                if (isGymAccessActivity(a)) return PREPAID_BASE_FEE;
+                return a.addon || 0;
+              };
+              const activitiesSubtotal = walkinForm.selectedActivities.reduce((s, id) => s + activityPrice(id), 0);
+              const addonsSubtotal     = selectedAddons.reduce((s, id) => s + addonPrice(id), 0);
+              const bundleDiscount     = walkinForm.selectedActivities.length > 1 ? 10000 : 0;
+              const baseTotal = Math.max(0, activitiesSubtotal + addonsSubtotal - bundleDiscount);
               const sel = walkinForm.discountId
                 ? (data.discounts || []).find((d) => d.id === walkinForm.discountId)
                 : null;
@@ -2901,10 +2987,16 @@ const CheckIn = ({ data, setData, currentUser }) => {
                 <div style={{ marginTop: 12, padding: 12, background: "var(--bg-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
                   {walkinForm.selectedActivities.map((actId) => {
                     const act = ACTIVITIES.find((a) => a.id === actId);
-                    return (<div key={actId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}><span>{act.name}</span><span>{formatUGX(act.standalone)}</span></div>);
+                    if (!act) return null;
+                    return (<div key={`act-${actId}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}><span>{act.name}</span><span>{formatUGX(activityPrice(actId))}</span></div>);
                   })}
-                  {walkinForm.selectedActivities.length > 1 && (
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}><span>Bundle Discount</span><span>-{formatUGX(10000)}</span></div>
+                  {selectedAddons.map((actId) => {
+                    const act = ACTIVITIES.find((a) => a.id === actId);
+                    if (!act) return null;
+                    return (<div key={`addon-${actId}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--text-dim)" }}><span>+ {act.name} <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(add-on)</span></span><span>{formatUGX(addonPrice(actId))}</span></div>);
+                  })}
+                  {bundleDiscount > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}><span>Bundle Discount</span><span>-{formatUGX(bundleDiscount)}</span></div>
                   )}
                   {sel && couponAmt > 0 && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: "var(--success)", borderTop: "1px dashed var(--border)", marginTop: 4, paddingTop: 6 }}>
@@ -2956,7 +3048,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
             );
           })()}
 
-          <button className="btn btn-success" style={{ marginTop: 20, width: "100%", padding: "14px 24px", fontSize: 15, fontWeight: 700, justifyContent: "center", ...(walkinForm.paymentStatus === "pending" ? { background: "var(--warning)", borderColor: "var(--warning)", color: "#000" } : {}) }} onClick={handleQuickWalkIn} disabled={walkinForm.selectedActivities.length === 0}>
+          <button className="btn btn-success" style={{ marginTop: 20, width: "100%", padding: "14px 24px", fontSize: 15, fontWeight: 700, justifyContent: "center", ...(walkinForm.paymentStatus === "pending" ? { background: "var(--warning)", borderColor: "var(--warning)", color: "#000" } : {}) }} onClick={handleQuickWalkIn} disabled={walkinForm.selectedActivities.length === 0 && (walkinForm.selectedAddons || []).length === 0}>
             <Check size={18} />
             {walkinForm.paymentStatus === "paid"
               ? ` Pay & Check In Guest${walkinForm.locker ? ` + Locker #${walkinForm.locker.number}` : ""}`
@@ -3395,6 +3487,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
           {activities.length > 0 && <p style={{ color: "var(--accent)", marginTop: 8 }}>Activities: {activities.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(", ")}</p>}
           {addons.length > 0 && <p style={{ color: "var(--accent)", marginTop: 8 }}>Add-ons: {addons.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(", ")}</p>}
           {selected._isWalkIn && walkinForm.selectedActivities.length > 0 && <p style={{ color: "var(--accent)", marginTop: 8 }}>Activities: {walkinForm.selectedActivities.map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(", ")}</p>}
+          {selected._isWalkIn && (walkinForm.selectedAddons || []).length > 0 && <p style={{ color: "var(--accent)", marginTop: 8 }}>Add-ons: {(walkinForm.selectedAddons || []).map((a) => ACTIVITIES.find((x) => x.id === a)?.name).join(", ")}</p>}
           <button className="btn btn-secondary" style={{ marginTop: 24 }} onClick={reset}>New Check-In</button>
         </div>
       )}
@@ -3605,6 +3698,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
             emergency:  m.emergency  || m.emergencyPhone  || "",
             emergency2: m.emergency2 || m.emergencyPhone2 || "",
             selectedActivities: [],
+            selectedAddons: [],
             paymentMethod: "cash",
             paymentStatus: "paid",
             gender: m.gender || "Male",
@@ -3628,6 +3722,7 @@ const CheckIn = ({ data, setData, currentUser }) => {
             phone:     w.phone     || "",
             emergency: w.emergency || "",
             selectedActivities: [],   // they pick fresh activities for this visit
+            selectedAddons: [],
             paymentMethod: "cash",
             paymentStatus: "paid",
             gender: w.gender || "Male",
