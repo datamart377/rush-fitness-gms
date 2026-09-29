@@ -12094,15 +12094,48 @@ const FinancialStatement = ({ data }) => {
 
   return (
     <div>
-      {/* Print-only style — hides everything except the statement card during print */}
+      {/* Print-only style — hides everything except the statement card during
+          print and shrinks the layout so it fits within one A4 page width
+          (no more clipped "balaut" columns on the right edge). */}
       <style>{`
         @media print {
+          @page { size: A4 portrait; margin: 12mm; }
+          html, body { width: 100%; margin: 0 !important; padding: 0 !important; background: white !important; }
           .sidebar, .session-bar, .tabs, .toolbar, .no-print, .page-header { display: none !important; }
-          .app-layout { display: block !important; }
-          .statement-print { box-shadow: none !important; border: none !important; padding: 0 !important; background: white !important; color: black !important; }
-          .statement-print * { color: black !important; background: transparent !important; border-color: #ccc !important; }
-          .statement-print .badge { background: #eee !important; border: 1px solid #ccc !important; }
-          body { background: white !important; }
+          .app-layout, .app-main, .app-content { display: block !important; margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; }
+          .statement-print {
+            box-shadow: none !important;
+            border: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: white !important;
+            color: black !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box;
+            font-size: 10.5pt;
+            line-height: 1.35;
+          }
+          .statement-print * { color: black !important; background: transparent !important; border-color: #ccc !important; box-sizing: border-box; }
+          .statement-print h1 { font-size: 18pt !important; }
+          .statement-print h2 { font-size: 14pt !important; }
+          .statement-print h3 { font-size: 11pt !important; }
+          .statement-print p  { font-size: 9.5pt !important; }
+          .statement-print .badge { background: #eee !important; border: 1px solid #ccc !important; font-size: 8pt !important; padding: 1px 6px !important; }
+          .statement-print .card-grid { display: grid !important; grid-template-columns: repeat(4, 1fr) !important; gap: 8px !important; }
+          .statement-print .card-grid > * { padding: 8px !important; }
+          .statement-print .table-wrapper { overflow: visible !important; width: 100% !important; }
+          .statement-print table { width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; font-size: 9pt !important; }
+          .statement-print th, .statement-print td {
+            padding: 4px 6px !important;
+            word-wrap: break-word !important;
+            overflow-wrap: anywhere !important;
+            white-space: normal !important;
+            vertical-align: top;
+          }
+          .statement-print thead { display: table-header-group; } /* repeat header on page break */
+          .statement-print tr { page-break-inside: avoid; }
+          .statement-print h3 { page-break-after: avoid; }
         }
       `}</style>
 
