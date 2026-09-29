@@ -12001,6 +12001,24 @@ const FinancialStatement = ({ data }) => {
   const [personId, setPersonId] = useState("");    // member.id or walkin.id
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  // Combobox state — the picker below is a filter-as-you-type search input
+  // backed by a scrollable results panel, not a native <select>. Long lists
+  // (hundreds of members) are unusable in a native dropdown; typing 3-4
+  // characters narrows to the target instantly.
+  const [personSearch, setPersonSearch] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerHighlight, setPickerHighlight] = useState(0);
+  const pickerRef = useRef(null);
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDocClick = (e) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) {
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [pickerOpen]);
 
   // Build picker options
   const memberOpts = [...(data.members || [])]
@@ -12093,17 +12111,110 @@ const FinancialStatement = ({ data }) => {
         <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label style={{ fontSize: 11 }}>Type</label>
-            <select value={type} onChange={(e) => { setType(e.target.value); setPersonId(""); }}>
+            <select value={type} onChange={(e) => { setType(e.target.value); setPersonId(""); setPersonSearch(""); setPickerOpen(false); }}>
               <option value="member">Member</option>
               <option value="walkin">Walk-In Guest</option>
             </select>
           </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
+          <div className="form-group" style={{ marginBottom: 0, position: "relative" }} ref={pickerRef}>
             <label style={{ fontSize: 11 }}>{type === "member" ? "Member" : "Walk-In"}</label>
-            <select value={personId} onChange={(e) => setPersonId(e.target.value)}>
-              <option value="">Select {type === "member" ? "a member" : "a walk-in"}...</option>
-              {opts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
+            {(() => {
+              const q = personSearch.trim().toLowerCase();
+              const filtered = q
+                ? opts.filter((o) => o.label.toLowerCase().includes(q))
+                : opts;
+              const selectedOpt = opts.find((o) => o.id === personId);
+              // Display: what the user is typing takes priority when the
+              // panel is open; otherwise show the selected label (or empty).
+              const displayValue = pickerOpen
+                ? personSearch
+                : (selectedOpt ? selectedOpt.label : personSearch);
+              return (
+                <>
+                  <div style={{ position: "relative" }}>
+                    <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", pointerEvents: "none" }} />
+                    <input
+                      type="text"
+                      value={displayValue}
+                      placeholder={`Search ${type === "member" ? "members" : "walk-ins"} by name or phone...`}
+                      onFocus={() => { setPickerOpen(true); setPickerHighlight(0); }}
+                      onChange={(e) => {
+                        setPersonSearch(e.target.value);
+                        setPickerOpen(true);
+                        setPickerHighlight(0);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          setPickerOpen(true);
+                          setPickerHighlight((h) => Math.min(h + 1, Math.max(0, filtered.length - 1)));
+                        } else if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setPickerHighlight((h) => Math.max(h - 1, 0));
+                        } else if (e.key === "Enter") {
+                          e.preventDefault();
+                          const pick = filtered[pickerHighlight];
+                          if (pick) {
+                            setPersonId(pick.id);
+                            setPersonSearch("");
+                            setPickerOpen(false);
+                          }
+                        } else if (e.key === "Escape") {
+                          setPickerOpen(false);
+                          setPersonSearch("");
+                        }
+                      }}
+                      style={{ width: "100%", paddingLeft: 30, paddingRight: personId ? 28 : 10 }}
+                    />
+                    {personId && (
+                      <button
+                        type="button"
+                        title="Clear selection"
+                        onClick={() => { setPersonId(""); setPersonSearch(""); setPickerOpen(false); }}
+                        style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "transparent", border: 0, cursor: "pointer", color: "var(--text-muted)", padding: 4, display: "flex", alignItems: "center" }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {pickerOpen && (
+                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", maxHeight: 320, overflowY: "auto", zIndex: 20 }}>
+                      {filtered.length === 0 ? (
+                        <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--text-muted)" }}>
+                          No {type === "member" ? "members" : "walk-ins"} match "{personSearch}".
+                        </div>
+                      ) : (
+                        filtered.map((o, i) => (
+                          <div
+                            key={o.id}
+                            onMouseDown={(e) => {
+                              // mousedown (not click) fires before the input's
+                              // blur/document-click handler, so the selection
+                              // lands before the panel is torn down.
+                              e.preventDefault();
+                              setPersonId(o.id);
+                              setPersonSearch("");
+                              setPickerOpen(false);
+                            }}
+                            onMouseEnter={() => setPickerHighlight(i)}
+                            style={{
+                              padding: "8px 12px",
+                              fontSize: 13,
+                              cursor: "pointer",
+                              background: i === pickerHighlight ? "var(--accent-dim)" : (o.id === personId ? "rgba(255,255,255,0.03)" : "transparent"),
+                              color: o.id === personId ? "var(--accent)" : "var(--text)",
+                              borderBottom: "1px solid var(--border)",
+                            }}
+                          >
+                            {o.label}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label style={{ fontSize: 11 }}>From date</label>
