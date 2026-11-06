@@ -64,20 +64,69 @@ const adaptMembership = (ms) => ms ? ({
 const derivePrepaidBalance = (memberships, payments) => {
   return memberships.map((ms) => {
     if (ms.plan !== "prepaid") return ms;
-    const linked = (payments || []).filter((p) => p.membershipId === ms.id && p.status !== "refunded");
+    // Only this membership's non-refunded payments, sorted oldest → newest
+    // so we can walk the ledger chronologically and find the most recent
+    // visit's "balance before" stamp.
+    const linked = (payments || [])
+      .filter((p) => p.membershipId === ms.id && p.status !== "refunded")
+      .slice()
+      .sort((a, b) => new Date(a.paidAt || a.createdAt || 0) - new Date(b.paidAt || b.createdAt || 0));
+
+    // Authoritative source of truth: every visit note stamps the balance
+    // the wallet had JUST BEFORE the deduction, like "...(balance before:
+    // UGX 110,000)". Starting from the most recent visit and subtracting
+    // that visit's own amount gives the wallet balance immediately after
+    // it — then we add any top-ups that landed AFTER that visit.
+    //
+    // Why not just sum credits − debits? Because the initial wallet seed
+    // paid at membership creation is often NOT linked to membership_id in
+    // the payments table (it lives as a credit on the membership row's
+    // totalPaid field instead). The naïve credits − debits math misses
+    // that seed by exactly its amount per member and clamps balances to
+    // zero once visits catch up — which is exactly the "disappearing
+    // funds" complaint staff see from pre-paid members.
+    const VISIT_RE = /^pre-paid visit/i;
+    const BEFORE_RE = /balance before:\s*UGX\s*([\d,]+)/i;
+
+    let visitBalance = null;
+    let lastVisitIdx = -1;
+    for (let i = linked.length - 1; i >= 0; i--) {
+      const p = linked[i];
+      const rawNote = p.note || p.notes || "";
+      if (VISIT_RE.test(rawNote)) {
+        const m = rawNote.match(BEFORE_RE);
+        if (m) {
+          const before = Number(m[1].replace(/,/g, ""));
+          visitBalance = before - Number(p.amount || 0);
+          lastVisitIdx = i;
+          break;
+        }
+      }
+    }
+
+    if (visitBalance !== null) {
+      // Add any top-ups (or other non-visit credits) that posted after the
+      // last visit — their money hasn't been drawn down yet.
+      for (let i = lastVisitIdx + 1; i < linked.length; i++) {
+        const p = linked[i];
+        const rawNote = p.note || p.notes || "";
+        if (!VISIT_RE.test(rawNote)) {
+          visitBalance += Number(p.amount || 0);
+        }
+      }
+      return { ...ms, prepaidBalance: Math.max(0, visitBalance) };
+    }
+
+    // Fallback: no visits recorded yet → just sum every non-visit credit
+    // (which for a fresh wallet is the initial deposit).
     let credits = 0;
-    let debits = 0;
     for (const p of linked) {
-      const note = (p.note || p.notes || "").toLowerCase();
-      if (note.startsWith("pre-paid visit")) {
-        debits += Number(p.amount || 0);
-      } else {
-        // Deposits and top-ups — everything else linked to a prepaid
-        // membership is treated as a balance credit.
+      const rawNote = p.note || p.notes || "";
+      if (!VISIT_RE.test(rawNote)) {
         credits += Number(p.amount || 0);
       }
     }
-    return { ...ms, prepaidBalance: Math.max(0, credits - debits) };
+    return { ...ms, prepaidBalance: Math.max(0, credits) };
   });
 };
 
@@ -12079,13 +12128,25 @@ const FinancialStatement = ({ data }) => {
   const visitCount = attendance.length;
 
   // Membership balance summary (for members only)
+  // Carry the rawPlan + derived wallet balances through so the Memberships
+  // table can render the correct "Balance" column per plan type. Prepaid
+  // uses the wallet balance from `derivePrepaidBalance`; post-paid uses the
+  // computed outstanding from `derivePostpaidOutstanding`; everything else
+  // falls back to `totalDue − totalPaid`. Previously every plan used the
+  // fallback, which made prepaid members appear to have zero balance even
+  // when their wallet was healthy (totalDue is just the daily rate on
+  // prepaid plans, so totalDue − totalPaid always went negative → clamped
+  // to 0, hiding the real balance).
   const memberBalances = type === "member" ? memberships.map((ms) => ({
+    rawPlan: ms.plan,
     plan: getPlanName(ms.plan),
     startDate: ms.startDate,
     endDate: ms.endDate,
     status: ms.status,
     totalDue: Number(ms.totalDue || 0),
     totalPaid: Number(ms.totalPaid || 0),
+    prepaidBalance: Number(ms.prepaidBalance || 0),
+    postpaidOutstanding: Number(ms.postpaidOutstanding || 0),
   })) : [];
 
   const handlePrint = () => {
@@ -12334,19 +12395,45 @@ const FinancialStatement = ({ data }) => {
                     <tr><th>Plan</th><th>Start</th><th>End</th><th>Status</th><th>Total Due</th><th>Paid</th><th>Balance</th></tr>
                   </thead>
                   <tbody>
-                    {memberBalances.map((ms, i) => (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 500 }}>{ms.plan}</td>
-                        <td>{formatDate(ms.startDate)}</td>
-                        <td>{formatDate(ms.endDate)}</td>
-                        <td><Badge variant={ms.status === "active" ? "success" : ms.status === "frozen" ? "warning" : "neutral"}>{ms.status}</Badge></td>
-                        <td>{formatUGX(ms.totalDue)}</td>
-                        <td style={{ color: "var(--success)" }}>{formatUGX(ms.totalPaid)}</td>
-                        <td style={{ color: ms.totalDue - ms.totalPaid > 0 ? "var(--danger)" : "var(--text-muted)", fontWeight: 700 }}>
-                          {formatUGX(Math.max(0, ms.totalDue - ms.totalPaid))}
-                        </td>
-                      </tr>
-                    ))}
+                    {memberBalances.map((ms, i) => {
+                      // Balance semantics differ by plan:
+                      //   • prepaid  → wallet balance (credits − visit debits) from
+                      //     derivePrepaidBalance. Shown GREEN when funded.
+                      //   • postpaid → outstanding owed from derivePostpaidOutstanding.
+                      //     Shown RED when > 0.
+                      //   • fixed-term (monthly/quarterly/annual) → classic
+                      //     totalDue − totalPaid remainder owed. Shown RED when > 0.
+                      let balanceValue;
+                      let balanceColor;
+                      if (ms.rawPlan === "prepaid") {
+                        balanceValue = ms.prepaidBalance;
+                        balanceColor = balanceValue > 0 ? "var(--success)" : "var(--text-muted)";
+                      } else if (ms.rawPlan === "postpaid") {
+                        balanceValue = ms.postpaidOutstanding;
+                        balanceColor = balanceValue > 0 ? "var(--danger)" : "var(--text-muted)";
+                      } else {
+                        balanceValue = Math.max(0, ms.totalDue - ms.totalPaid);
+                        balanceColor = balanceValue > 0 ? "var(--danger)" : "var(--text-muted)";
+                      }
+                      return (
+                        <tr key={i}>
+                          <td style={{ fontWeight: 500 }}>{ms.plan}</td>
+                          <td>{formatDate(ms.startDate)}</td>
+                          <td>{formatDate(ms.endDate)}</td>
+                          <td><Badge variant={ms.status === "active" ? "success" : ms.status === "frozen" ? "warning" : "neutral"}>{ms.status}</Badge></td>
+                          <td>{formatUGX(ms.totalDue)}</td>
+                          <td style={{ color: "var(--success)" }}>{formatUGX(ms.totalPaid)}</td>
+                          <td style={{ color: balanceColor, fontWeight: 700 }}>
+                            {formatUGX(balanceValue)}
+                            {ms.rawPlan === "prepaid" && (
+                              <span style={{ display: "block", fontSize: 10, fontWeight: 400, color: "var(--text-muted)" }}>
+                                wallet
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
